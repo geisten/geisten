@@ -3,10 +3,10 @@
 </h1>
 <h4 align="center">The minimal c header only 1 Bit deep learning library you are looking for</h4>
 
-[![Status](https://img.shields.io/badge/status-active-success.svg)]()
-[![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Mac%20OS%20%7C%20BSD-blue.svg)]()
-[![Bugs](https://img.shields.io/github/issues/geisten/geisten.svg)](https://github.com/geisten/geisten/issues)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](/LICENSE)
+![GitHub last commit](https://img.shields.io/github/last-commit/geisten/geisten?style=plastic)
+![Lines of code](https://img.shields.io/tokei/lines/github/geisten/geisten?style=plastic)
+![GitHub issues](https://img.shields.io/github/issues/geisten/geisten?style=plastic)
+![GitHub](https://img.shields.io/github/license/geisten/geisten?style=plastic)
 
 ---
 geisten is a low power tiny binary network library written in **C**. The library is designed for _"scalability, speed and ease-of-use"_ as well as optimized for Unix/POSIX (*BSD, Linux, MacOSX) like environments.
