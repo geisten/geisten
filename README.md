@@ -1,7 +1,9 @@
 <h1 align="center">
    <img src="./img/neuron.png" alt="geisten neurons">
 </h1>
-<h4 align="center">The minimal c header only 1 Bit deep learning library you are looking for</h4>
+<h4 align="center"><b>The minimal C header only binary network library you are looking for</b></h4>
+
+---
 
 ![GitHub last commit](https://img.shields.io/github/last-commit/geisten/geisten?style=plastic)
 ![Lines of code](https://img.shields.io/tokei/lines/github/geisten/geisten?style=plastic)
@@ -26,7 +28,7 @@ In contrast to Keras, Tensorflow, etc. geisten is much smaller and simpler.
 
 - strongly reduced functionality compared to the aforementioned alternatives
 - geisten has no Lua integration, no shell-based configuration and comes without any additional tools.
-- geisten is only a single binary, and the source code of the reference implementation is intended to never exceed 1000 SLOC.
+- geisten is only a single binary, and the source code of the reference implementation is intended to never exceed 500 SLOC.
 - geisten is customized through editing its source code, which makes it extremely fast and secure - it does not process any input data which isn't known at compile time. You don't have to activate Lua/Python or some weird configuration file format, beside C, to customize it for your needs: you only have to activate C (at least in order to edit the header file).
 - Because geisten is customized through editing its source code, it's pointless to make binary packages of it.
 

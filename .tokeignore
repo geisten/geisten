@@ -1,4 +1,6 @@
 test_geisten.c
 test.h
 Makefile
+LICENSE
+README.md
 util/
