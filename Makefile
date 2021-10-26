@@ -21,7 +21,7 @@ dep = $(obj:.o=.d)
 # CFLAGS ?= -I. -march=native -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O3 -MMD
 CFLAGS ?= -I. -march=native -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O -MMD -g2
 
-LDFLAGS ?= -ffast-math -lm -fsanitize=address -mavx -fopenmp -lpthread
+LDFLAGS ?= -ffast-math -lm -fsanitize=address -mavx -lpthread
 
 options:
 	@echo $(PROJECT_NAME) build options:

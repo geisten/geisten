@@ -16,6 +16,14 @@ static bool vec_is_equal(uint32_t n, const int a[n], const int b[n],
     return true;
 }
 
+static bool vec_is_equal_i8(uint32_t n, const int8_t a[n], const int8_t b[n],
+                            int epsilon) {
+    for (uint32_t i = 0; i < n; i++) {
+        if (abs(a[i] - b[i]) >= epsilon) return false;
+    }
+    return true;
+}
+
 static void vec_write_i8(FILE *fp, uint32_t size, const int8_t arr[static size],
                          const char str[]) {
     fprintf(fp, "%s: [", str);
@@ -88,13 +96,61 @@ static void test_backward() {
     };
     unsigned long long
         wb[][(ARRAY_LENGTH(delta) / BIT_SIZE(unsigned long long) + 1)] = {
-            {19}, {28}, {31}, {29}};
+            {19}, {28}, {31}, {29}};  //wb[m][n]
     for (uint32_t j = 0; j < ARRAY_LENGTH(output); j++) {
-        backward(ARRAY_LENGTH(delta), ARRAY_LENGTH(output), wb[j], output[j],
+        backward(ARRAY_LENGTH(delta), ARRAY_LENGTH(output), j, wb, output[j],
                  delta);
     }
     test(vec_is_equal(ARRAY_LENGTH(delta), delta, delta_expected, 1) &&
          "calculate the backward delta vector");
+}
+
+static void test_update_weights() {
+    int delta[]                         = {20, -5, 8, 3};
+    int x[]                             = {13, 9, 127, 6, 3};
+    unsigned long long wb[][1]          = {{9}, {17}, {21}, {29}};
+    unsigned long long wb_expected[][1] = {{0}, {21}, {16}, {25}};
+    /*
+    Expected w (decimal)
+    C1      C2      C3      C4
+1	-157    168	    -1	    64
+2	-283	-58	    -175    -130
+3	-2643	532	    -913	-278
+4	-17	    -73	    -151	85
+5	-163	118	    79	    94*/
+    update_weights(ARRAY_LENGTH(x), x, delta[0], 103, wb[0]);
+    test(wb[0][0] == wb_expected[0][0] &&
+         "calculate the updated weights first column");
+    update_weights(ARRAY_LENGTH(x), x, delta[1], 103, wb[1]);
+    test(wb[1][0] == wb_expected[1][0] &&
+         "calculate the updated weights second column");
+    update_weights(ARRAY_LENGTH(x), x, delta[2], 103, wb[2]);
+    test(wb[2][0] == wb_expected[2][0] &&
+         "calculate the updated weights 3rd column");
+    update_weights(ARRAY_LENGTH(x), x, delta[3], 103, wb[3]);
+    test(wb[3][0] == wb_expected[3][0] &&
+         "calculate the updated weights 4th column");
+}
+
+static void test_train() {
+    int8_t target[] = {5, 0, 127, -128, -5, 8};
+    int8_t output[] = {4, 9, 30, -123, -34, 2};
+    int8_t d[ARRAY_LENGTH(target)];
+    int8_t d_expected[] = {1, -9, 97, -5, 29, 6};
+
+    delta(ARRAY_LENGTH(target), output, target, d);
+    test(vec_is_equal_i8(ARRAY_LENGTH(d), d, d_expected, 1) &&
+         "calculate the delta between target and output");
+
+    int x[]                    = {0, 50, 32};
+    unsigned long long wb[][1] = {{34}};
+    for (uint32_t j = 0; j < ARRAY_LENGTH(d); j++) {
+        backward(ARRAY_LENGTH(wb[0]), ARRAY_LENGTH(wb), j, wb, d[j], x);
+    }
+
+    for (uint32_t i = 0; i < ARRAY_LENGTH(x); i++) {
+        //  update_weights(ARRAY_LENGTH(x), d, x[i], 103, wb[i]);
+    }
 }
 
 int main() {
@@ -103,5 +159,7 @@ int main() {
     test_rprelu();
     test_forward();
     test_backward();
+    test_update_weights();
+    //test_train();
     return TEST_RESULT;
 }

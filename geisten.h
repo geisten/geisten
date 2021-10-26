@@ -64,10 +64,11 @@
 #define BIT_SET(_arr, _pos) \
     _arr[(_pos) / BIT_SIZE(_arr[0])] |= (1LLU << ((_pos) % BIT_SIZE(_arr[0])))
 
-#define BIT_AS_SIGN(var, pos) (BIT_TEST(var, pos) - !BIT_TEST(var, pos))
+#define BIT2SIGN(_b, _i) (2 * BIT_TEST_ARRAY(_b, _i) - 1)
 
 // deprecated
-#define BINARIZE(_b, _i, _t, _v) (_b) |= ((_v) > (_t)) * (1LLU << (_i))
+#define BINARIZE(_b, _i, _t, _v) \
+    (_b) = ((_v) > (_t)) ? (_b) | (1LLU << (_i)) : (_b) & ~(1LLU << (_i))
 
 /**
  * The special operator __has_builtin (operand) is used to test whether
@@ -104,7 +105,8 @@ static int rprelu_derived(int x, int beta, int gamma) {
 }
 
 /**
- * bnn() - Bitwise matrix multiplication
+ * ## bnn() - Bitwise matrix multiplication
+ * 
  * a and b are both binary values thus  a∗b can be implemented with bitwise
  * operations. In each bit, the result of basic multiplication a × b is one of
  * three values {−1,0,1}.
@@ -148,10 +150,10 @@ static int error(uint32_t m, const int16_t a[m], const int16_t y[m]) {
     return result / m;
 }
 
-static void delta(uint32_t m, const int16_t a[m], const int16_t y[m],
-                  int16_t d[m]) {
+static void delta(uint32_t m, const int8_t a[m], const int8_t y[m],
+                  int8_t d[m]) {
     for (uint32_t i = 0; i < m; i++) {
-        d[i] = (int16_t)(y[i] - a[i]);
+        d[i] = (int8_t)(y[i] - a[i]);
     }
 }
 
@@ -178,12 +180,24 @@ static int forward(
     return y;
 }
 
+/**
+ * ## backward() - Backward propagation
+ * 
+ * ### Parameter
+ * - `m` The number of input cells (weight matrix rows)
+ * - `n` The number of output cells (weight matrix columns) 
+ * - `j` The position of the output vector
+ * - `wb` The binary m x n weight matrix 
+ * - `y` The output cell at position `j`
+ * - `x` The input vector (of size `m`) 
+ * Returns None
+ */
 static void backward(
-    uint32_t m, uint32_t n,
-    const unsigned long long wb[(n / BIT_SIZE(unsigned long long)) + 1],
+    uint32_t m, uint32_t n, uint32_t j,
+    const unsigned long long wb[m][(n / BIT_SIZE(unsigned long long)) + 1],
     const int8_t y, int x[m]) {
     for (uint32_t i = 0; i < m; i++) {
-        x[i] += (2 * BIT_TEST_ARRAY(wb, i) - 1) * y;
+        x[i] += BIT2SIGN(wb[j], i) * y;
     }
 }
 
@@ -212,24 +226,27 @@ static void update_rprelu(uint32_t m, const int16_t delta[m], int rate,
 }
 
 /**
- * TODO Fix Point calculus
- * TODO richtige berechnung col/rows
- * @param rate
- * @param delta
- * @param m
- * @param x
- * @param alpha
- * @param w
+ * ## update_weights() - update weights
+ * 
+ * The function updates a column of a binary matrix.
+ * The matrix is binarized around the 0 value. 
+ * If the value is greater than 0, then the updated binary 
+ * matrix is set to 1; otherwise set to 0 
+ * The learning rate can be controlled via the delta value 
+ * (e.g.: delta_learn = delta * rate)
+ * 
+ * ### Parameter
+ * - `m` The number of input cells (weight matrix rows)
+ * - `x` The input vector (of size `m`) 
+ * - `delta` The output cell value (delta y) at position `j`
+ * - `w` The binary m x n weight matrix to be updated
  */
 static void update_weights(
-    uint32_t m, const int16_t x[m], int rate, int delta, int alpha,
-    unsigned long long w[m / BIT_SIZE(unsigned long long) + 1]) {
-    int factor = rate * delta;
-    unsigned long long bit;
+    uint32_t m, const int x[m], int delta, int alpha,
+    unsigned long long w[(m / BIT_SIZE(unsigned long long)) + 1]) {
     int result;
-    for (uint32_t j = 0; j < m; j++) {
-        bit    = BIT_TEST_ARRAY(w, j);
-        result = (int)(bit - !bit) * alpha - factor * x[j];
-        BINARIZE(w[j / BIT_SIZE(w[0])], (j % BIT_SIZE(w[0])), 0, result);
+    for (uint32_t i = 0; i < m; i++) {
+        result = BIT2SIGN(w, i) * alpha - x[i] * delta;
+        BINARIZE(w[m / BIT_SIZE(w[0])], i % BIT_SIZE(w[0]), 0, result);
     }
 }
