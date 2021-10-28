@@ -111,9 +111,6 @@ static int rprelu_derived(int x, int beta, int gamma) {
  * operations. In each bit, the result of basic multiplication a × b is one of
  * three values {−1,0,1}.
  * (Details)[https://arxiv.org/pdf/1909.11366.pdf]
- * @param a
- * @param b
- * @return
  */
 static int16_t bmm(unsigned long long a, unsigned long long b) {
     unsigned long long pos = a & b;
@@ -123,14 +120,15 @@ static int16_t bmm(unsigned long long a, unsigned long long b) {
 
 /**
  * ## binarize() - Binarizes 8 bit fix pont elements of array `x`
+ * 
+ * - `x` The fix point array of size BIT_SIZE(unsigned long long)
+ * - `threshold` The conversion threshold
+ * 
  * Binarizes all elements of array `x` and writes the result to the bit array
  * `b`. The conversion is as follows:
  *
  *     if x[i] > threshold then set bit=1 else set bit=0
- *
- * ### Parameter
- * - `x` The fix point array of size BIT_SIZE(unsigned long long)
- * - `threshold` The conversion threshold
+ * 
  * Returns the bit array (of size BIT_SIZE(unsigned long long))
  */
 static unsigned long long binarize(uint32_t size, const int8_t a[size],
@@ -159,10 +157,6 @@ static void delta(uint32_t m, const int8_t a[m], const int8_t y[m],
 
 /**
  *
- * @param n
- * @param wb
- * @param alpha
- * @param x
  * Return the sum of the element wise multiplication.
  */
 static int forward(
@@ -183,14 +177,12 @@ static int forward(
 /**
  * ## backward() - Backward propagation
  * 
- * ### Parameter
  * - `m` The number of input cells (weight matrix rows)
  * - `n` The number of output cells (weight matrix columns) 
  * - `j` The position of the output vector
  * - `wb` The binary m x n weight matrix 
  * - `y` The output cell at position `j`
  * - `x` The input vector (of size `m`) 
- * Returns None
  */
 static void backward(
     uint32_t m, uint32_t n, uint32_t j,
@@ -228,6 +220,11 @@ static void update_rprelu(uint32_t m, const int16_t delta[m], int rate,
 /**
  * ## update_weights() - update weights
  * 
+ * - `m` The number of input cells (weight matrix rows)
+ * - `x` The input vector (of size `m`) 
+ * - `delta` The output cell value (delta y) at position `j`
+ * - `w` The binary m x n weight matrix to be updated
+ * 
  * The function updates a column of a binary matrix.
  * The matrix is binarized around the 0 value. 
  * If the value is greater than 0, then the updated binary 
@@ -235,11 +232,6 @@ static void update_rprelu(uint32_t m, const int16_t delta[m], int rate,
  * The learning rate can be controlled via the delta value 
  * (e.g.: delta_learn = delta * rate)
  * 
- * ### Parameter
- * - `m` The number of input cells (weight matrix rows)
- * - `x` The input vector (of size `m`) 
- * - `delta` The output cell value (delta y) at position `j`
- * - `w` The binary m x n weight matrix to be updated
  */
 static void update_weights(
     uint32_t m, const int x[m], int delta, int alpha,

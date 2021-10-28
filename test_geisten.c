@@ -132,24 +132,37 @@ static void test_update_weights() {
          "calculate the updated weights 4th column");
 }
 
+/*
+ * Test the backpropagation of a two layer network.
+ * First Layer : 16x8
+ * Second Layer: 8x6  
+ */
 static void test_train() {
-    int8_t target[] = {5, 0, 127, -128, -5, 8};
-    int8_t output[] = {4, 9, 30, -123, -34, 2};
+    int input[16]               = {0};
+    unsigned long long wb1[][1] = {{34},    {53247}, {53223}, {36839},
+                                   {65535}, {4095},  {4071},  {20071}};
+    int hidden[8]               = {0};
+    unsigned long long wb2[][1] = {{34}, {17}, {78}, {206}, {254}, {5}};
+    int8_t target[]             = {5, 0, 127, -128, -5, 8};
+    int8_t output[]             = {4, 9, 30, -123, -34, 2};
     int8_t d[ARRAY_LENGTH(target)];
     int8_t d_expected[] = {1, -9, 97, -5, 29, 6};
+
+    printf("rows: %lu, columns: %lu \n", ARRAY_LENGTH(input),
+           ARRAY_LENGTH(wb1));
 
     delta(ARRAY_LENGTH(target), output, target, d);
     test(vec_is_equal_i8(ARRAY_LENGTH(d), d, d_expected, 1) &&
          "calculate the delta between target and output");
 
-    int x[]                    = {0, 50, 32};
-    unsigned long long wb[][1] = {{34}};
-    for (uint32_t j = 0; j < ARRAY_LENGTH(d); j++) {
-        backward(ARRAY_LENGTH(wb[0]), ARRAY_LENGTH(wb), j, wb, d[j], x);
+    for (uint32_t i = 0; i < ARRAY_LENGTH(hidden); i++) {
+        update_weights(ARRAY_LENGTH(hidden), hidden, d[i], 103, wb2[i]);
     }
-
-    for (uint32_t i = 0; i < ARRAY_LENGTH(x); i++) {
-        //  update_weights(ARRAY_LENGTH(x), d, x[i], 103, wb[i]);
+    for (uint32_t j = 0; j < ARRAY_LENGTH(d); j++) {
+        backward(ARRAY_LENGTH(input), ARRAY_LENGTH(wb1), j, wb2, d[j], hidden);
+    }
+    for (uint32_t i = 0; i < ARRAY_LENGTH(input); i++) {
+        update_weights(ARRAY_LENGTH(input), input, hidden[i], 103, wb1[i]);
     }
 }
 
@@ -160,6 +173,6 @@ int main() {
     test_forward();
     test_backward();
     test_update_weights();
-    //test_train();
+    test_train();
     return TEST_RESULT;
 }
