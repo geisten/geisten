@@ -33,6 +33,16 @@ static void vec_write_i8(FILE *fp, uint32_t size, const int8_t arr[static size],
     fprintf(fp, "]\n");
 }
 
+static double delta(uint32_t n, const int8_t a[n], const int8_t b[n],
+                    int8_t error[n]) {
+    double result = 0.0;
+    for (uint32_t i = 0; i < n; i++) {
+        error[i] = (int8_t)(b[i] - a[i]);
+        result += pow(error[i], 2);
+    }
+    return result / n;
+}
+
 static void vec_write(FILE *fp, uint32_t size, const int arr[static size],
                       const char str[]) {
     fprintf(fp, "%s: [", str);
@@ -49,10 +59,10 @@ static void test_binarization_det() {
                         0,  0,   0,    0, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0,  0,   0,    0, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0,  0,   0,    0, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    unsigned long long weights_b = binarize(ARRAY_LENGTH(weights), weights, 0);
-    printf("bit array: %lld\n", weights_b);
-    test(weights_b == 34 && "Positions in bit array must be set correctly");
-    test(BIT_ARRAY_SIZE(weights_demo, sizeof(weights_b) * CHAR_BIT) == 2 &&
+    unsigned long long weights_b[1];
+    binarize(ARRAY_LENGTH(weights), weights, 0, weights_b);
+    test(weights_b[0] == 34 && "Positions in bit array must be set correctly");
+    test(BIT_ARRAY_SIZE(weights_demo, sizeof(weights_b[0]) * CHAR_BIT) == 2 &&
          "Array size must be 2");
 }
 
@@ -64,15 +74,14 @@ static void test_forward() {
     const uint32_t OUTPUT_SIZE = ARRAY_LENGTH(wb);
     int8_t alpha               = 2;
     int y[OUTPUT_SIZE];
+    unsigned long long input_bits[(
+        ARRAY_LENGTH(input) / BIT_SIZE(unsigned long long) + 1)] = {0};
+    binarize(ARRAY_LENGTH(input), input, alpha, input_bits);
     for (uint32_t j = 0; j < OUTPUT_SIZE; j++) {
-        y[j] = forward(ARRAY_LENGTH(input), wb[j], alpha, input);
+        y[j] = forward(ARRAY_LENGTH(input_bits), wb[j], input_bits);
     }
     int y_expected[] = {0, 0, 2, 2};
-    //binarize the input
-    unsigned long long input_binarized =
-        binarize(ARRAY_LENGTH(input), input, 1);
-    test(input_binarized == 9 && "convert input into binary form");
-    vec_write(stdout, OUTPUT_SIZE, y, "Calculated output");
+    test(input_bits[0] == 9 && "convert input into binary form");
     test(vec_is_equal(OUTPUT_SIZE, y, y_expected, 1) &&
          "transform to output vector");
 }
@@ -98,8 +107,7 @@ static void test_backward() {
         wb[][(ARRAY_LENGTH(delta) / BIT_SIZE(unsigned long long) + 1)] = {
             {19}, {28}, {31}, {29}};  //wb[m][n]
     for (uint32_t j = 0; j < ARRAY_LENGTH(output); j++) {
-        backward(ARRAY_LENGTH(delta), ARRAY_LENGTH(output), j, wb, output[j],
-                 delta);
+        backward(ARRAY_LENGTH(delta), wb[j], output[j], delta);
     }
     test(vec_is_equal(ARRAY_LENGTH(delta), delta, delta_expected, 1) &&
          "calculate the backward delta vector");
@@ -112,7 +120,7 @@ static void test_update_weights() {
     unsigned long long wb_expected[][1] = {{0}, {21}, {16}, {25}};
     /*
     Expected w (decimal)
-    C1      C2      C3      C4
+        C1      C2      C3      C4
 1	-157    168	    -1	    64
 2	-283	-58	    -175    -130
 3	-2643	532	    -913	-278
@@ -138,31 +146,51 @@ static void test_update_weights() {
  * Second Layer: 8x6  
  */
 static void test_train() {
-    int input[16]               = {0};
-    unsigned long long wb1[][1] = {{34},    {53247}, {53223}, {36839},
-                                   {65535}, {4095},  {4071},  {20071}};
-    int hidden[8]               = {0};
-    unsigned long long wb2[][1] = {{34}, {17}, {78}, {206}, {254}, {5}};
-    int8_t target[]             = {5, 0, 127, -128, -5, 8};
-    int8_t output[]             = {4, 9, 30, -123, -34, 2};
-    int8_t d[ARRAY_LENGTH(target)];
+    int input[16]                    = {0};
+    unsigned long long wb_input[][1] = {{34},    {53247}, {53223}, {36839},
+                                        {65535}, {4095},  {4071},  {20071}};
+    int hidden[]                = {1, 456, 0, -2345, 3456, -55445, -775, 443};
+    int hidden_delta_expected[] = {-125, 125, 135, 123, -79, -59, 123, -71};
+    int hidden_delta_derived_expected[]    = {23, 1, 1, 1, 23, 1, 1, 23};
+    int hidden_delta[ARRAY_LENGTH(hidden)] = {0};
+    int hidden_delta_derived[ARRAY_LENGTH(hidden)] = {0};
+    unsigned long long wb_hidden[][1] = {{34}, {17}, {78}, {206}, {254}, {5}};
+    unsigned long long wb_hidden_expected[][1] = {{104}, {147}, {108},
+                                                  {150}, {108}, {109}};
+    int8_t target[]                            = {5, 0, 127, -128, -5, 8};
+    int8_t output[]                            = {4, 9, 30, -123, -34, 2};
+    int8_t error[ARRAY_LENGTH(target)];
     int8_t d_expected[] = {1, -9, 97, -5, 29, 6};
 
-    printf("rows: %lu, columns: %lu \n", ARRAY_LENGTH(input),
-           ARRAY_LENGTH(wb1));
-
-    delta(ARRAY_LENGTH(target), output, target, d);
-    test(vec_is_equal_i8(ARRAY_LENGTH(d), d, d_expected, 1) &&
+    delta(ARRAY_LENGTH(target), output, target, error);
+    test(vec_is_equal_i8(ARRAY_LENGTH(error), error, d_expected, 1) &&
          "calculate the delta between target and output");
 
-    for (uint32_t i = 0; i < ARRAY_LENGTH(hidden); i++) {
-        update_weights(ARRAY_LENGTH(hidden), hidden, d[i], 103, wb2[i]);
+    //calculate the error of the hidden layer
+    for (uint32_t j = 0; j < ARRAY_LENGTH(error); j++) {
+        backward(ARRAY_LENGTH(hidden), wb_hidden[j], error[j], hidden_delta);
     }
-    for (uint32_t j = 0; j < ARRAY_LENGTH(d); j++) {
-        backward(ARRAY_LENGTH(input), ARRAY_LENGTH(wb1), j, wb2, d[j], hidden);
+    test(vec_is_equal(ARRAY_LENGTH(hidden), hidden_delta, hidden_delta_expected,
+                      1) &&
+         "calculate the hidden delta vector");
+    for (uint32_t i = 0; i < ARRAY_LENGTH(hidden_delta); i++) {
+        hidden_delta_derived[i] = rprelu_derived(hidden_delta[i], 23, -60);
     }
-    for (uint32_t i = 0; i < ARRAY_LENGTH(input); i++) {
-        update_weights(ARRAY_LENGTH(input), input, hidden[i], 103, wb1[i]);
+    test(vec_is_equal(ARRAY_LENGTH(hidden), hidden_delta_derived,
+                      hidden_delta_derived_expected, 1) &&
+         "calculate the derived RPReLU vector");
+    //update the weights of the 2nd layer
+    for (uint32_t j = 0; j < ARRAY_LENGTH(error); j++) {
+        update_weights(ARRAY_LENGTH(hidden), hidden, error[j], 103,
+                       wb_hidden[j]);
+        test(wb_hidden[j][0] == wb_hidden_expected[j][0] &&
+             "calculate the updated weight matrix");
+    }
+
+    //update the weights of the first layer
+    for (uint32_t j = 0; j < ARRAY_LENGTH(hidden); j++) {
+        update_weights(ARRAY_LENGTH(input), input, hidden_delta[j], 103,
+                       wb_input[j]);
     }
 }
 

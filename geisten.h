@@ -24,11 +24,6 @@
  * [ReActNet: Towards Precise Binary Neural Network with Generalized Activation
  * Functions](https://arxiv.org/pdf/2003.03488.pdf)
  *
- * ## TODO
- * - Create loss function
- * - Create softmax function
- * - Optimize weights
- * -
  */
 
 #include <err.h>
@@ -49,26 +44,25 @@
 
 #define PRAGMA(X) _Pragma(#X)
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 #define ARRAY_LENGTH(_arr) (sizeof(_arr) / sizeof((_arr)[0]))
 #define BIT_SIZE(_type) (sizeof(_type) * CHAR_BIT)
-#define BIT_SIZE_ULL BIT_SIZE(unsigned long long)
-#define SIZE_BITS BIT_SIZE(size_t)
 #define BIT_ARRAY_LEN(_n, _bits) (((_n)-1 + (_bits)) / (_bits))
 #define BIT_ARRAY_SIZE(_arr, _bits) (BIT_ARRAY_LEN(ARRAY_LENGTH(_arr), (_bits)))
 
 #define BIT_TEST(var, pos) (((var) & (1 << (pos))) != 0)
 #define BIT_TEST_ARRAY(_arr, _pos) \
     (BIT_TEST(_arr[(_pos) / BIT_SIZE(_arr[0])], (_pos) % BIT_SIZE(_arr[0])))
-#define BIT_SET(_arr, _pos) \
-    _arr[(_pos) / BIT_SIZE(_arr[0])] |= (1LLU << ((_pos) % BIT_SIZE(_arr[0])))
 
 #define BIT2SIGN(_b, _i) (2 * BIT_TEST_ARRAY(_b, _i) - 1)
 
 // deprecated
 #define BINARIZE(_b, _i, _t, _v) \
     (_b) = ((_v) > (_t)) ? (_b) | (1LLU << (_i)) : (_b) & ~(1LLU << (_i))
+
+#define BINARIZE_POS(_b, _i, _t, _v)                                         \
+    BINARIZE((_b)[(_i) / BIT_SIZE((_b)[0])], (_i) % BIT_SIZE((_b)[0]), (_t), \
+             (_v))
 
 /**
  * The special operator __has_builtin (operand) is used to test whether
@@ -93,34 +87,32 @@ static unsigned long long popcount_soft(unsigned x) {
 
 /**
  * rprelu_fp16() - RPReLU function
+ * - `x` The function variable
+ * - `beta` The slope constant, if x <= gamma
+ * - `gamma` The level constant
+ * - `zeta` The offset constant
  *
  * [Background](https://arxiv.org/pdf/2003.03488.pdf)
+ * _Returns the function result_
  */
 static int rprelu(int x, int beta, int gamma, int zeta) {
     return (x - gamma) * ((x > gamma) + (x <= gamma) * beta) + zeta;
 }
 
+/**
+ * ## rprelu_derived() - The derived RPReLU function
+ * - `x` The function variable
+ * - `beta` The slope constant, if x <= gamma
+ * - `gamma` The level constant
+ *
+ * _Returns the derived function value_
+ */
 static int rprelu_derived(int x, int beta, int gamma) {
     return (x > gamma) + (x <= gamma) * beta;
 }
 
 /**
- * ## bnn() - Bitwise matrix multiplication
- * 
- * a and b are both binary values thus  a∗b can be implemented with bitwise
- * operations. In each bit, the result of basic multiplication a × b is one of
- * three values {−1,0,1}.
- * (Details)[https://arxiv.org/pdf/1909.11366.pdf]
- */
-static int16_t bmm(unsigned long long a, unsigned long long b) {
-    unsigned long long pos = a & b;
-    unsigned long long neg = a & (~b);
-    return POPCOUNT(pos) - POPCOUNT(neg);
-}
-
-/**
  * ## binarize() - Binarizes 8 bit fix pont elements of array `x`
- * 
  * - `x` The fix point array of size BIT_SIZE(unsigned long long)
  * - `threshold` The conversion threshold
  * 
@@ -131,65 +123,59 @@ static int16_t bmm(unsigned long long a, unsigned long long b) {
  * 
  * Returns the bit array (of size BIT_SIZE(unsigned long long))
  */
-static unsigned long long binarize(uint32_t size, const int8_t a[size],
-                                   uint8_t level) {
-    unsigned long long bin = 0;
+static void binarize(
+    uint32_t size, const int8_t a[size], uint8_t level,
+    unsigned long long result[(size / BIT_SIZE(unsigned long long)) + 1]) {
     for (uint32_t i = 0; i < size; i++) {
-        BINARIZE(bin, i, level, a[i]);
-    }
-    return bin;
-}
-
-static int error(uint32_t m, const int16_t a[m], const int16_t y[m]) {
-    int result = 0;
-    for (uint32_t i = 0; i < m; i++) {
-        result += pow(y[i] - a[i], 2);
-    }
-    return result / m;
-}
-
-static void delta(uint32_t m, const int8_t a[m], const int8_t y[m],
-                  int8_t d[m]) {
-    for (uint32_t i = 0; i < m; i++) {
-        d[i] = (int8_t)(y[i] - a[i]);
+        BINARIZE_POS(result, i, level, a[i]);
     }
 }
 
 /**
+ * ## forward() - Linear forward transformation
+ * - `m` The number of input cells (weight matrix rows)
+ * - `wb` The `j`th column of the binary m x n weight matrix
+ * - `x` The activation binary array
+ *
+ * ### Bitwise matrix multiplication
+ *
+ * `xb` and `wb[i]` are both binary values thus  `xb ∗ wb[i]` can be implemented with bitwise
+ * operations. In each bit, the result of basic multiplication `xb × wb[i]` is one of
+ * three values {−1,0,1}.
+ * (Details)[https://arxiv.org/pdf/1909.11366.pdf]
  *
  * Return the sum of the element wise multiplication.
  */
-static int forward(
-    uint32_t n,
-    const unsigned long long wb[(n / BIT_SIZE(unsigned long long)) + 1],
-    int8_t alpha, const int8_t x[n]) {
-    unsigned long long xb;
+static int forward(uint32_t m, const unsigned long long wb[m],
+                   const unsigned long long x[m]) {
     int y;
     uint32_t i;
-    for (i = 0, y = 0; i < (n / BIT_SIZE(wb[0]) + 1); i++) {
-        xb = binarize(MIN(n, (1 + i) * BIT_SIZE(wb[0])),
-                      &x[i * BIT_SIZE(wb[0])], alpha);
-        y += bmm(xb, wb[i]);
+    for (i = 0, y = 0; i < m; i++) {
+        y += (int)POPCOUNT((x[i] & wb[i])) - (int)POPCOUNT((x[i] & (~wb[i])));
     }
     return y;
 }
 
+static unsigned long long mixin(unsigned long long bits, int n01) {
+    return bits;
+}
+
 /**
  * ## backward() - Backward propagation
- * 
  * - `m` The number of input cells (weight matrix rows)
- * - `n` The number of output cells (weight matrix columns) 
- * - `j` The position of the output vector
- * - `wb` The binary m x n weight matrix 
+ * - `wb` The `j`th column of the binary m x n weight matrix
  * - `y` The output cell at position `j`
- * - `x` The input vector (of size `m`) 
+ * - `x` The input vector (of size `m`)
+ *
+ * The resulting x vector must also be multiplied by the weight factor to obtain
+ * the correct value.
  */
 static void backward(
-    uint32_t m, uint32_t n, uint32_t j,
-    const unsigned long long wb[m][(n / BIT_SIZE(unsigned long long)) + 1],
-    const int8_t y, int x[m]) {
+    uint32_t m,
+    const unsigned long long wb[(m / BIT_SIZE(unsigned long long)) + 1],
+    const int y, int x[m]) {
     for (uint32_t i = 0; i < m; i++) {
-        x[i] += BIT2SIGN(wb[j], i) * y;
+        x[i] += BIT2SIGN(wb, i) * y;
     }
 }
 
@@ -202,8 +188,8 @@ static int update_activation(uint32_t m, const int16_t delta[m], int rate,
     return alpha - rate * delta_alpha / (int)m;
 }
 
-static void update_rprelu(uint32_t m, const int16_t delta[m], int rate,
-                          int *beta, int *gamma, int *zeta) {
+static void update_rprelu(uint32_t m, const int delta[m], int rate, int *beta,
+                          int *gamma, int *zeta) {
     int delta_beta  = 0;
     int delta_gamma = 0;
     int delta_zeta  = 0;
@@ -218,8 +204,7 @@ static void update_rprelu(uint32_t m, const int16_t delta[m], int rate,
 }
 
 /**
- * ## update_weights() - update weights
- * 
+ * ## update_weights() - Update the weight matrix
  * - `m` The number of input cells (weight matrix rows)
  * - `x` The input vector (of size `m`) 
  * - `delta` The output cell value (delta y) at position `j`
@@ -233,12 +218,45 @@ static void update_rprelu(uint32_t m, const int16_t delta[m], int rate,
  * (e.g.: delta_learn = delta * rate)
  * 
  */
-static void update_weights(
+static int update_weights_i(
     uint32_t m, const int x[m], int delta, int alpha,
     unsigned long long w[(m / BIT_SIZE(unsigned long long)) + 1]) {
-    int result;
+    int result = 0;
     for (uint32_t i = 0; i < m; i++) {
         result = BIT2SIGN(w, i) * alpha - x[i] * delta;
-        BINARIZE(w[m / BIT_SIZE(w[0])], i % BIT_SIZE(w[0]), 0, result);
+        BINARIZE(w[i / BIT_SIZE(w[0])], i % BIT_SIZE(w[0]), 0, result);
     }
+    return result;
 }
+
+/**
+ * ## update_weights() - Update the weight matrix
+ * - `m` The number of input cells (weight matrix rows)
+ * - `x` The **8 bit** input vector (of size `m`)
+ * - `delta` The output cell value (delta y) at position `j`
+ * - `w` The binary m x n weight matrix to be updated
+ *
+ * The function updates a column of a binary matrix.
+ * The matrix is binarized around the 0 value.
+ * If the value is greater than 0, then the updated binary
+ * matrix is set to 1; otherwise set to 0
+ * The learning rate can be controlled via the delta value
+ * (e.g.: delta_learn = delta * rate)
+ *
+ */
+static int update_weights_i8(
+    uint32_t m, const int8_t x[m], int delta, int alpha,
+    unsigned long long w[(m / BIT_SIZE(unsigned long long)) + 1]) {
+    int result = 0;
+    for (uint32_t i = 0; i < m; i++) {
+        result = BIT2SIGN(w, i) * alpha - x[i] * delta;
+        BINARIZE(w[i / BIT_SIZE(w[0])], i % BIT_SIZE(w[0]), 0, result);
+    }
+    return result;
+}
+
+#define update_weights(_m, _x, _delta, _alpha, _w) \
+    _Generic((_x),\
+             int8_t *: update_weights_i8,\
+               int *: update_weights_i, \
+               default: update_weights_i)((_m), (_x), (_delta), (_alpha), (_w))
