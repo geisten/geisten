@@ -57,7 +57,7 @@ _Returns the derived function value_
 
 
 ## binarize() - Binarizes 8 bit fix pont elements of array `x`
-- `x` The fix point array of size BIT_SIZE(unsigned long long)
+- `x` The fix point array of size NBITS(unsigned long long)
 - `threshold` The conversion threshold
 
 Binarizes all elements of array `x` and writes the result to the bit array
@@ -65,7 +65,7 @@ Binarizes all elements of array `x` and writes the result to the bit array
 
     if x[i] > threshold then set bit=1 else set bit=0
 
-Returns the bit array (of size BIT_SIZE(unsigned long long))
+Returns the bit array (of size NBITS(unsigned long long))
 
 
 ## delta() - Calculate the error between the output vector and the target

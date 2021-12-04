@@ -13,13 +13,14 @@ RM ?= rm
 
 #--------------------------- DON'T change this part ----------------------------
 
-src = $(wildcard *.c) $(wildcard *.c)
-obj = $(src:.c=.o)
-dep = $(obj:.o=.d)
+SOURCE = test_geisten.c
+HEADER = geisten.h
+OBJ = $(SOURCE:.c=.o)
+DEP = $(OBJ:.o=.d)
 
 
 # CFLAGS ?= -I. -march=native -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O3 -MMD
-CFLAGS ?= -I. -march=native -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O -MMD -g2
+CFLAGS ?= -I. -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O -MMD -g2
 
 LDFLAGS ?= -ffast-math -lm -fsanitize=address -mavx -lpthread
 
@@ -46,7 +47,7 @@ test: test_geisten ## run all test programs
 .PHONY: clean
 # clean the build
 clean:  ## cleanup - remove the target (test) files
-	rm -f $(obj) $(dep) test_$(PROJECT_NAME)
+	rm -f $(OBJ) $(DEP) test_$(PROJECT_NAME)
 
 .PHONY: install
 install: $(PROJECT_NAME).h  ## install the target build to the target directory ('$(DESTDIR)$(PREFIX)/include')
@@ -76,4 +77,4 @@ print-%  : ; @echo $* = $($*) ## get the value of a makefile variable '%' (type 
 
 .DEFAULT_GOAL=all
 
--include $(dep)
+-include $(DEP)
