@@ -20,9 +20,9 @@ DEP = $(OBJ:.o=.d)
 
 
 # CFLAGS ?= -I. -march=native -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O3 -MMD
-CFLAGS ?= -I. -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O -MMD -g2
+CFLAGS ?= -I. -mtune=native -MP -Wall -Wextra -Wstrict-overflow -ffast-math -fsanitize=address -O -MMD -g2
 
-LDFLAGS ?= -ffast-math -lm -fsanitize=address -mavx -lpthread
+LDFLAGS ?= -ffast-math -fsanitize=address
 
 options:
 	@echo $(PROJECT_NAME) build options:

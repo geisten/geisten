@@ -73,10 +73,7 @@ static unsigned long long popcount_soft(unsigned x) {
  * [Background](https://arxiv.org/pdf/2003.03488.pdf)
  * _Returns the function result_
  */
-static int relu(int x) {
-    return x * (x > 0);
-}
-
+static int relu(int x) { return x * (x > 0); }
 
 /**
  * ## binarize() - Binarizes 8 bit fix pont elements of array `x`
@@ -124,6 +121,16 @@ static int forward(uint32_t m, const unsigned long long wb[m],
     return y;
 }
 
+/**
+ * rate() - Calculates the adaptation rate
+ * - `expected` The expected target value
+ * - `given` The given return value
+ *
+ * Returns the calculated rate in [-1, 1].
+ */
+static double rate(int expected, int given, int total) {
+    return (double)(expected - given) / (total);
+}
 
 /**
  * ## entropy() - calculates the new weights bit array
