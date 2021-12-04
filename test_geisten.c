@@ -16,40 +16,11 @@ static bool vec_is_equal(uint32_t n, const int a[n], const int b[n],
     return true;
 }
 
-static bool vec_is_equal_i8(uint32_t n, const int8_t a[n], const int8_t b[n],
-                            int epsilon) {
-    for (uint32_t i = 0; i < n; i++) {
-        if (abs(a[i] - b[i]) >= epsilon) return false;
-    }
-    return true;
-}
-
-static void vec_write_i8(FILE *fp, uint32_t size, const int8_t arr[static size],
-                         const char str[]) {
-    fprintf(fp, "%s: [", str);
-    for (uint64_t i = 0; i < size; i++) {
-        fprintf(fp, "%d, ", arr[i]);
-    }
-    fprintf(fp, "]\n");
-}
-
-static double delta(uint32_t n, const int8_t a[n], const int8_t b[n],
-                    int8_t error[n]) {
-    double result = 0.0;
-    for (uint32_t i = 0; i < n; i++) {
-        error[i] = (int8_t)(b[i] - a[i]);
-        result += pow(error[i], 2);
-    }
-    return result / n;
-}
-
-static void vec_write(FILE *fp, uint32_t size, const int arr[static size],
-                      const char str[]) {
-    fprintf(fp, "%s: [", str);
-    for (uint64_t i = 0; i < size; i++) {
-        fprintf(fp, "%d, ", arr[i]);
-    }
-    fprintf(fp, "]\n");
+static void test_relu() {
+    int result = relu(40);
+    test(result == 40 && "relu function must return 40");
+    result = relu(-340);
+    test(result == 0 && "relu function must return 0");
 }
 
 static void test_binarization_det() {
@@ -88,30 +59,47 @@ static void test_forward() {
 static void test_entropy() {
     unsigned long long w    = 0;
     unsigned long long wres = entropy(w, 1.0);
-    unsigned count_w    = builtin_popcountll(w);
-    unsigned count_wres = builtin_popcountll(wres);
+    unsigned count_w        = builtin_popcountll(w);
+    unsigned count_wres     = builtin_popcountll(wres);
     printf("new w count: %u\n", count_wres);
     test(count_wres >= count_w && "test if entropy is increasing");
 
-    wres = entropy(w, -1.0);
+    wres       = entropy(w, -1.0);
     count_wres = builtin_popcountll(wres);
     printf("new w count: %u\n", count_wres);
     test(count_wres == 0 &&
          "test if empty bit field is still empty when rate < 0 (-1.0)");
 
-    w       = 99484776326;
-    count_w = builtin_popcountll(w);
-    wres    = entropy(w, -1.0);
+    w          = 99484776326;
+    count_w    = builtin_popcountll(w);
+    wres       = entropy(w, -1.0);
     count_wres = builtin_popcountll(wres);
     printf("old w count: %u, new w count: %u\n", count_w, count_wres);
     test(count_wres <= count_w &&
          "test if number of active bits decrease if rate < 0 (-1.0)");
 }
 
+static void test_rate() {
+    double res = rate(0, 1, 1);
+    printf("rate: %f\n", res);
+    test(res < -0.95 && "calculated rate must < -0.95 and > -1.0");
+    res = rate(1, 1, 1);
+    test(res == 0.0 && "calculated rate must be 0.0");
+    res = rate(1, 0, 1);
+    test(res == 1.0 && "calculated rate must close to 1.0");
+    res = rate(10, 5, 10);
+    test(res < 0.91 && "calculated rate must be close to 0.9");
+    res = rate(10, 8, 10);
+    printf("rate: %f\n", res);
+    printf("calculated rate: %f\n", res);
+}
+
 int main() {
     srandom(time(NULL));
+    test_relu();
     test_binarization_det();
     test_forward();
     test_entropy();
+    test_rate();
     return TEST_RESULT;
 }
