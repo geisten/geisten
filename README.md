@@ -47,7 +47,9 @@ and simpler.
 
 ## Documentation
 
-See [geisten.md](geisten.md) for the function description of the library.
+See [geisten.md](geisten.md) for the function description of the library. It uses a little script (xtract.awk) from
+the [d.awk project](https://github.com/wernsey/d.awk) to extract the function documentation from the geisten header
+file.
 
 ## Support
 
