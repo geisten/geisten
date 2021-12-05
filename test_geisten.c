@@ -1,10 +1,40 @@
 //
 // Created by germar on 31.07.21.
 //
+#include <time.h>
 #include "geisten.h"
 #include "test.h"
 
 TEST_INIT();
+
+#define ARRAY_LENGTH(_arr) sizeof((_arr))/ sizeof((_arr[0]))
+#define BIT_ARRAY_LEN(_n, _bits) (((_n)-1 + (_bits)) / (_bits))
+#define BIT_ARRAY_SIZE(_arr, _bits) (BIT_ARRAY_LEN(ARRAY_LENGTH(_arr), (_bits)))
+
+#define BINARIZE(_b, _i, _t, _v) \
+    (_b) = ((_v) > (_t)) ? (_b) | (1LLU << (_i)) : (_b) & ~(1LLU << (_i))
+
+/**
+ * ## binarize() - Binarizes 8 bit fix point elements of array `x`
+ * - `size` The length of the arrwy `x`
+ * - `x` The fix point array
+ * - `threshold` The conversion threshold
+ * - `result` The bit result
+ *
+ * Binarizes all elements of array `x` and writes the result to the bit array
+ * `result`. The conversion is as follows:
+ *
+ * ```
+ * if x[i] > threshold then set bit=1 else set bit=0
+ * ```
+ */
+static void binarize(
+    uint32_t size, const int8_t x[size], uint8_t threshold,
+    unsigned long long result[(size / NBITS(unsigned long long)) + 1]) {
+    for (uint32_t i = 0; i < size; i++) {
+        BINARIZE(result[i / NBITS(result[0])], (i) % NBITS(result[0]), threshold, x[i]);
+    }
+}
 
 // static int test_bit(long long A, int k) { return ((A & (1 << k)) != 0); }
 
@@ -89,9 +119,6 @@ static void test_rate() {
     test(res == 1.0 && "calculated rate must close to 1.0");
     res = rate(10, 5, 10);
     test(res < 0.91 && "calculated rate must be close to 0.9");
-    res = rate(10, 8, 10);
-    printf("rate: %f\n", res);
-    printf("calculated rate: %f\n", res);
 }
 
 int main() {

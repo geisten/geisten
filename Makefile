@@ -13,8 +13,8 @@ RM ?= rm
 
 #--------------------------- DON'T change this part ----------------------------
 
-SOURCE = test_geisten.c
-HEADER = geisten.h
+SOURCE = test_$(PROJECT_NAME).c
+HEADER = $(PROJECT_NAME).h
 OBJ = $(SOURCE:.c=.o)
 DEP = $(OBJ:.o=.d)
 
@@ -40,14 +40,14 @@ test_%: test_%.o
 	$(CC) -o $@ $< $(LDFLAGS)
 	./$@ ||  (echo "Test $^ failed" && exit 1)
 
-test: test_geisten ## run all test programs
+test: test_$(PROJECT_NAME) ## run all test programs
 	@echo "Success, all tests of project '$(PROJECT_NAME)' passed."
 
 
 .PHONY: clean
 # clean the build
 clean:  ## cleanup - remove the target (test) files
-	rm -f $(OBJ) $(DEP) test_$(PROJECT_NAME)
+	rm -f $(OBJ) $(DEP) test_$(PROJECT_NAME) $(PROJECT_NAME).md
 
 .PHONY: install
 install: $(PROJECT_NAME).h  ## install the target build to the target directory ('$(DESTDIR)$(PREFIX)/include')
@@ -61,8 +61,8 @@ uninstall: ## remove the build from the target directory ('$(DESTDIR)$(PREFIX)/i
 
 # c header docu
 %.md: %.h
-	$(MKDIR_P) $(dir $@)
-	cat $< | awk '/\/\*\*/ {blk=1}; {if(blk) print $0}; /\*\// {blk=0}' | sed 's/..[*/ ]\?//' > $@
+	@$(MKDIR_P) $(dir $@)
+	./xtract.awk $< > $@
 
 docs: $(PROJECT_NAME).md ## build the documentation of the header files in markdown format
 
