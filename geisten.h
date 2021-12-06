@@ -98,9 +98,10 @@ static double rate(int expected, int given, int total) {
  * Returns the adapted bit array.
  */
 static unsigned long long entropy(unsigned long long w, double r) {
+    unsigned long long incr = r > 0;
     for (unsigned i = 0; i < (random() % (long)(NBITS(w) * r)); i++) {
         unsigned pos = random() % NBITS(w);
-        w = (w & ~(1ULL << pos)) | (((unsigned long long)r > 0) << pos);
+        w = (w & ~(1ULL << pos)) | (incr << pos);
     }
     return w;
 }
