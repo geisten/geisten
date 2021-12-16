@@ -36,6 +36,10 @@
  * characteristic of a particular processor design or computer architecture.
  */
 #define NBITS(_type) (sizeof(_type) * CHAR_BIT)
+
+/**
+ * ### WORDS_INDEX() - Returns the index of the words array at bit position i
+ */
 #define WORDS_INDEX(_w, _i) ((_i) / NBITS((_w)[0]))
 #define WORDS_POS(_w, _i) ((_i) % NBITS((_w)[0]))
 

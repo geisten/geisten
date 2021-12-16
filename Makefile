@@ -22,7 +22,7 @@ DEP = $(OBJ:.o=.d)
 # CFLAGS ?= -I. -march=native -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O3 -MMD
 CFLAGS ?= -I. -mtune=native -MP -Wall -Wextra -Wstrict-overflow -ffast-math -fsanitize=address -O -MMD -g2
 
-LDFLAGS ?= -ffast-math -fsanitize=address
+LDFLAGS ?= -ffast-math -fsanitize=address -static-libsan
 
 options:
 	@echo $(PROJECT_NAME) build options:
