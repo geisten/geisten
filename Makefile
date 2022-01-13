@@ -23,8 +23,8 @@ DOCS_MD = $(DOCS:.h=.md)
 
 
 # CFLAGS ?= -I. -march=native -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O3 -MMD
-CFLAGS ?= -I. -mtune=native -MP -Wall -Wextra -Wstrict-overflow  -ffast-math -fsanitize=address -O -MMD -g2
-LDFLAGS ?= -ffast-math -fsanitize=address
+CFLAGS ?= -I. -mtune=native -MP -Wall -Wextra -Wstrict-overflow  -ffast-math -O -MMD -g2
+LDFLAGS ?= -ffast-math
 
 
 options:
