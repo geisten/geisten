@@ -1,6 +1,13 @@
 /**
  * # geisten - The library for creating efficient binary neural networks
  *
+ *
+ *        ╚══╗ ║ ╔════╝
+ *           ╠═╩═╩╗
+ *           ║ ▒▒ ║
+ *           ╠═╦═╦╝
+ *        ╔══╝ ╚═╚════╗
+ *
  *     author: Germar Schlegel
  *     date: 01.09.2021
  *

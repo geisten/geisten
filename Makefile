@@ -13,15 +13,17 @@ RM ?= rm
 
 #--------------------------- DON'T change this part ----------------------------
 
-SOURCE = test_$(PROJECT_NAME).c
-HEADER = $(PROJECT_NAME).h
-OBJ = $(SOURCE:.c=.o)
+SOURCE =
+TESTS = test_geisten
+DOCS = geisten.h
+
+OBJ = $(SOURCE:.c=.o) $(addsuffix .o,$(TESTS))
 DEP = $(OBJ:.o=.d)
+DOCS_MD = $(DOCS:.h=.md)
 
 
 # CFLAGS ?= -I. -march=native -mtune=native -MP -Wall -Wextra -mavx -Wstrict-overflow -ffast-math -fsanitize=address -O3 -MMD
-CFLAGS ?= -I. -mtune=native -MP -Wall -Wextra -Wstrict-overflow -Wl -E -ffast-math -fsanitize=address -O -MMD -g2
-
+CFLAGS ?= -I. -mtune=native -MP -Wall -Wextra -Wstrict-overflow  -ffast-math -fsanitize=address -O -MMD -g2
 LDFLAGS ?= -ffast-math -fsanitize=address
 
 
@@ -31,41 +33,39 @@ options:
 	@echo "LDFLAGS  = ${LDFLAGS}"
 	@echo "CC       = ${CC}"
 
-all: options test  ## build all unit tests of project $(PROJECT_NAME)
+all: options test docs ## build all unit tests of the project
 
+# compile the object files
 %.o : %.c
 	$(CC) $(CFLAGS) -c $< $(LIB_PATH) $(LIBS) -o $@ $(LDFLAGS)
 
 # build the unit tests
 test_%: test_%.o
 	$(CC) -o $@ $< $(LDFLAGS)
-	./$@ ||  (echo "Test $^ failed" && exit 1)
+	@./$@ ||  (echo "Test $^ failed" && exit 1)
 
-test: test_$(PROJECT_NAME) ## run all test programs
+test: $(TESTS) ## run all test programs
 	@echo "Success, all tests of project '$(PROJECT_NAME)' passed."
 
 
 .PHONY: clean
 # clean the build
 clean:  ## cleanup - remove the target (test) files
-	rm -f $(OBJ) $(DEP) test_$(PROJECT_NAME) $(PROJECT_NAME).md
+	rm -f $(OBJ) $(DEP) $(TESTS) $(DOCS_MD)
 
 .PHONY: install
 install: $(PROJECT_NAME).h  ## install the target build to the target directory ('$(DESTDIR)$(PREFIX)/include')
 	install $< $(DESTDIR)$(PREFIX)/include/
 
-.PHONY: uninstall
-uninstall: ## remove the build from the target directory ('$(DESTDIR)$(PREFIX)/include')
-	rm -f $(DESTDIR)$(PREFIX)/include/
 
 # ----------------- TOOLS ------------------------------------------
 
-# c header docu
+# Create a markdown library documentation from a C header file
 %.md: %.h
 	@$(MKDIR_P) $(dir $@)
 	./xtract.awk $< > $@
 
-docs: $(PROJECT_NAME).md ## build the documentation of the header files in markdown format
+docs: $(DOCS_MD) ## build the documentation of the header files in markdown format
 
 help: ## print this help information. Type 'make all' to build the project
 	@awk -F ':|##' '/^[^\t].+?:.*?##/ {\
