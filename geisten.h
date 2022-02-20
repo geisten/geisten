@@ -9,7 +9,7 @@
  *        ╔══╝ ╚═╚════╗
  *
  *     author: Germar Schlegel
- *     date: 01.09.2021
+ *     created: 01.09.2021
  *
  * This c header only library provides an efficient binary, neural network architecture in order to build very small, low
  * latency models that can be easily matched to the design requirements for mobile and embedded vision applications.
@@ -88,7 +88,7 @@
  * ```
  */
 #define binarize(_w, _i, _t, _v)                     \
-    (((_v) > (_t)) ? ((_w) | (WORD_ONE(_w) << (_i))) \
+    (((_v) >= (_t)) ? ((_w) | (WORD_ONE(_w) << (_i))) \
                    : ((_w) & ~(WORD_ONE(_w) << (_i))))
 
 /**
@@ -155,7 +155,7 @@ static int popcounti_soft(unsigned x) { return popcount_soft(x); }
 static int relu(int x) { return x * (x > 0); }
 
 /**
- * ### forward() - Linear forward transformation
+ * ### linear() - Linear linear transformation
  * - `w` The binary weights word
  * - `x` The activation binaries word
  *
@@ -163,9 +163,9 @@ static int relu(int x) { return x * (x > 0); }
  *
  * `_x` and `_w` are both binary values thus  `_x ∗ _w` can be implemented with bitwise
  * operations. In each bit, the result of basic multiplication `_x × _w` is one of
- * three values {−1,0,1}.
+ * two values {−1,1}.
  * [Details](https://arxiv.org/pdf/1909.11366.pdf)
  *
  * Return the sum of the element wise multiplication.
  */
-#define forward(_w, _x) (popcount((_x) & (_w)) - popcount((_x) & ~(_w)))
+#define linear(_w, _x) (2 * popcount((_x) ^ (_w)) - NBITS((_x)))

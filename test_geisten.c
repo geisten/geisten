@@ -8,7 +8,7 @@
 
 TEST_INIT();
 
-#define ARRAY_LENGTH(_arr) sizeof((_arr)) / sizeof((_arr[0]))
+#define ARRAY_LENGTH(_arr) (sizeof((_arr)) / sizeof(((_arr)[0])))
 #define BIT_ARRAY_LEN(_n, _bits) (((_n)-1 + (_bits)) / (_bits))
 #define BIT_ARRAY_SIZE(_arr, _bits) (BIT_ARRAY_LEN(ARRAY_LENGTH(_arr), (_bits)))
 
@@ -27,19 +27,19 @@ TEST_INIT();
  * ```
  */
 static void binarize_i8(
-    uint32_t size, const int8_t x[size], uint8_t threshold,
+    uint32_t size, const int8_t x[size], const uint8_t threshold[size],
     unsigned long long result[(size / NBITS(unsigned long long)) + 1]) {
-    foreach_to(i, size) { binarize_at_pos(result, i, x, threshold); }
+    foreach_to(i, size) { binarize_at_pos(result, i, x, threshold[i]); }
 }
 
 #define BINARIZE(_input, _a, _words) \
-    foreach (i, _input) { binarize_at_pos((_words), i, (_input), (_a)); }
+    foreach (i, _input) { binarize_at_pos((_words), i, (_input), (_a)[i]); }
 
-#define FORWARD(_words, _w, _output)                         \
-    foreach_to(j, ARRAY_LENGTH(_output)) {                   \
-        foreach (i, (_words)) {                              \
-            (_output)[j] = forward((_w)[j][i], (_words)[i]); \
-        }                                                    \
+#define FORWARD(_words, _w, _output)                        \
+    foreach_to(j, ARRAY_LENGTH(_output)) {                  \
+        foreach (i, (_words)) {                             \
+            (_output)[j] = linear((_w)[j][i], (_words)[i]); \
+        }                                                   \
     }
 
 #define ACTIVATE(_array, _func, _output) \
@@ -77,8 +77,9 @@ static void test_binarization_det() {
                         0,  0,   0,    0, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0,  0,   0,    0, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     unsigned long long weights_b[1];
-    binarize_i8(ARRAY_LENGTH(weights), weights, 0, weights_b);
-    test(weights_b[0] == 34 && "Positions in bit array must binarized as expected");
+    binarize_i8(ARRAY_LENGTH(weights), weights, 1, weights_b);
+    test(weights_b[0] == 34 &&
+         "Positions in bit array must binarized as expected");
     test(BIT_ARRAY_SIZE(weights_demo, sizeof(weights_b[0]) * CHAR_BIT) == 2 &&
          "Array size must be 2");
 }
@@ -88,7 +89,7 @@ static void test_forward() {
     unsigned long long wb[][(ARRAY_LENGTH(input) / NBITS(unsigned long long) +
                              1)] = {{19}, {28}, {31}, {29}};
     const uint32_t OUTPUT_SIZE   = ARRAY_LENGTH(wb);
-    int8_t alpha                 = 2;
+    int8_t alpha[]               = {2, 2, 2, 2, 2};
     int y[OUTPUT_SIZE];
     unsigned long long
         input_bits[(ARRAY_LENGTH(input) / NBITS(unsigned long long) + 1)] = {0};

@@ -11,11 +11,17 @@ PREFIX ?= /usr/local
 MKDIR_P ?= mkdir -p
 RM ?= rm
 
-#--------------------------- DON'T change this part ----------------------------
+#--------------------------- Change the following variables to modify the project ----------------------------
 
-SOURCE =
-TESTS = test_geisten
-DOCS = geisten.h
+# List all the sources of you project, test programs and header files with documented functions
+SOURCE := $(wildcard *.c)
+SOURCE := $(filter-out $(wildcard test_*.c), $(SOURCE))
+TESTS := $(wildcard test_*.c)
+TESTS := $(basename $(TESTS))
+DOCS := $(wildcard *.h)
+DOCS := $(filter-out test.h, $(DOCS))
+
+#--------------------------------------- DON'T change this (static) part ----------------------------------------
 
 OBJ = $(SOURCE:.c=.o) $(addsuffix .o,$(TESTS))
 DEP = $(OBJ:.o=.d)

@@ -34,7 +34,7 @@ DESTDIR=/home/germar make install
 ```
 
 The _geisten_ library provides basic functions for creating a neural network. This allows the adaptation to a wide range
-of environments. In the following example, macros for binarizing and forward propagating of input data are described.
+of environments. In the following example, macros for binarizing and linear propagating of input data are described.
 These methods can be combined to describe these models in a separate application:
 
 ```c
@@ -44,7 +44,7 @@ These methods can be combined to describe these models in a separate application
 #define FORWARD(_words, _w, _output)                         \
     foreach_to(j, ARRAY_LENGTH(_output)) {                   \
         foreach (i, (_words)) {                              \
-            (_output)[j] = forward((_w)[j][i], (_words)[i]); \
+            (_output)[j] = linear((_w)[j][i], (_words)[i]); \
         }                                                    \
     }
 
