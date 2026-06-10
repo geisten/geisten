@@ -1,0 +1,85 @@
+# Contributing to geist
+
+Thanks for your interest! geist is a lean C23 inference runtime, and the most
+valuable contributions right now are in **NEON/AMX microkernels**, **low-bit
+quantization** (IQ/TQ/ternary), and **portability** (an AVX2/AVX-512 path for
+the x86 backend skeleton).
+
+## Ground rules
+
+- **Language/standard:** C23. The `src/` tree builds clean under
+  `-Wall -Wextra -Wpedantic -Werror -Wshadow -Wundef`. Keep it that way.
+- **No new runtime dependencies** without discussion. The point of geist is to
+  stay tiny; the only third-party code is the vendored `stb` image headers.
+- **Public API discipline:** `include/geist.h` carries per-symbol stability
+  tags. Don't break a `STABLE` symbol; new surface starts `EXPERIMENTAL`.
+- **License:** by contributing you agree your work is licensed under
+  [Apache-2.0](LICENSE).
+
+## Build
+
+```sh
+make                      # auto-detect target (mac-omp / mac / pi5 / linux)
+make TARGET=pi5           # cross/native Pi 5
+make MODE=debug           # -O0 -g
+make MODE=asan            # AddressSanitizer + UBSan — run before sending kernel changes
+make help                 # all options
+```
+
+Toolchain: Apple-clang ≥ 15 or gcc ≥ 13 (C23). On macOS, `brew install libomp`
+for the multi-threaded `mac-omp` target. On ARM64 Linux you need OpenBLAS and
+FFTW3 (`libopenblas-dev libfftw3-dev`).
+
+> x86 is **not supported yet** — the compute kernels are NEON-only and the
+> `src/backends/cpu_x86/` path is a policy skeleton. A vectorized x86 port is a
+> high-value contribution; `make TARGET=linux` on x86 fails fast with guidance.
+
+## Tests
+
+There is no test framework — each test is a `main()` and the **exit code** is
+the contract (see [tests/README.md](tests/README.md)).
+
+```sh
+make test            # unit + integration + python (auto-fetches the model if missing)
+make test-unit       # fast, kernel-level, no model needed
+make test FILTER=q3k # substring filter
+make MODE=asan test  # sanitizer pass
+```
+
+| Exit | Meaning |
+|------|---------|
+| 0    | PASS |
+| 77   | SKIPPED (precondition not met — no GGUF, wrong hardware) |
+| 99   | ERROR (harness broke) |
+| else | FAIL |
+
+New tests follow the `*_unit` / `*_int` / `*_e2e` naming convention and skip
+cleanly (exit 77) when their preconditions aren't met.
+
+## Benchmarks
+
+```sh
+make bench           # raw timing probes (bench_* binaries)
+make bench-small     # reproducible perf suite, records to BENCHMARK.md
+```
+
+See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for methodology and the
+quality/compare-ref procedures. **Never hand-edit recorded benchmark numbers** —
+regenerate them on the relevant hardware.
+
+## Formatting
+
+```sh
+make format          # rewrite in place (clang-format, .clang-format at root)
+make format-check    # verify only (CI runs this, advisory for now)
+```
+
+## Pull requests
+
+1. Branch from `main`.
+2. Keep changes focused; explain *why*, not just *what*.
+3. `make MODE=asan test` should pass (or document the skips).
+4. For kernel/perf changes, include before/after numbers and the host.
+5. One logical change per PR.
+
+Questions or design discussion: open an issue first for anything non-trivial.

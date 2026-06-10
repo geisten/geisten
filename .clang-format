@@ -1,0 +1,62 @@
+---
+# clang-format style for geist / gemma4_bringup.
+#
+# Project context: pure C23 inference/runtime code. clang-format parses C via
+# its C++ mode, so Language is intentionally Cpp even for .c/.h files.
+#
+# Normative code style beyond clang-format:
+# - Use C23 features deliberately: nullptr, static_assert, [[nodiscard]],
+#   designated initializers, and [static n] array contracts where they improve
+#   API clarity.
+# - Do not introduce `typedef struct ... Name;` aliases. Spell structs as
+#   `struct name` so ownership, incomplete types, and ABI surfaces stay visible.
+# - Keep hot-path code allocation-free and explicit about buffer/count pairs.
+
+BasedOnStyle: LLVM
+Language: Cpp
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+ContinuationIndentWidth: 8
+
+# Pointers bind to the pointee type: `float *x`.
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+# K&R-ish braces, no compact control-flow on one line.
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+# Keep declarations visually stable without column-aligning unrelated lines.
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignTrailingComments: true
+
+# Function signatures and calls should prefer readable wrapping over dense bins.
+BinPackArguments: false
+BinPackParameters: false
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+
+# C-style casts are rare; when present, keep a space after the cast.
+SpaceAfterCStyleCast: true
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpaceBeforeAssignmentOperators: true
+
+# Include order is often deliberate for internal layer guards.
+SortIncludes: Never
+IncludeBlocks: Preserve
+
+# Preprocessor indentation: preserve low-level readability in feature gates.
+IndentPPDirectives: None
+
+# Comments may be reflowed, but keep code generation and legal text untouched.
+ReflowComments: true

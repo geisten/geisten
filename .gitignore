@@ -1,0 +1,22 @@
+build/
+lib/
+bin/
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# Models are large (GBs) — fetched on demand via `make fetch-model`.
+gguf_artifacts/
+*.gguf
+*.safetensors
+*.part
+
+# Compiled example binaries.
+examples/simple_generate
+
+# Benchmark run artifacts and scratch outputs.
+bench_runs/
+*.npy
+summary.json
+module_tree.txt
+tokens_ref.txt

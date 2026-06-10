@@ -1,0 +1,349 @@
+/*
+ * eval_geist — REPL for benchmark evaluation against the geist v2 API.
+ *
+ * Loads the model ONCE and processes commands from stdin until EOF.
+ * Each command is one line, results are one line on stdout.
+ *
+ * Commands:
+ *   DECODE <n_prompt> <id0> <id1> ... <id_{n-1}> <n_decode>
+ *     -> "OK <n> <out0> <out1> ... <out_{n-1}>"  (greedy decoded tokens)
+ *
+ *   SCORE <n_prompt> <id0> ... <id_{n-1}> <n_cont> <c0> ... <c_{m-1}>
+ *     -> "OK <total_logprob> <lp0> <lp1> ... <lp_{m-1}>"
+ *     where lp_i = log p(c_i | prompt + c_0..c_{i-1})
+ *     Used for multiple-choice: score each option, pick max.
+ *
+ *   SCOREALT <n_prompt> <id0> ... <id_{n-1}> <n_alt> <a0> ... <a_{n-1}>
+ *     -> "OK <lp0> <lp1> ... <lp_{n-1}>"
+ *     Same prompt, K single-token candidates. Single prefill amortized.
+ *
+ *   RESET -> "OK"   (clears KV cache)
+ *   QUIT  -> exit
+ *
+ * Tokens are IDs (int32). The Python wrapper (tools/eval_runner.py)
+ * tokenizes via HF tokenizer for parity with reference implementations.
+ *
+ * Usage:
+ *   eval_geist <gguf> [--awq <scales.bin>]
+ */
+#include <geist.h>
+#include <geist_backend.h>
+
+#include <ctype.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* Read whitespace-separated int32 list of length n into out. */
+static int read_ids(int n, geist_token_t* out, char** cursor) {
+    for (int i = 0; i < n; i++) {
+        char* end;
+        long v = strtol(*cursor, &end, 10);
+        if (end == *cursor)
+            return -1;
+        out[i] = (geist_token_t) v;
+        *cursor = end;
+    }
+    return 0;
+}
+
+/* log_softmax then return log_p[token]. */
+static double logprob_at(const float* logits, size_t n_logits, geist_token_t token) {
+    float maxv = logits[0];
+    for (size_t i = 1; i < n_logits; i++)
+        if (logits[i] > maxv)
+            maxv = logits[i];
+    double sum = 0.0;
+    for (size_t i = 0; i < n_logits; i++)
+        sum += exp((double) (logits[i] - maxv));
+    return (double) (logits[token] - maxv) - log(sum);
+}
+
+static int cmd_decode(struct geist_session* s, char* args) {
+    char* p = args;
+    char* end;
+    long n_prompt = strtol(p, &end, 10);
+    if (end == p || n_prompt <= 0) {
+        puts("ERR bad n_prompt");
+        return -1;
+    }
+    p = end;
+
+    geist_token_t* ids = (geist_token_t*) malloc((size_t) n_prompt * sizeof(*ids));
+    if (read_ids((int) n_prompt, ids, &p) < 0) {
+        free(ids);
+        puts("ERR bad ids");
+        return -1;
+    }
+
+    long n_decode = strtol(p, &end, 10);
+    if (end == p || n_decode < 0) {
+        free(ids);
+        puts("ERR bad n_decode");
+        return -1;
+    }
+
+    if (geist_session_reset(s) != GEIST_OK ||
+        geist_session_prefill_tokens(s, (size_t) n_prompt, ids) != GEIST_OK) {
+        free(ids);
+        puts("ERR prefill failed");
+        return -1;
+    }
+    free(ids);
+
+    geist_token_t* out = (geist_token_t*) malloc((size_t) n_decode * sizeof(*out));
+    for (long i = 0; i < n_decode; i++) {
+        if (geist_session_decode_step(s, &out[i]) != GEIST_OK)
+            out[i] = -1;
+    }
+
+    fputs("OK ", stdout);
+    printf("%ld", n_decode);
+    for (long i = 0; i < n_decode; i++)
+        printf(" %d", (int) out[i]);
+    putchar('\n');
+    fflush(stdout);
+    free(out);
+    return 0;
+}
+
+/* SCOREALT — prefill prompt once, return log_p for each of K candidate
+ * single-token alternatives. Avoids re-prefilling the prompt N times for
+ * multi-choice scoring (MMLU). */
+static int cmd_scorealt(struct geist_session* s, char* args) {
+    char* p = args;
+    char* end;
+    long n_prompt = strtol(p, &end, 10);
+    if (end == p || n_prompt <= 0) {
+        puts("ERR bad n_prompt");
+        return -1;
+    }
+    p = end;
+
+    geist_token_t* ids = (geist_token_t*) malloc((size_t) n_prompt * sizeof(*ids));
+    if (read_ids((int) n_prompt, ids, &p) < 0) {
+        free(ids);
+        puts("ERR bad ids");
+        return -1;
+    }
+
+    long n_alt = strtol(p, &end, 10);
+    if (end == p || n_alt <= 0) {
+        free(ids);
+        puts("ERR bad n_alt");
+        return -1;
+    }
+    p = end;
+    geist_token_t* alts = (geist_token_t*) malloc((size_t) n_alt * sizeof(*alts));
+    if (read_ids((int) n_alt, alts, &p) < 0) {
+        free(ids);
+        free(alts);
+        puts("ERR bad alts");
+        return -1;
+    }
+
+    if (geist_session_reset(s) != GEIST_OK ||
+        geist_session_prefill_tokens(s, (size_t) n_prompt, ids) != GEIST_OK) {
+        free(ids);
+        free(alts);
+        puts("ERR prefill failed");
+        return -1;
+    }
+    free(ids);
+
+    size_t n_logits = 0;
+    const float* logits = geist_session_peek_logits(s, &n_logits);
+    if (logits == nullptr || n_logits == 0) {
+        free(alts);
+        puts("ERR no logits");
+        return -1;
+    }
+
+    /* Pre-compute log-sum-exp once. */
+    float maxv = logits[0];
+    for (size_t i = 1; i < n_logits; i++)
+        if (logits[i] > maxv)
+            maxv = logits[i];
+    double sum = 0.0;
+    for (size_t i = 0; i < n_logits; i++)
+        sum += exp((double) (logits[i] - maxv));
+    const double log_sum = log(sum);
+
+    fputs("OK", stdout);
+    for (long i = 0; i < n_alt; i++) {
+        const double lp = (double) (logits[alts[i]] - maxv) - log_sum;
+        printf(" %.6f", lp);
+    }
+    putchar('\n');
+    fflush(stdout);
+    free(alts);
+    return 0;
+}
+
+static int cmd_score(struct geist_session* s, char* args) {
+    char* p = args;
+    char* end;
+    long n_prompt = strtol(p, &end, 10);
+    if (end == p || n_prompt <= 0) {
+        puts("ERR bad n_prompt");
+        return -1;
+    }
+    p = end;
+
+    geist_token_t* ids = (geist_token_t*) malloc((size_t) n_prompt * sizeof(*ids));
+    if (read_ids((int) n_prompt, ids, &p) < 0) {
+        free(ids);
+        puts("ERR bad ids");
+        return -1;
+    }
+
+    long n_cont = strtol(p, &end, 10);
+    if (end == p || n_cont <= 0) {
+        free(ids);
+        puts("ERR bad n_cont");
+        return -1;
+    }
+    p = end;
+    geist_token_t* cont = (geist_token_t*) malloc((size_t) n_cont * sizeof(*cont));
+    if (read_ids((int) n_cont, cont, &p) < 0) {
+        free(ids);
+        free(cont);
+        puts("ERR bad cont");
+        return -1;
+    }
+
+    if (geist_session_reset(s) != GEIST_OK ||
+        geist_session_prefill_tokens(s, (size_t) n_prompt, ids) != GEIST_OK) {
+        free(ids);
+        free(cont);
+        puts("ERR prefill failed");
+        return -1;
+    }
+    free(ids);
+
+    double total_lp = 0.0;
+    double* per_tok = (double*) malloc((size_t) n_cont * sizeof(*per_tok));
+    for (long i = 0; i < n_cont; i++) {
+        size_t n_logits = 0;
+        const float* logits = geist_session_peek_logits(s, &n_logits);
+        if (logits == nullptr) {
+            free(cont);
+            free(per_tok);
+            puts("ERR no logits");
+            return -1;
+        }
+        per_tok[i] = logprob_at(logits, n_logits, cont[i]);
+        total_lp += per_tok[i];
+        /* Advance KV by feeding the actual continuation token, not the argmax. */
+        if (geist_session_prefill_tokens(s, 1, &cont[i]) != GEIST_OK) {
+            free(cont);
+            free(per_tok);
+            puts("ERR prefill 1 failed");
+            return -1;
+        }
+    }
+
+    fputs("OK ", stdout);
+    printf("%.6f", total_lp);
+    for (long i = 0; i < n_cont; i++)
+        printf(" %.6f", per_tok[i]);
+    putchar('\n');
+    fflush(stdout);
+    free(cont);
+    free(per_tok);
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    const char* gguf_path = nullptr;
+    const char* awq_path = nullptr;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--awq") == 0 && i + 1 < argc) {
+            awq_path = argv[++i];
+        } else if (gguf_path == nullptr) {
+            gguf_path = argv[i];
+        }
+    }
+    if (gguf_path == nullptr) {
+        fprintf(stderr, "Usage: %s <gguf> [--awq <scales.bin>]\n", argv[0]);
+        return 2;
+    }
+
+    struct geist_backend* be = nullptr;
+    enum geist_status s = geist_backend_create("auto", nullptr, nullptr, &be);
+    if (s != GEIST_OK) {
+        fprintf(stderr, "backend create failed: %s\n", geist_last_create_error());
+        return 1;
+    }
+
+    struct geist_model* model = nullptr;
+    s = geist_model_load(gguf_path, be, &model);
+    if (s != GEIST_OK) {
+        fprintf(stderr, "geist_model_load failed: %s\n", geist_last_create_error());
+        geist_backend_destroy(be);
+        return 1;
+    }
+
+    struct geist_session_opts opts = {
+            .temperature = 0.0f, /* greedy */
+            .awq_scales_path = awq_path,
+    };
+    struct geist_session* sess = nullptr;
+    s = geist_session_create(model, be, &opts, &sess);
+    if (s != GEIST_OK) {
+        fprintf(stderr, "geist_session_create failed\n");
+        geist_model_destroy(model);
+        geist_backend_destroy(be);
+        return 1;
+    }
+
+    fprintf(stderr, "READY\n");
+    fflush(stderr);
+    /* Also signal ready on stdout so subprocess wrapper can sync. */
+    puts("READY");
+    fflush(stdout);
+
+    char line[1 << 20]; /* 1 MB buffer for very long prompts */
+    while (fgets(line, sizeof(line), stdin)) {
+        size_t n = strlen(line);
+        while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
+            line[--n] = '\0';
+        if (n == 0)
+            continue;
+
+        char* cmd = line;
+        while (*cmd && isspace((unsigned char) *cmd))
+            cmd++;
+        char* args = cmd;
+        while (*args && !isspace((unsigned char) *args))
+            args++;
+        if (*args) {
+            *args = '\0';
+            args++;
+        }
+
+        if (strcmp(cmd, "DECODE") == 0)
+            cmd_decode(sess, args);
+        else if (strcmp(cmd, "SCORE") == 0)
+            cmd_score(sess, args);
+        else if (strcmp(cmd, "SCOREALT") == 0)
+            cmd_scorealt(sess, args);
+        else if (strcmp(cmd, "RESET") == 0) {
+            (void) geist_session_reset(sess);
+            puts("OK");
+            fflush(stdout);
+        } else if (strcmp(cmd, "QUIT") == 0)
+            break;
+        else {
+            printf("ERR unknown cmd '%s'\n", cmd);
+            fflush(stdout);
+        }
+    }
+
+    geist_session_destroy(sess);
+    geist_model_destroy(model);
+    geist_backend_destroy(be);
+    return 0;
+}

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build + unit tests (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runner: macos-14
+            target: mac-omp
+            cc: clang
+          - name: Linux arm64
+            runner: ubuntu-24.04-arm
+            target: linux
+            cc: gcc-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libomp
+
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-13 libopenblas-dev libfftw3-dev
+
+      - name: Build
+        run: make TARGET=${{ matrix.target }} CC=${{ matrix.cc }}
+
+      # Unit tests are hardware/kernel-level and do not need a GGUF model;
+      # AUTO_FETCH_MODEL=0 keeps the ~3 GB reference download out of CI.
+      - name: Unit tests
+        run: make test-unit TARGET=${{ matrix.target }} CC=${{ matrix.cc }} AUTO_FETCH_MODEL=0
+
+      - name: Build example
+        run: make -C examples TARGET=${{ matrix.target }} CC=${{ matrix.cc }}
+
+  format:
+    name: clang-format (advisory)
+    runs-on: ubuntu-latest
+    # Advisory only: surfaces formatting drift without blocking the badge.
+    # Flip to a hard gate once the tree is confirmed clang-format-clean.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+      - name: Check formatting
+        run: make format-check

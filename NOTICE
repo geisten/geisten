@@ -1,0 +1,18 @@
+geist
+Copyright 2026 geist contributors
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this software except in compliance with the License. A copy of the
+License is provided in the LICENSE file and at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+------------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------------
+
+This product bundles the following third-party software in third_party/:
+
+  stb_image.h, stb_image_resize2.h (Sean Barrett, et al.)
+    Public domain (or MIT at your option). See the headers for details.
+    https://github.com/nothings/stb

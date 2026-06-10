@@ -1,0 +1,109 @@
+# geist Test-Suite
+
+Tests live in `tests/` and are built as standalone binaries via the root
+Makefile. Each test is its own `main()`. There is no test framework — the
+contract is purely the **exit code** plus optional stdout output.
+
+## Running Tests
+
+```sh
+make test          # all unit + integration tests (excludes _e2e)
+make test-unit     # only fast kernel-level tests (suffix _unit)
+make test-int      # only multi-module integration tests (suffix _int)
+make test-e2e      # only end-to-end tests (suffix _e2e — slow, may need GGUF)
+make test-all      # unit + int + e2e
+
+# Filtering
+make test FILTER=q3k       # only tests whose name contains "q3k"
+make test FILTER=audio     # only audio-related tests
+
+# With sanitizers
+make MODE=asan test
+```
+
+## Exit-Code Convention (automake-compatible)
+
+| Code | Meaning |
+|------|---------|
+| 0    | PASS — test verified the behavior |
+| 77   | SKIPPED — pre-condition not met (no GGUF, wrong hardware, etc.) |
+| 99   | ERROR — test harness broke (allocation failed, missing dep) |
+| other| FAIL — assertion or comparison failed |
+
+stdout is informational. The exit code is authoritative.
+
+## Test-Naming Convention
+
+| Suffix       | Speed | Scope | Example |
+|--------------|-------|-------|---------|
+| `_unit`      | <1s   | one kernel/function | `test_q3k_unit.c` |
+| `_int`       | <30s  | several modules together | `test_attention_int.c` |
+| `_e2e`       | minutes | full LM forward, GGUF-bound | `test_chat_audio_e2e.c` |
+
+Bench-style timing probes (no pass/fail) live alongside as `bench_*.c` and
+are run via `make bench` rather than the test runner.
+
+## Helpers
+
+`tests/test_helpers.h` provides:
+
+- Exit-code constants: `GEIST_TEST_PASS`, `GEIST_TEST_FAIL`, `GEIST_TEST_SKIP`, `GEIST_TEST_ERROR`
+- `GEIST_SKIP("reason")` — emit reason + exit 77
+- `GEIST_SKIP_IF(cond, "reason")` — conditional skip
+- `GEIST_REQUIRE_GGUF(var)` — declare `const char* var = geist_test_find_gguf()` and skip if not found
+- `geist_fp32_close(a, b, rtol, atol)` — combined rel+abs tolerance
+- `geist_fp32_close_array(a, b, n, rtol, atol)` — vector variant; returns first-failing index or -1
+
+Recommended tolerances:
+
+| Pfad                  | rtol  | atol |
+|-----------------------|-------|------|
+| FP32-FP32 reference   | 1e-5  | 1e-7 |
+| Quantized W3A8/W4A8   | 1e-3  | 1e-2 |
+
+## Environment Variables
+
+| Var                | Effect |
+|--------------------|--------|
+| `GEIST_GGUF_PATH`  | Override GGUF search; tests skip cleanly if file is missing. |
+
+## Writing a New Test
+
+```c
+#include "test_helpers.h"
+
+int main(int argc, char** argv) {
+    /* Optional: skip on wrong hardware */
+    #if !defined(__ARM_NEON)
+    GEIST_SKIP("requires NEON");
+    #endif
+
+    /* Optional: skip if GGUF needed */
+    GEIST_REQUIRE_GGUF(model_path);
+
+    /* ... do the test ... */
+
+    if (some_failure) {
+        fprintf(stderr, "expected X, got Y\n");
+        return GEIST_TEST_FAIL;
+    }
+    return GEIST_TEST_PASS;
+}
+```
+
+## Migration Status
+
+- [x] Phase E-1: Test infrastructure (this README, `mk/run-tests.sh`, `make test*`).
+- [x] Phase E-2: Triage 34 existing tests into HALTEN/STREICHEN/DEFER.
+      See `tests/migration-plan.md`.
+- [x] Phase E-3: No-op (triage correction — no STREICHEN candidates were
+      actually redundant).
+- [x] Phase E-4: 21 HALTEN tests renamed with `_unit`/`_int` suffix;
+      missing-args now SKIP (exit 77) instead of FAIL.
+- [x] Phase E-5: 7 DEFER tests marked `_legacy` (excluded from default
+      `make test`); benches separated into `make bench`.
+- [x] Phase B-6.a: The 7 `_legacy` tests deleted along with the pre-v2
+      `lm.c` they exercised. Equivalent regression coverage comes from
+      `test_session_lifecycle_int`, `test_state_{decode,weights,layer_fwd}_int`,
+      `test_speculative_{primitives,loop}_int`, `test_iq_kernel_int`,
+      `test_llama_e2e_int`, and `test_audio_attach_int`.
