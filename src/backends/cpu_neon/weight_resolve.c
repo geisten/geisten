@@ -111,6 +111,9 @@ static void cpu_neon_w_q3k_m1(const float *x, const struct geist_weight *w, stru
 
 static void cpu_neon_w_q4k_m1(const float *x, const struct geist_weight *w, struct geist_backend *be, float *y) {
     (void) be;
+    /* The raw SDOT decode GEMV beats the predecoded-block path here: the latter
+     * re-quantizes + allocates per call and its m=1 form is a GEMM kernel, not a
+     * tuned GEMV (measured ~21 vs ~33 tg128 on M1 Max). Keep raw. */
     linear_q4k_decode_w4a8(x, w->raw, (size_t) w->n_in, (size_t) w->n_out, y);
 }
 

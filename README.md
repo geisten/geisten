@@ -53,14 +53,16 @@ binding every tensor to a specialized kernel at load time.
 
 | Engine (M1 Max, CPU, Gemma 4 E2B Q4_K_M) | Prefill pp512 | Decode tg128 |
 | :--- | :---: | :---: |
-| llama.cpp `-ngl 0` (b9430, BLAS) | 137 t/s | 35.4 t/s |
-| **geist** | **143 t/s** (1.04×) | 33 t/s (0.93×) |
+| llama.cpp `-ngl 0` (b9430, BLAS) | 152 t/s | 39 t/s |
+| **geist** | **156 t/s** (1.02×) | 32 t/s (0.82×) |
 
-*Measured June 2026 on Apple M1 Max (8 P-cores), `llama.cpp` build `d48a56eff`
-(9430), both CPU-only on the identical GGUF. geist auto-pins prefill to the
-P-cores and decode to P-cores−1. Decode is within ~7% and actively being
-closed. See [BENCHMARK.md](BENCHMARK.md) for the full methodology and how to
-reproduce on your hardware.*
+*Measured June 2026 on a quiesced Apple M1 Max (8 P-cores), `llama.cpp` build
+`d48a56eff` (9430), both CPU-only on the identical GGUF, each at its best thread
+count. geist leads on prompt processing by auto-pinning to the performance cores
+(the efficiency cores stall a static OpenMP schedule — this alone moved pp512
+from 91 → 156 t/s). Decode is ~0.82× and bounded by the maturity of the Q4_K
+decode GEMV (94% of decode time) vs llama.cpp's long-tuned kernel; closing it is
+tracked work. See [BENCHMARK.md](BENCHMARK.md) to reproduce on your hardware.*
 
 ### Raspberry Pi 5 (Cortex-A76) — the edge target, iso-model & iso-quality
 

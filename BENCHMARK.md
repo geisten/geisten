@@ -47,9 +47,16 @@ engine at its best thread count; `pp512` = prompt-processing throughput,
 
 | Engine | pp512 (t/s) | tg128 (t/s) |
 | :--- | :---: | :---: |
-| llama.cpp `-ngl 0`, best of t∈{6,7,8} | 137 | 35.4 |
-| **geist** (P-core pinned) | **143** | 33 |
-| ratio (geist / llama.cpp) | **1.04×** | 0.93× |
+| llama.cpp `-ngl 0`, t=8 | 152 | 39 |
+| **geist** (P-core pinned, best-of-8) | **156** | 32 |
+| ratio (geist / llama.cpp) | **1.02×** | 0.82× |
+
+*Quiesced machine. Numbers shift under background load (an unloaded llama.cpp
+decode runs ~39 t/s vs ~35 under load), so measure both back-to-back in the same
+state. geist's decode does not yet match: 94% of decode time is the Q4_K SDOT
+GEMV, and matching llama.cpp's years-tuned `vec_dot_q4_K_q8_K` is open kernel
+work. Threading, gate/up fusion, and predecoded-block decode were explored;
+predecode was slower for m=1, so the raw SDOT path is kept.*
 
 Reproduce:
 
