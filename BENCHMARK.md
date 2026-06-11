@@ -131,7 +131,13 @@ base-completion eval it sidesteps the chat-template parity question entirely.
 The harness is verified: on the embedded smoke sample it scores 0/5 at
 `--shots 0` (small models collapse to a position bias — always "A") and **5/5**
 at `--shots 5`, confirming the scorer is correct and that few-shot is what
-matters. A representative cross-subject run:
+matters.
+
+**Measured:** Gemma 4 E2B-it Q4_K_M on a 200-question shuffled cross-subject
+sample (50 subjects, 5-shot, seed 1234) scores **MMLU 0.445** (89/200) — well
+above the 0.25 random-chance baseline, in line with expectations for a model
+this size. Reproduce with `make bench-mmlu` (or `MMLU_LIMIT=0` for the full
+set). A representative cross-subject run:
 
 ```sh
 pip install datasets
