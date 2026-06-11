@@ -55,8 +55,21 @@ engine at its best thread count; `pp512` = prompt-processing throughput,
 decode runs ~39 t/s vs ~35 under load), so measure both back-to-back in the same
 state. geist's decode does not yet match: 94% of decode time is the Q4_K SDOT
 GEMV, and matching llama.cpp's years-tuned `vec_dot_q4_K_q8_K` is open kernel
-work. Threading, gate/up fusion, and predecoded-block decode were explored;
-predecode was slower for m=1, so the raw SDOT path is kept.*
+work.*
+
+**Decode-kernel investigation (negative results, for whoever picks this up).**
+The single-row Q4_K decode GEMV measures ~17 GB/s/core single-threaded — well
+below M1 single-core memory bandwidth, so it is **compute-bound per thread**;
+the full 8-thread decode then runs ~93 GB/s aggregate vs llama.cpp's ~113, i.e.
+roughly memory-bandwidth-bound at the top. Things tried that did **not** close
+the gap: (1) four independent int32 accumulators to break the per-super-block
+`vmlaq` dependency chain — bit-exact but throughput-neutral, so the kernel is
+*not* latency-bound; (2) routing decode through the predecoded-block layout —
+slower for m=1 (re-quantize + per-call alloc, GEMM-shaped kernel); (3) more
+decode threads (7≈8≈parity). `fp16_to_fp32` is already a hardware `vcvt`.
+gate/up are already fused via the pair kernel. The remaining gap appears to be
+micro-architectural (instruction selection / scalar-SIMD overlap in the scale
+unpack), not algorithmic.
 
 Reproduce:
 
