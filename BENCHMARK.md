@@ -76,9 +76,28 @@ Both the ILP and the scalar-vectorization experiments being neutral points to
 the same conclusion: the kernel is **SIMD-throughput-bound at the `vdotq` floor**
 (256 4-bit weights / 16 int8-MACs-per-`vdotq` = 16 `vdotq`/super-block, the
 hard minimum — llama.cpp's `vec_dot_q4_K_q8_K` has the same floor). The decode
-GEMV is therefore already near-optimal for the NEON ISA; closing the last ~18%
-to llama.cpp would need a different strategy (e.g. an i8mm/SMMLA path, which only
-applies to m≥2 batched decode, not single-token tg), not a micro-tweak.
+GEMV is therefore already near-optimal for the NEON ISA.
+
+**`i8mm`/SMMLA is not an option on M1.** The one ISA-level lever that could beat
+the SDOT floor — `SMMLA` int8 matrix-multiply (~2× `SDOT` throughput) — requires
+`FEAT_I8MM` (ARMv8.6). M1/M1 Max report `hw.optional.arm.FEAT_I8MM = 0` (it
+arrived with M2). And SMMLA only helps m≥2 anyway, i.e. batched/speculative
+decode, not single-token `tg`. Apple AMX (via Accelerate) is fp32/fp16-only, so
+using it for a quantized weight would mean dequantizing — fatal for a
+bandwidth-bound decode. So on M1 there is no verifiable path past the SDOT floor.
+
+**The 8-bit (Q8_0 W8A8) engine is *slower* on Mac, not faster.** The Q8_0 decode
+kernel is much simpler than Q4_K (one fp16 scale + two `SDOT` per 32-block; no
+nibble unpack, no 8 sub-scale extractions, no per-dot `vmlaq`), and indeed runs
+at ~31 GB/s/core vs Q4_K's ~17 single-threaded. But decode is
+**memory-bandwidth-bound**, and Q8_0 stores ~1.06 B/weight vs Q4_K's ~0.56
+(~1.9×). Measured on the 1536×262144 lm_head GEMV at 7 threads: Q4_K 2.4 ms
+(95 GB/s) vs Q8_0 4.0 ms (108 GB/s) → **Q8_0 is 1.66× slower**. What matters at
+the bandwidth ceiling is weights/s = GB/s ÷ bytes-per-weight: Q4_K 169 G/s vs
+Q8_0 102 G/s. Fewer bits wins. The W8A8 engine exists for *natively* Q8_0 models
+(where you want 8-bit accuracy), not as an accelerator for a Q4_K model — and on
+the lower-bandwidth Pi 5 (LPDDR4X) the byte penalty is even worse. **Q4_K is
+already the bandwidth-optimal format for CPU decode.**
 
 Reproduce:
 
