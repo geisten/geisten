@@ -66,10 +66,19 @@ the gap: (1) four independent int32 accumulators to break the per-super-block
 `vmlaq` dependency chain — bit-exact but throughput-neutral, so the kernel is
 *not* latency-bound; (2) routing decode through the predecoded-block layout —
 slower for m=1 (re-quantize + per-call alloc, GEMM-shaped kernel); (3) more
-decode threads (7≈8≈parity). `fp16_to_fp32` is already a hardware `vcvt`.
-gate/up are already fused via the pair kernel. The remaining gap appears to be
-micro-architectural (instruction selection / scalar-SIMD overlap in the scale
-unpack), not algorithmic.
+decode threads (7≈8≈parity); (4) vectorizing the eight 6-bit scale/min unpacks
+(get_scale_min_k4 ×8) into ~14 NEON ops — bit-exact (verified over 2M random
+inputs) but throughput-neutral, so the kernel is *not* scalar-unpack-bound
+either. `fp16_to_fp32` is already a hardware `vcvt`; gate/up are already fused
+via the pair kernel.
+
+Both the ILP and the scalar-vectorization experiments being neutral points to
+the same conclusion: the kernel is **SIMD-throughput-bound at the `vdotq` floor**
+(256 4-bit weights / 16 int8-MACs-per-`vdotq` = 16 `vdotq`/super-block, the
+hard minimum — llama.cpp's `vec_dot_q4_K_q8_K` has the same floor). The decode
+GEMV is therefore already near-optimal for the NEON ISA; closing the last ~18%
+to llama.cpp would need a different strategy (e.g. an i8mm/SMMLA path, which only
+applies to m≥2 batched decode, not single-token tg), not a micro-tweak.
 
 Reproduce:
 
