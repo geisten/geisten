@@ -71,7 +71,35 @@ per-token logits with `eval_geist`'s `SCORE` command over a held-out corpus and
 compare distributions; this harness is documented here rather than wired into
 `make` because it depends on external datasets.
 
-### Known limitation: Gemma 4 E2B quality ranking is not yet trustworthy
+### MMLU accuracy (self-contained, `make bench-mmlu`)
+
+`tools/eval_mmlu.py` measures MMLU accuracy through the `eval_geist` REPL,
+tokenizing with the model's **own** GGUF tokenizer (the `TOK` command) — so
+there is no external HF-tokenizer dependency and no risk of a tokenizer mismatch
+between scoring and the model. It uses the standard log-likelihood **cloze**:
+build the 5-shot prompt, then score the next-token log-prob of " A"/" B"/" C"/
+" D" (each a single token in the Gemma vocab) in one `SCORE`-style prefill and
+take the argmax. This is a **base-completion** eval (no chat template), which is
+how MMLU is conventionally run, so it sidesteps the chat-template parity
+question entirely.
+
+```sh
+pip install datasets
+make bench-mmlu                       # 200 shuffled questions, 5-shot
+make bench-mmlu MMLU_LIMIT=0          # full ~14k-question set
+# or directly, incl. a no-dataset smoke test:
+python3 tools/eval_mmlu.py --bin bin/<target>/release/eval_geist \
+    --gguf model.gguf --selftest --verbose     # embedded sample
+python3 tools/eval_mmlu.py --bin ... --gguf model.gguf --hf --shuffle --limit 200
+```
+
+Few-shot matters: MMLU is conventionally 5-shot. Zero-shot, a small model
+collapses to a position bias (always "A") — the harness reproduces this (0/5 on
+the embedded sample at `--shots 0`, 5/5 at `--shots 5`), which is a property of
+the model, not the scorer. This gives a real **absolute** MMLU number for geist;
+a cross-*engine* MMLU/PPL ranking still needs matched conditions (below).
+
+### Known limitation: cross-engine Gemma 4 E2B PPL ranking
 
 `make bench-quality-*` is deliberately stubbed (prints guidance, exits 0).
 A *quality ranking* (MMLU/PPL/KL) requires logprob-identical conditions on both

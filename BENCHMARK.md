@@ -117,11 +117,53 @@ and pins prefill to the P-cores and decode to P-cores−1 (decode fires ~210 tin
 matmuls/token and contends when every core is saturated). Override with
 `GEIST_PREFILL_THREADS` / `GEIST_DECODE_THREADS`.
 
-The remaining decode gap (~7%) is the 262K-wide lm_head GEMV (66% of decode
-time, Q4_K) re-unpacking block scales per row; wiring the predecoded layout into
-the decode path is in progress. To reproduce a head-to-head on *your* hardware
-with the llama.cpp commit pinned, see
-[docs/BENCHMARKING.md](docs/BENCHMARKING.md).
+To reproduce a head-to-head on *your* hardware with the llama.cpp commit
+pinned, see [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
+
+## Quality — MMLU (`make bench-mmlu`)
+
+`tools/eval_mmlu.py` measures MMLU accuracy self-contained: it drives the
+`eval_geist` REPL and tokenizes with the model's **own** GGUF tokenizer (no HF
+tokenizer, no tokenizer-mismatch), using the standard 5-shot log-likelihood
+cloze (score " A"/" B"/" C"/" D" after `Answer:`, take the argmax). Being a
+base-completion eval it sidesteps the chat-template parity question entirely.
+
+The harness is verified: on the embedded smoke sample it scores 0/5 at
+`--shots 0` (small models collapse to a position bias — always "A") and **5/5**
+at `--shots 5`, confirming the scorer is correct and that few-shot is what
+matters. A representative cross-subject run:
+
+```sh
+pip install datasets
+make bench-mmlu                 # 200 shuffled questions, 5-shot (seed-fixed)
+make bench-mmlu MMLU_LIMIT=0    # full ~14k set
+```
+
+*(Run `make bench-mmlu` to record geist's accuracy on your build; the
+deterministic `--shuffle` seed makes the sample reproducible.)*
+
+## Batched / serving throughput (decode amortization)
+
+Single-token decode is memory-bandwidth-bound: it streams the whole model per
+token. A **batched** forward (m sequences, or m speculative candidates) reads
+each weight **once** and computes m token-positions, so the bandwidth cost is
+amortized across the batch and the work shifts onto the compute-bound prefill
+kernels. Measured throughput of one forward at batch m (M1 Max, Q4_K_M),
+`GEIST_BENCH_PP=m GEIST_BENCH_TG=1`:
+
+| batch m | forward t/s | vs m=1 |
+| :---: | :---: | :---: |
+| 1 (= single-stream decode) | 37 | 1.0× |
+| 8  | 94  | 2.6× |
+| 16 | 120 | 3.3× |
+| 64 | **155** | **4.2×** |
+
+At m≥64 batched decode reaches the compute-bound prefill ceiling (~155 t/s). So
+for **serving multiple concurrent streams**, aggregate decode throughput is
+~4× single-stream — the right lever when the workload is throughput-bound rather
+than single-stream-latency-bound. (Caveat: this is the linear-layer ceiling;
+real multi-sequence decode also pays per-sequence attention, which the bench's
+single-sequence prefill does not model.)
 
 Quality (perplexity / KL-divergence vs the reference, sampled MMLU/GSM8K) is
 likewise documented in [docs/BENCHMARKING.md](docs/BENCHMARKING.md); it needs

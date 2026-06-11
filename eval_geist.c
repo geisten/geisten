@@ -256,6 +256,41 @@ static int cmd_score(struct geist_session* s, char* args) {
     return 0;
 }
 
+/* TOK <text> -> "OK <n> <id0> ... <id_{n-1}>"
+ * Tokenize text with the model's own GGUF tokenizer. Lets evaluation
+ * harnesses (e.g. MMLU) stay self-contained — no external HF tokenizer, and no
+ * tokenizer-mismatch risk between scoring and the model's vocabulary. */
+static int cmd_tok(struct geist_session* s, const char* text) {
+    enum { TOK_CAP = 8192 };
+    static geist_token_t out[TOK_CAP];
+    /* The REPL is line-oriented, but MMLU-style prompts are multi-line. Accept
+     * \n / \t / \\ escapes so the caller can pass a whole prompt on one line. */
+    static char unesc[1 << 16];
+    size_t w = 0;
+    for (const char* p = text; *p && w + 1 < sizeof unesc; p++) {
+        if (*p == '\\' && p[1]) {
+            p++;
+            unesc[w++] = (*p == 'n') ? '\n' : (*p == 't') ? '\t' : *p;
+        } else {
+            unesc[w++] = *p;
+        }
+    }
+    unesc[w] = '\0';
+    size_t n = 0;
+    enum geist_status st = geist_session_tokenize(s, unesc, TOK_CAP, out, &n);
+    if (st != GEIST_OK) {
+        printf("ERR tokenize %s\n", geist_status_to_string(st));
+        fflush(stdout);
+        return -1;
+    }
+    printf("OK %zu", n);
+    for (size_t i = 0; i < n; i++)
+        printf(" %d", (int) out[i]);
+    putchar('\n');
+    fflush(stdout);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     const char* gguf_path = nullptr;
     const char* awq_path = nullptr;
@@ -330,6 +365,8 @@ int main(int argc, char** argv) {
             cmd_score(sess, args);
         else if (strcmp(cmd, "SCOREALT") == 0)
             cmd_scorealt(sess, args);
+        else if (strcmp(cmd, "TOK") == 0)
+            cmd_tok(sess, args);
         else if (strcmp(cmd, "RESET") == 0) {
             (void) geist_session_reset(sess);
             puts("OK");

@@ -22,7 +22,7 @@ TARGET ?= $(shell mk/detect-target.sh)
 MODE   ?= release
 
 # Phony targets — do not match files.
-.PHONY: all lib bin clean distclean help test test-unit test-int test-e2e test-all test-py fetch-model bench bench-small bench-detailed bench-quality-small bench-quality-detailed bench-compare-ref format format-check
+.PHONY: all lib bin clean distclean help test test-unit test-int test-e2e test-all test-py fetch-model bench bench-small bench-detailed bench-quality-small bench-quality-detailed bench-compare-ref bench-mmlu format format-check
 
 # Default goal.
 all: lib bin
@@ -192,6 +192,19 @@ bench-compare-ref: bin
 	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
 	  --benchmark-md BENCHMARK.md --record
 
+# Quality: MMLU accuracy via the self-contained tools/eval_mmlu.py harness
+# (drives the eval_geist REPL, tokenizes with the model's OWN GGUF tokenizer —
+# no external HF tokenizer, no chat-template parity issue; 5-shot base-completion
+# cloze). Needs `pip install datasets` for the real cais/mmlu set. Override
+# MMLU_LIMIT/MMLU_SHOTS; MMLU_LIMIT=0 runs the full ~14k-question set.
+MMLU_LIMIT ?= 200
+MMLU_SHOTS ?= 5
+bench-mmlu: bin $(MODEL_PREREQ)
+	@$(GGUF_ENV) OMP_WAIT_POLICY=active python3 tools/eval_mmlu.py \
+	  --bin $(BIN_DIR)/eval_geist \
+	  --gguf "$${GEIST_GGUF_PATH:-$(abspath $(MODEL_PATH))}" \
+	  --hf --shuffle --limit $(MMLU_LIMIT) --shots $(MMLU_SHOTS)
+
 # Cleanup.
 clean:
 	@rm -rf build/$(TARGET)/$(MODE) lib/$(TARGET)/$(MODE) bin/$(TARGET)/$(MODE)
@@ -240,6 +253,8 @@ help:
 	@echo "  make bench-quality-small     short PPL/KL quality suite + records"
 	@echo "  make bench-quality-detailed  PPL + sampled MMLU/GSM8K quality suite"
 	@echo "  make bench-compare-ref       geist vs reference perf/KL; set BENCH_REF_*"
+	@echo "  make bench-mmlu              MMLU accuracy (5-shot cloze; needs 'pip install datasets')"
+	@echo "  make bench-mmlu MMLU_LIMIT=0 full ~14k-question MMLU set"
 	@echo "  make clean                   remove current TARGET/MODE artifacts"
 	@echo "  make distclean               remove all artifacts"
 	@echo "  make format                  rewrite all sources via clang-format"
