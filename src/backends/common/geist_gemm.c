@@ -102,44 +102,82 @@ static void geist_sgemm_impl(int transA, int transB, int M, int N, int K,
                  float beta, float *C, int ldc) {
 #if defined(__ARM_NEON)
     if (transA == GEIST_OP_N && transB == GEIST_OP_T && beta == 0.0f) {
-        /* C[M,N] = alpha * A[M,K] * B[N,K]^T. Both A-rows and B-rows are
-         * K-contiguous; block N by 4 so each A-row K-vector feeds 4 B-rows. */
+        /* C[M,N] = alpha * A[M,K] * B[N,K]^T (the y = x*W^T pattern). 4x4
+         * register-blocked microkernel: a 4-row x 4-col C-tile is held in 16
+         * accumulators, so each B-row K-vector is reused across 4 A-rows (and
+         * vice versa) — 4x less weight traffic than a 1-row sweep, which on
+         * the big model_proj GEMM (B re-read once per token otherwise) is the
+         * difference between ~6x and ~1.5x off OpenBLAS. Edges handled scalar-
+         * vectorized. */
         const int Kv = K & ~3;
-        for (int i = 0; i < M; i++) {
+        int i = 0;
+        for (; i + 4 <= M; i += 4) {
+            const float *Ap[4] = { A + (size_t)(i+0)*lda, A + (size_t)(i+1)*lda,
+                                   A + (size_t)(i+2)*lda, A + (size_t)(i+3)*lda };
+            float *Cp[4] = { C + (size_t)(i+0)*ldc, C + (size_t)(i+1)*ldc,
+                             C + (size_t)(i+2)*ldc, C + (size_t)(i+3)*ldc };
+            int j = 0;
+            for (; j + 4 <= N; j += 4) {
+                const float *Bp[4] = { B + (size_t)(j+0)*ldb, B + (size_t)(j+1)*ldb,
+                                       B + (size_t)(j+2)*ldb, B + (size_t)(j+3)*ldb };
+                float32x4_t c[4][4];
+                for (int ii = 0; ii < 4; ii++)
+                    for (int jj = 0; jj < 4; jj++) c[ii][jj] = vdupq_n_f32(0);
+                for (int k = 0; k < Kv; k += 4) {
+                    float32x4_t av[4], bv[4];
+                    for (int ii = 0; ii < 4; ii++) av[ii] = vld1q_f32(Ap[ii] + k);
+                    for (int jj = 0; jj < 4; jj++) bv[jj] = vld1q_f32(Bp[jj] + k);
+                    for (int ii = 0; ii < 4; ii++)
+                        for (int jj = 0; jj < 4; jj++)
+                            c[ii][jj] = vfmaq_f32(c[ii][jj], av[ii], bv[jj]);
+                }
+                for (int ii = 0; ii < 4; ii++)
+                    for (int jj = 0; jj < 4; jj++) {
+                        float r = vaddvq_f32(c[ii][jj]);
+                        for (int k = Kv; k < K; k++) r += Ap[ii][k] * Bp[jj][k];
+                        Cp[ii][j + jj] = alpha * r;
+                    }
+            }
+            for (; j < N; j++) { /* N-edge: 4 A-rows x 1 B-row */
+                const float *Bj = B + (size_t) j * ldb;
+                float32x4_t cc[4] = { vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0) };
+                for (int k = 0; k < Kv; k += 4) {
+                    const float32x4_t bv = vld1q_f32(Bj + k);
+                    for (int ii = 0; ii < 4; ii++) cc[ii] = vfmaq_f32(cc[ii], vld1q_f32(Ap[ii] + k), bv);
+                }
+                for (int ii = 0; ii < 4; ii++) {
+                    float r = vaddvq_f32(cc[ii]);
+                    for (int k = Kv; k < K; k++) r += Ap[ii][k] * Bj[k];
+                    Cp[ii][j] = alpha * r;
+                }
+            }
+        }
+        for (; i < M; i++) { /* M-edge: 1 A-row, block N by 4 */
             const float *Ai = A + (size_t) i * lda;
             float *Ci = C + (size_t) i * ldc;
             int j = 0;
             for (; j + 4 <= N; j += 4) {
-                const float *B0 = B + (size_t) (j + 0) * ldb;
-                const float *B1 = B + (size_t) (j + 1) * ldb;
-                const float *B2 = B + (size_t) (j + 2) * ldb;
-                const float *B3 = B + (size_t) (j + 3) * ldb;
-                float32x4_t a0 = vdupq_n_f32(0), a1 = vdupq_n_f32(0);
-                float32x4_t a2 = vdupq_n_f32(0), a3 = vdupq_n_f32(0);
+                const float *Bp[4] = { B + (size_t)(j+0)*ldb, B + (size_t)(j+1)*ldb,
+                                       B + (size_t)(j+2)*ldb, B + (size_t)(j+3)*ldb };
+                float32x4_t cc[4] = { vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0) };
                 for (int k = 0; k < Kv; k += 4) {
                     const float32x4_t av = vld1q_f32(Ai + k);
-                    a0 = vfmaq_f32(a0, av, vld1q_f32(B0 + k));
-                    a1 = vfmaq_f32(a1, av, vld1q_f32(B1 + k));
-                    a2 = vfmaq_f32(a2, av, vld1q_f32(B2 + k));
-                    a3 = vfmaq_f32(a3, av, vld1q_f32(B3 + k));
+                    for (int jj = 0; jj < 4; jj++) cc[jj] = vfmaq_f32(cc[jj], av, vld1q_f32(Bp[jj] + k));
                 }
-                float c0 = vaddvq_f32(a0), c1 = vaddvq_f32(a1);
-                float c2 = vaddvq_f32(a2), c3 = vaddvq_f32(a3);
-                for (int k = Kv; k < K; k++) {
-                    const float a = Ai[k];
-                    c0 += a * B0[k]; c1 += a * B1[k]; c2 += a * B2[k]; c3 += a * B3[k];
+                for (int jj = 0; jj < 4; jj++) {
+                    float r = vaddvq_f32(cc[jj]);
+                    for (int k = Kv; k < K; k++) r += Ai[k] * Bp[jj][k];
+                    Ci[j + jj] = alpha * r;
                 }
-                Ci[j + 0] = alpha * c0; Ci[j + 1] = alpha * c1;
-                Ci[j + 2] = alpha * c2; Ci[j + 3] = alpha * c3;
             }
             for (; j < N; j++) {
                 const float *Bj = B + (size_t) j * ldb;
                 float32x4_t a = vdupq_n_f32(0);
                 int k = 0;
                 for (; k < Kv; k += 4) a = vfmaq_f32(a, vld1q_f32(Ai + k), vld1q_f32(Bj + k));
-                float c = vaddvq_f32(a);
-                for (; k < K; k++) c += Ai[k] * Bj[k];
-                Ci[j] = alpha * c;
+                float r = vaddvq_f32(a);
+                for (; k < K; k++) r += Ai[k] * Bj[k];
+                Ci[j] = alpha * r;
             }
         }
         return;
