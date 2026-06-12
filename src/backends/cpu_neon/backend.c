@@ -342,13 +342,13 @@ static int apple_perf_cores(void) { return 0; }
  * the adjustment (0): GEIST_PREFILL_THREADS, GEIST_DECODE_THREADS. */
 static int cpu_neon_region_thread_count(enum geist_parallel_region region) {
     if (region == GEIST_REGION_PREFILL_BATCH) {
-        /* Prefill is COMPUTE-bound (matmul) and scales with cores, but
-         * saturating *every* core makes the static OMP schedule contend with
-         * the OS / OMP master and regress. Two distinct heterogeneity effects:
-         *   - Apple: exclude the slow E-cores → use the P-core count.
-         *     M1 Max pp512: 91 → 145 tps once E-cores drop.
-         *   - Pi 5: 4 identical A76 cores, but leave one for the OS/master.
-         *     Measured pp256: 2t 17.2, 3t 24.1, 4t 10.9 tps — 3 wins clearly. */
+        /* Prefill is COMPUTE-bound (matmul) and scales ~linearly with cores, so
+         * use them all — except on Apple, where the slow efficiency cores stall
+         * a static OMP partition, so use the performance-core count instead
+         * (M1 Max pp512: 91 → 145 tps once E-cores drop). On the homogeneous
+         * Pi 5 all 4 A76 cores help (clean pp256 4t 30 vs 3t 24); measure on a
+         * QUIESCED box — a stray background process eating a core inverts this
+         * (4 OMP threads then oversubscribe). */
         static int n = -1;
         if (n < 0) {
             const char *env = getenv("GEIST_PREFILL_THREADS");
@@ -357,16 +357,7 @@ static int cpu_neon_region_thread_count(enum geist_parallel_region region) {
                 n = (v > 0) ? v : 0;
             } else {
                 const int pc = apple_perf_cores();
-                if (pc > 0) {
-                    n = pc;
-                } else {
-                    const int np = omp_get_num_procs();
-#if defined(GEIST_TARGET_PI5)
-                    n = (np > 1) ? np - 1 : np;
-#else
-                    n = np;
-#endif
-                }
+                n = (pc > 0) ? pc : omp_get_num_procs();
             }
         }
         return n;
