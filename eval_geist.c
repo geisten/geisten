@@ -17,11 +17,21 @@
  *     -> "OK <lp0> <lp1> ... <lp_{n-1}>"
  *     Same prompt, K single-token candidates. Single prefill amortized.
  *
+ *   TOK <text> -> "OK <n> <id0> ... <id_{n-1}>"
+ *     Tokenize text with the model's own GGUF tokenizer (\n/\t/\\ escapes).
+ *     Lets eval harnesses stay self-contained — no external HF tokenizer.
+ *
+ *   GEN <max_new> <text> -> "OK <generated text>"
+ *     Greedy-generate from the prompt and return the decoded surface text
+ *     (\n/\t/\\ escaped). Stops at max_new or an end-of-turn / EOS marker.
+ *     Used by the MMLU (TOK/SCOREALT) and tool-calling/JSON (GEN) benchmarks.
+ *
  *   RESET -> "OK"   (clears KV cache)
  *   QUIT  -> exit
  *
- * Tokens are IDs (int32). The Python wrapper (tools/eval_runner.py)
- * tokenizes via HF tokenizer for parity with reference implementations.
+ * Tokens are IDs (int32). The MMLU/tooling harnesses (tools/eval_mmlu.py,
+ * tools/eval_tooling.py) use TOK/GEN so no external HF tokenizer is needed;
+ * tools/eval_runner.py optionally uses an HF tokenizer for reference parity.
  *
  * Usage:
  *   eval_geist <gguf> [--awq <scales.bin>]
@@ -256,6 +266,39 @@ static int cmd_score(struct geist_session* s, char* args) {
     return 0;
 }
 
+/* The REPL is line-oriented, but prompts are multi-line; decode \n / \t / \\
+ * escapes so a whole prompt fits on one line. Returns the NUL-terminated
+ * result length (clamped to cap-1). */
+static size_t unescape(const char* src, char* dst, size_t cap) {
+    size_t w = 0;
+    for (const char* p = src; *p && w + 1 < cap; p++) {
+        if (*p == '\\' && p[1]) {
+            p++;
+            dst[w++] = (*p == 'n') ? '\n' : (*p == 't') ? '\t' : *p;
+        } else {
+            dst[w++] = *p;
+        }
+    }
+    dst[w] = '\0';
+    return w;
+}
+
+/* Append `piece` to dst (size cap, *w the cursor), escaping \n and \\ so the
+ * generated text rides back on one REPL line. */
+static void append_escaped(const char* piece, char* dst, size_t* w, size_t cap) {
+    for (const char* c = piece; *c && *w + 2 < cap; c++) {
+        if (*c == '\n') {
+            dst[(*w)++] = '\\';
+            dst[(*w)++] = 'n';
+        } else if (*c == '\\') {
+            dst[(*w)++] = '\\';
+            dst[(*w)++] = '\\';
+        } else {
+            dst[(*w)++] = *c;
+        }
+    }
+}
+
 /* TOK <text> -> "OK <n> <id0> ... <id_{n-1}>"
  * Tokenize text with the model's own GGUF tokenizer. Lets evaluation
  * harnesses (e.g. MMLU) stay self-contained — no external HF tokenizer, and no
@@ -263,19 +306,8 @@ static int cmd_score(struct geist_session* s, char* args) {
 static int cmd_tok(struct geist_session* s, const char* text) {
     enum { TOK_CAP = 8192 };
     static geist_token_t out[TOK_CAP];
-    /* The REPL is line-oriented, but MMLU-style prompts are multi-line. Accept
-     * \n / \t / \\ escapes so the caller can pass a whole prompt on one line. */
     static char unesc[1 << 16];
-    size_t w = 0;
-    for (const char* p = text; *p && w + 1 < sizeof unesc; p++) {
-        if (*p == '\\' && p[1]) {
-            p++;
-            unesc[w++] = (*p == 'n') ? '\n' : (*p == 't') ? '\t' : *p;
-        } else {
-            unesc[w++] = *p;
-        }
-    }
-    unesc[w] = '\0';
+    unescape(text, unesc, sizeof unesc);
     size_t n = 0;
     enum geist_status st = geist_session_tokenize(s, unesc, TOK_CAP, out, &n);
     if (st != GEIST_OK) {
@@ -287,6 +319,56 @@ static int cmd_tok(struct geist_session* s, const char* text) {
     for (size_t i = 0; i < n; i++)
         printf(" %d", (int) out[i]);
     putchar('\n');
+    fflush(stdout);
+    return 0;
+}
+
+/* GEN <max_new> <text> -> "OK <escaped generated text>"
+ * Greedy-generate from the prompt and return the decoded surface text. Stops at
+ * max_new tokens or an end-of-turn / EOS marker. Used by the tool-calling / JSON
+ * generation benchmark; unlike the simple_generate demo it does NOT stop at
+ * arbitrary bracketed tokens, since tool calls legitimately contain specials
+ * such as <|tool_call>. */
+static int cmd_gen(struct geist_session* s, char* args) {
+    char* p = args;
+    long max_new = strtol(p, &p, 10);
+    if (p == args || max_new <= 0 || max_new > 8192) {
+        puts("ERR bad max_new");
+        fflush(stdout);
+        return -1;
+    }
+    while (*p == ' ')
+        p++;
+
+    enum { TOK_CAP = 8192 };
+    static char prompt[1 << 16];
+    unescape(p, prompt, sizeof prompt);
+
+    static geist_token_t ids[TOK_CAP];
+    size_t n = 0;
+    if (geist_session_tokenize(s, prompt, TOK_CAP, ids, &n) != GEIST_OK ||
+        geist_session_reset(s) != GEIST_OK || geist_session_prefill_tokens(s, n, ids) != GEIST_OK) {
+        puts("ERR gen prefill");
+        fflush(stdout);
+        return -1;
+    }
+
+    static char out[1 << 16];
+    size_t w = 0;
+    for (long i = 0; i < max_new; i++) {
+        geist_token_t tok = 0;
+        if (geist_session_decode_step(s, &tok) != GEIST_OK)
+            break;
+        const char* piece = geist_session_token_to_str(s, tok);
+        if (piece == nullptr)
+            break; /* control token with no surface form */
+        if (strcmp(piece, "<eos>") == 0 || strcmp(piece, "<turn|>") == 0 ||
+            strcmp(piece, "<end_of_turn>") == 0)
+            break; /* end of the assistant turn */
+        append_escaped(piece, out, &w, sizeof out);
+    }
+    out[w] = '\0';
+    printf("OK %s\n", out);
     fflush(stdout);
     return 0;
 }
@@ -367,6 +449,8 @@ int main(int argc, char** argv) {
             cmd_scorealt(sess, args);
         else if (strcmp(cmd, "TOK") == 0)
             cmd_tok(sess, args);
+        else if (strcmp(cmd, "GEN") == 0)
+            cmd_gen(sess, args);
         else if (strcmp(cmd, "RESET") == 0) {
             (void) geist_session_reset(sess);
             puts("OK");

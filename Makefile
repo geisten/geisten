@@ -22,7 +22,7 @@ TARGET ?= $(shell mk/detect-target.sh)
 MODE   ?= release
 
 # Phony targets — do not match files.
-.PHONY: all lib bin clean distclean help test test-unit test-int test-e2e test-all test-py fetch-model bench bench-small bench-detailed bench-quality-small bench-quality-detailed bench-compare-ref bench-mmlu format format-check
+.PHONY: all lib bin clean distclean help test test-unit test-int test-e2e test-all test-py fetch-model bench bench-small bench-detailed bench-quality-small bench-quality-detailed bench-compare-ref bench-mmlu bench-tooling format format-check
 
 # Default goal.
 all: lib bin
@@ -205,6 +205,17 @@ bench-mmlu: bin $(MODEL_PREREQ)
 	  --gguf "$${GEIST_GGUF_PATH:-$(abspath $(MODEL_PATH))}" \
 	  --hf --shuffle --limit $(MMLU_LIMIT) --shots $(MMLU_SHOTS)
 
+# Quality: function-calling + JSON-generation via tools/eval_tooling.py (also
+# self-contained — drives the eval_geist GEN command, no dataset needed). The
+# probe set is curated and validates extracted JSON (valid + schema + correct
+# function/arguments). TOOLING_SUITE = json | func | all.
+TOOLING_SUITE ?= all
+bench-tooling: bin $(MODEL_PREREQ)
+	@$(GGUF_ENV) OMP_WAIT_POLICY=active python3 tools/eval_tooling.py \
+	  --bin $(BIN_DIR)/eval_geist \
+	  --gguf "$${GEIST_GGUF_PATH:-$(abspath $(MODEL_PATH))}" \
+	  --suite $(TOOLING_SUITE)
+
 # Cleanup.
 clean:
 	@rm -rf build/$(TARGET)/$(MODE) lib/$(TARGET)/$(MODE) bin/$(TARGET)/$(MODE)
@@ -255,6 +266,7 @@ help:
 	@echo "  make bench-compare-ref       geist vs reference perf/KL; set BENCH_REF_*"
 	@echo "  make bench-mmlu              MMLU accuracy (5-shot cloze; needs 'pip install datasets')"
 	@echo "  make bench-mmlu MMLU_LIMIT=0 full ~14k-question MMLU set"
+	@echo "  make bench-tooling           function-calling + JSON-generation quality (self-contained)"
 	@echo "  make clean                   remove current TARGET/MODE artifacts"
 	@echo "  make distclean               remove all artifacts"
 	@echo "  make format                  rewrite all sources via clang-format"
