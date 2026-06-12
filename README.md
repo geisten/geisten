@@ -68,18 +68,19 @@ tracked work. See [BENCHMARK.md](BENCHMARK.md) to reproduce on your hardware.*
 
 The Pi 5 is the design target, and the hard case (an older ARM core without `i8mm`,
 where llama.cpp leans on a decades-tuned OpenBLAS fp32 path). Running the **identical**
-Gemma 4 E2B Q4_K_M model, geist is at **parity on decode** and currently **~15–20 %
+Gemma 4 E2B Q4_K_M model on a quiesced board, geist **wins decode** and is **~15 %
 behind on prefill** — the OpenBLAS fp32 GEMM path is hard to match on this core:
 
-| Engine (Pi 5, 3 threads = best, Q4_K_M, CPU) | Prefill pp128 | Prefill pp256 | Decode |
+| Engine (Pi 5, each at best threads, Q4_K_M, CPU) | Prefill pp128 | Prefill pp256 | Decode |
 | :--- | :---: | :---: | :---: |
-| llama.cpp (OpenBLAS, `ba1df05`) | **29.6 t/s** | **30.0 t/s** | 6.78 t/s |
-| **geist** | 25.1 t/s (0.85×) | 24.0 t/s (0.80×) | **6.6 t/s** (0.97×) |
+| llama.cpp (OpenBLAS, `ba1df05`) | **37.5 t/s** | **38.0 t/s** | 6.88 t/s |
+| **geist** | 31.5 t/s (0.84×) | 29.7 t/s (0.78×) | **7.1 t/s** (1.03×) |
 
-*Same weights, same quantization. Both engines are fastest at 3 of the Pi 5's 4
-cores (saturating all 4 makes the OpenMP schedule contend with the OS — geist now
-defaults to this). Decode is at parity; the prefill gap is geist's NEON kernels vs
-OpenBLAS sgemm. Measured June 2026; see [BENCHMARK_PI5.md](BENCHMARK_PI5.md).*
+*Same weights, same quantization. geist runs prefill on all 4 A76 cores (compute-
+bound) and decode on 3 (memory-bound); llama is likewise fastest at 4/3. **Measure
+on a quiesced box** — a stray background process eating one core inverts the
+4-thread numbers. Decode is geist's (1.03×); the prefill gap is geist's NEON `m>1`
+kernels vs OpenBLAS sgemm. Measured June 2026; see [BENCHMARK_PI5.md](BENCHMARK_PI5.md).*
 
 ---
 
