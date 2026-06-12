@@ -68,19 +68,18 @@ tracked work. See [BENCHMARK.md](BENCHMARK.md) to reproduce on your hardware.*
 
 The Pi 5 is the design target, and the hard case (an older ARM core without `i8mm`,
 where llama.cpp leans on a decades-tuned OpenBLAS fp32 path). Running the **identical**
-Gemma 4 E2B Q4_K_M model with **bit-identical** output, **this first version already
-matches llama.cpp** — ahead on short-prompt prefill, at parity on decode, and within
-~5 % on long-prompt prefill:
+Gemma 4 E2B Q4_K_M model, geist is at **parity on decode** and currently **~15–20 %
+behind on prefill** — the OpenBLAS fp32 GEMM path is hard to match on this core:
 
-| Engine (Pi 5, 4 threads, Q4_K_M) | Prefill pp128 | Prefill pp256 | Decode |
+| Engine (Pi 5, 3 threads = best, Q4_K_M, CPU) | Prefill pp128 | Prefill pp256 | Decode |
 | :--- | :---: | :---: | :---: |
-| llama.cpp (OpenBLAS) | 26.8 t/s | **31.6 t/s** | ~7.0 t/s |
-| **geist** | **31.0 t/s** (1.16×) | 30.0 t/s (0.95×) | ~7.0 t/s (parity) |
+| llama.cpp (OpenBLAS, `ba1df05`) | **29.6 t/s** | **30.0 t/s** | 6.78 t/s |
+| **geist** | 25.1 t/s (0.85×) | 24.0 t/s (0.80×) | **6.6 t/s** (0.97×) |
 
-*Same weights, same quantization, bit-identical results — not a smaller or lossy model.
-The remaining long-prompt gap is raw NEON throughput vs OpenBLAS; on `i8mm`/ARMv9 cores
-and Apple AMX the int8 path pulls clearly ahead. Benchmarked June 2026; see
-[BENCHMARK_PI5.md](BENCHMARK_PI5.md).*
+*Same weights, same quantization. Both engines are fastest at 3 of the Pi 5's 4
+cores (saturating all 4 makes the OpenMP schedule contend with the OS — geist now
+defaults to this). Decode is at parity; the prefill gap is geist's NEON kernels vs
+OpenBLAS sgemm. Measured June 2026; see [BENCHMARK_PI5.md](BENCHMARK_PI5.md).*
 
 ---
 
