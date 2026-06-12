@@ -88,13 +88,63 @@ static void geist_sgemv_impl(int transA, int M, int N, float alpha, const float 
 }
 
 #else /* ---- native, dependency-free fallback -------------------------------
- * Correct but unoptimized (naive triple loop). Step 3 (ROADMAP.md) replaces
- * the inner loops with a register-blocked NEON kernel. Used by the BLAS-free
- * build only; the quant W*A8 hot path never reaches here. */
+ * NEON-vectorized for the dominant y = x*W^T pattern (transA=N, transB=T,
+ * beta=0); a scalar triple loop covers the rare cases (N/N, transposed A,
+ * beta!=0). Used by the BLAS-free build only; the quant W*A8 hot path never
+ * reaches here. Per ROADMAP.md Step 2, dense fp32 is ~2.6% of inference, so
+ * "decent" suffices — this needs no OpenBLAS-grade blocking. */
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 
 static void geist_sgemm_impl(int transA, int transB, int M, int N, int K,
                  float alpha, const float *A, int lda, const float *B, int ldb,
                  float beta, float *C, int ldc) {
+#if defined(__ARM_NEON)
+    if (transA == GEIST_OP_N && transB == GEIST_OP_T && beta == 0.0f) {
+        /* C[M,N] = alpha * A[M,K] * B[N,K]^T. Both A-rows and B-rows are
+         * K-contiguous; block N by 4 so each A-row K-vector feeds 4 B-rows. */
+        const int Kv = K & ~3;
+        for (int i = 0; i < M; i++) {
+            const float *Ai = A + (size_t) i * lda;
+            float *Ci = C + (size_t) i * ldc;
+            int j = 0;
+            for (; j + 4 <= N; j += 4) {
+                const float *B0 = B + (size_t) (j + 0) * ldb;
+                const float *B1 = B + (size_t) (j + 1) * ldb;
+                const float *B2 = B + (size_t) (j + 2) * ldb;
+                const float *B3 = B + (size_t) (j + 3) * ldb;
+                float32x4_t a0 = vdupq_n_f32(0), a1 = vdupq_n_f32(0);
+                float32x4_t a2 = vdupq_n_f32(0), a3 = vdupq_n_f32(0);
+                for (int k = 0; k < Kv; k += 4) {
+                    const float32x4_t av = vld1q_f32(Ai + k);
+                    a0 = vfmaq_f32(a0, av, vld1q_f32(B0 + k));
+                    a1 = vfmaq_f32(a1, av, vld1q_f32(B1 + k));
+                    a2 = vfmaq_f32(a2, av, vld1q_f32(B2 + k));
+                    a3 = vfmaq_f32(a3, av, vld1q_f32(B3 + k));
+                }
+                float c0 = vaddvq_f32(a0), c1 = vaddvq_f32(a1);
+                float c2 = vaddvq_f32(a2), c3 = vaddvq_f32(a3);
+                for (int k = Kv; k < K; k++) {
+                    const float a = Ai[k];
+                    c0 += a * B0[k]; c1 += a * B1[k]; c2 += a * B2[k]; c3 += a * B3[k];
+                }
+                Ci[j + 0] = alpha * c0; Ci[j + 1] = alpha * c1;
+                Ci[j + 2] = alpha * c2; Ci[j + 3] = alpha * c3;
+            }
+            for (; j < N; j++) {
+                const float *Bj = B + (size_t) j * ldb;
+                float32x4_t a = vdupq_n_f32(0);
+                int k = 0;
+                for (; k < Kv; k += 4) a = vfmaq_f32(a, vld1q_f32(Ai + k), vld1q_f32(Bj + k));
+                float c = vaddvq_f32(a);
+                for (; k < K; k++) c += Ai[k] * Bj[k];
+                Ci[j] = alpha * c;
+            }
+        }
+        return;
+    }
+#endif
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             float acc = 0.0f;
@@ -114,6 +164,21 @@ static void geist_sgemm_impl(int transA, int transB, int M, int N, int K,
 static void geist_sgemv_impl(int transA, int M, int N, float alpha, const float *A, int lda,
                  const float *x, int incx, float beta, float *y, int incy) {
     if (transA == GEIST_OP_N) {
+#if defined(__ARM_NEON)
+        if (incx == 1 && incy == 1 && beta == 0.0f) {
+            const int Nv = N & ~3;
+            for (int i = 0; i < M; i++) {
+                const float *Ai = A + (size_t) i * lda;
+                float32x4_t a = vdupq_n_f32(0);
+                int j = 0;
+                for (; j < Nv; j += 4) a = vfmaq_f32(a, vld1q_f32(Ai + j), vld1q_f32(x + j));
+                float c = vaddvq_f32(a);
+                for (; j < N; j++) c += Ai[j] * x[j];
+                y[i] = alpha * c;
+            }
+            return;
+        }
+#endif
         for (int i = 0; i < M; i++) {
             float acc = 0.0f;
             for (int j = 0; j < N; j++)
