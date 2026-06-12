@@ -1,5 +1,5 @@
 #include "gguf_ptqtp.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include <fcntl.h>
 #include <stdio.h>

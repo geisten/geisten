@@ -7,7 +7,7 @@
  * and duplicated here rather than promoted to a cross-layer header.
  */
 #include "internal.h"
-#include "../../../heap.h"
+#include "heap.h"
 #include "gguf_quant.h"
 
 #include <stddef.h>

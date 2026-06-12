@@ -4,7 +4,7 @@
  * Pure compute. Block layout from src/formats/gguf/internal.h.
  */
 #include "internal.h"
-#include "../../../heap.h"
+#include "heap.h"
 #include "gguf_quant.h"
 
 #include <stdint.h>

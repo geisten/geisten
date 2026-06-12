@@ -16,7 +16,7 @@
 
 #include "gemma4_kernels.h"
 #include "gguf_quant.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include <geist.h>
 #include <geist_backend.h>

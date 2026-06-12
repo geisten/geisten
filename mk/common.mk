@@ -138,6 +138,7 @@ LIB_SOURCES := \
     src/formats/gguf/iq2_s.c \
     src/formats/gguf/iq3_s.c \
     src/formats/gguf/tq2_0.c \
+    src/backends/common/geist_gemm.c \
     src/backends/common/gemma4_kernels.c \
     src/backends/common/kivi.c \
     src/formats/ptqtp/gguf_ptqtp.c \
@@ -182,11 +183,13 @@ EXT_OBJS := $(patsubst %.c,$(BUILD_DIR)/ext/%.o,$(EXT_SOURCES))
 # pedantic warnings inside stb.
 STB_OBJ := $(BUILD_DIR)/third_party/stb/stb_impl.o
 
-# Binary sources: files with main(). Tests/benches live in tests/, demos at root.
-# Each binary links against libgeist.a.
+# Binary sources: files with main(). Tests/benches live in tests/, eval/profile
+# demos in tools/. Each binary links against libgeist.a and mirrors its source
+# path under bin/ (tests/test_foo -> bin/.../tests/test_foo; tools/eval_geist ->
+# bin/.../tools/eval_geist).
 # Excluded: dump_llamacpp_logits.c (requires external llama.h from llama.cpp).
 TEST_SOURCES := $(wildcard tests/test_*.c tests/bench_*.c)
-DEMO_SOURCES := eval_geist.c profile_decode.c
+DEMO_SOURCES := tools/eval_geist.c tools/profile_decode.c
 BIN_SOURCES  := $(TEST_SOURCES) $(DEMO_SOURCES)
 
 # ---- Derived paths -------------------------------------------------------
@@ -202,7 +205,7 @@ DEPS := $(LIB_OBJS:.o=.d) $(BIN_OBJS:.o=.d)
 # ---- Rules ---------------------------------------------------------------
 
 # Object compilation. -MMD -MP generates .d files for header tracking.
-# src/*.c uses CFLAGS_STRICT (adds -Wshadow -Wundef); top-level demos
+# src/*.c uses CFLAGS_STRICT (adds -Wshadow -Wundef); the tools/ demos
 # (eval_geist, profile_decode) and tests/ use the slightly more relaxed
 # CFLAGS. Both build clean under -Wall -Wextra -Werror.
 $(BUILD_DIR)/src/%.o: src/%.c

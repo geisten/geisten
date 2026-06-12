@@ -15,12 +15,12 @@ without a tokenizer, pass raw integer token IDs with --raw-ids.
 
 Examples:
   # Greedy generate 32 tokens (HF tokenizer for the model's vocab):
-  python3 tools/eval_runner.py --bin bin/mac-omp/release/eval_geist \\
+  python3 tools/eval_runner.py --bin bin/mac-omp/release/tools/eval_geist \\
       --gguf model.gguf --tokenizer google/gemma-4-E2B-it \\
       generate --prompt "The capital of France is" --n 32
 
   # Protocol smoke test, no tokenizer:
-  python3 tools/eval_runner.py --bin bin/.../eval_geist --gguf model.gguf \\
+  python3 tools/eval_runner.py --bin bin/.../tools/eval_geist --gguf model.gguf \\
       generate --raw-ids "2 651 1234" --n 8
 """
 from __future__ import annotations

@@ -10,7 +10,7 @@
  *   6. log_mel      = log(mel_spec + 1e-3)
  */
 #include "mel_pipeline.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -45,11 +45,7 @@ extern void vDSP_ctoz(const DSPComplex* C, vDSP_Stride IC,
 #include <fftw3.h>
 #endif
 
-typedef enum { CblasRowMajor = 101 } CBLAS_ORDER;
-typedef enum { CblasNoTrans = 111, CblasTrans = 112 } CBLAS_TRANSPOSE;
-extern void cblas_sgemv(CBLAS_ORDER, CBLAS_TRANSPOSE, int M, int N, float alpha,
-                        const float* A, int lda, const float* X, int incX,
-                        float beta, float* Y, int incY);
+#include "geist_gemm.h"
 
 #define MEL_FLOOR 0.001f
 #define HALF_N    (MEL_FFT_LENGTH / 2)   /* 256 */
@@ -166,7 +162,7 @@ void mel_frame_compute(struct MelState* m, const float* pcm_320, float* out_mel_
      *     (1,257) · (257,128) → (1,128). cblas_sgemv with M=128, N=257.
      *     mel is row-major (257,128) → as a matrix with leading dim 128,
      *     transposed view is (128,257). */
-    cblas_sgemv(CblasRowMajor, CblasTrans,
+    geist_sgemv(GEIST_OP_T,
                 MEL_N_FFT_BINS, MEL_N_MEL, 1.0f,
                 m->mel, MEL_N_MEL,
                 m->magnitude, 1,

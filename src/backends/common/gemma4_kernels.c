@@ -1,5 +1,5 @@
 #include "gemma4_kernels.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -9,32 +9,9 @@
 #include <arm_neon.h>
 #endif
 
-/* Forward-declare just the cblas symbols we use. On macOS link against
- * -framework Accelerate (which provides CBLAS via vecLib), on Linux/Pi 5
- * link against -lopenblas (or any system cblas). Both are ABI-compatible
- * with the standard CBLAS calling convention.
- *
- * We avoid pulling in <Accelerate/Accelerate.h> because Apple's umbrella
- * header pulls in vImage → CoreFoundation → /usr/local/include/conv.h on
- * Homebrew systems, which bombs on missing bimg.h. Forward decls let us
- * skip that include chain entirely.
- *
- * HAVE_ACCELERATE is on by default on Apple and Linux (CBLAS expected).
- * Define DISABLE_CBLAS to use a naive sgemm fallback (slow). */
-#if !defined(DISABLE_CBLAS)
-#  define HAVE_ACCELERATE 1
-typedef enum CBLAS_ORDER     { CblasRowMajor = 101 } CBLAS_ORDER;
-typedef enum CBLAS_TRANSPOSE { CblasNoTrans = 111, CblasTrans = 112 } CBLAS_TRANSPOSE;
-extern void cblas_sgemm(CBLAS_ORDER, CBLAS_TRANSPOSE TransA, CBLAS_TRANSPOSE TransB,
-                        int M, int N, int K, float alpha,
-                        const float* A, int lda, const float* B, int ldb,
-                        float beta, float* C, int ldc);
-extern void cblas_sgemv(CBLAS_ORDER, CBLAS_TRANSPOSE TransA,
-                        int M, int N, float alpha,
-                        const float* A, int lda,
-                        const float* X, int incX, float beta,
-                        float* Y, int incY);
-#endif
+/* Dense fp32 matmul/matvec goes through the geist_gemm facade (Accelerate /
+ * OpenBLAS / native fallback, selected at build time). */
+#include "geist_gemm.h"
 
 void bf16_array_to_fp32(const uint16_t* src, float* dst, size_t n) {
     for (size_t i = 0; i < n; i++) dst[i] = bf16_to_fp32(src[i]);
@@ -321,33 +298,16 @@ void attention_mqa_causal(const float* q, const float* k, const float* v,
 
 void linear_fp32(const float* x, const float* weight, const float* bias,
                  size_t m, size_t n_in, size_t n_out, float* y) {
-#if defined(HAVE_ACCELERATE)
     if (m == 1) {
-        /* gemv path: y = W * x where W is (n_out, n_in) row-major.
-         * Lower per-call overhead than sgemm for the M=1 decode case. */
-        cblas_sgemv(CblasRowMajor, CblasNoTrans,
-                    (int)n_out, (int)n_in,
-                    1.0f, weight, (int)n_in,
-                          x, 1,
-                    0.0f, y, 1);
+        /* gemv path: y = W * x, W is (n_out, n_in) row-major. Lower per-call
+         * overhead than sgemm for the M=1 decode case. */
+        geist_sgemv(GEIST_OP_N, (int)n_out, (int)n_in,
+                    1.0f, weight, (int)n_in, x, 1, 0.0f, y, 1);
     } else {
-        /* y = x @ weight^T : C = A @ B^T with C[m,n_out], A[m,n_in],
-         * B[n_out,n_in]. Best for batch sizes > 1. */
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                    (int)m, (int)n_out, (int)n_in,
-                    1.0f, x, (int)n_in,
-                          weight, (int)n_in,
-                    0.0f, y, (int)n_out);
+        /* y = x @ weight^T : C[m,n_out] = A[m,n_in] @ B[n_out,n_in]^T. */
+        geist_sgemm(GEIST_OP_N, GEIST_OP_T, (int)m, (int)n_out, (int)n_in,
+                    1.0f, x, (int)n_in, weight, (int)n_in, 0.0f, y, (int)n_out);
     }
-#else
-    for (size_t i = 0; i < m; i++) {
-        for (size_t j = 0; j < n_out; j++) {
-            float acc = 0.0f;
-            for (size_t k = 0; k < n_in; k++) acc += x[i * n_in + k] * weight[j * n_in + k];
-            y[i * n_out + j] = acc;
-        }
-    }
-#endif
     if (bias) {
         for (size_t i = 0; i < m; i++) {
             for (size_t j = 0; j < n_out; j++) y[i * n_out + j] += bias[j];

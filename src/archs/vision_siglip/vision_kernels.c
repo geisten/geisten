@@ -21,17 +21,8 @@
 #include <omp.h>
 #endif
 
-/* cblas declarations (provided by Accelerate on macOS; libopenblas on
- * Linux/Pi). Same approach as backends/common/gemma4_kernels.c. */
-typedef enum { CblasRowMajor = 101, CblasColMajor = 102 } CBLAS_ORDER;
-typedef enum {
-    CblasNoTrans = 111, CblasTrans = 112, CblasConjTrans = 113
-} CBLAS_TRANSPOSE;
-extern void cblas_sgemm(CBLAS_ORDER, CBLAS_TRANSPOSE, CBLAS_TRANSPOSE,
-                         int M, int N, int K,
-                         float alpha, const float *A, int lda,
-                         const float *B, int ldb,
-                         float beta, float *C, int ldc);
+/* Dense fp32 matmul via the geist_gemm facade (Accelerate / OpenBLAS / native). */
+#include "geist_gemm.h"
 
 void avgpool2d_k3_fp32(const float *in, float *out,
                         size_t grid_h, size_t grid_w, size_t hidden) {
@@ -225,7 +216,7 @@ void vision_attention_bidir_fp32(const float *q, const float *k, const float *v,
 
         /* scores = qh @ kh^T  → (n, n). Strided lda/ldb to read from
          * the interleaved layout in-place. */
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+        geist_sgemm(GEIST_OP_N, GEIST_OP_T,
                     (int) n_tokens, (int) n_tokens, (int) head_dim,
                     scale, qh, hd_stride,
                            kh, hd_stride,
@@ -273,7 +264,7 @@ void vision_attention_bidir_fp32(const float *q, const float *k, const float *v,
         }
 
         /* oh = scores @ vh  → (n, head_dim) interleaved. */
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+        geist_sgemm(GEIST_OP_N, GEIST_OP_N,
                     (int) n_tokens, (int) head_dim, (int) n_tokens,
                     1.0f, scores, (int) n_tokens,
                           vh,     hd_stride,

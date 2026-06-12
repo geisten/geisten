@@ -15,7 +15,7 @@
 
 #include "internal.h"
 
-#include "../../../heap.h"
+#include "heap.h"
 
 void cpu_neon_workspace_destroy(struct cpu_neon_workspace *ws) {
     if (ws == nullptr) { return; }

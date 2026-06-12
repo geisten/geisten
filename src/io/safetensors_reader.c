@@ -1,5 +1,5 @@
 #include "safetensors_reader.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include <fcntl.h>
 #include <stdio.h>

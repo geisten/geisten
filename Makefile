@@ -11,7 +11,7 @@
 # Output layout (per-target, per-mode segregated):
 #   build/$(TARGET)/$(MODE)/   *.o, *.d
 #   lib/$(TARGET)/$(MODE)/     libgeist.a
-#   bin/$(TARGET)/$(MODE)/     test_*, bench_*, eval_geist, ...
+#   bin/$(TARGET)/$(MODE)/     tests/test_*, tests/bench_*, tools/eval_geist, ...
 #
 # Adding a new target architecture:
 #   1. Create mk/target-<name>.mk (set CC, CFLAGS_TARGET, LDFLAGS_TARGET, LDLIBS_TARGET)
@@ -201,7 +201,7 @@ MMLU_LIMIT ?= 200
 MMLU_SHOTS ?= 5
 bench-mmlu: bin $(MODEL_PREREQ)
 	@$(GGUF_ENV) OMP_WAIT_POLICY=active python3 tools/eval_mmlu.py \
-	  --bin $(BIN_DIR)/eval_geist \
+	  --bin $(BIN_DIR)/tools/eval_geist \
 	  --gguf "$${GEIST_GGUF_PATH:-$(abspath $(MODEL_PATH))}" \
 	  --hf --shuffle --limit $(MMLU_LIMIT) --shots $(MMLU_SHOTS)
 
@@ -212,7 +212,7 @@ bench-mmlu: bin $(MODEL_PREREQ)
 TOOLING_SUITE ?= all
 bench-tooling: bin $(MODEL_PREREQ)
 	@$(GGUF_ENV) OMP_WAIT_POLICY=active python3 tools/eval_tooling.py \
-	  --bin $(BIN_DIR)/eval_geist \
+	  --bin $(BIN_DIR)/tools/eval_geist \
 	  --gguf "$${GEIST_GGUF_PATH:-$(abspath $(MODEL_PATH))}" \
 	  --suite $(TOOLING_SUITE)
 

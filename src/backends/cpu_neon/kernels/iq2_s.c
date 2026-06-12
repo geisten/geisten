@@ -9,7 +9,7 @@
  * file that neither layer fully owns; the duplication is ~20 lines.
  */
 #include "internal.h"
-#include "../../../heap.h"
+#include "heap.h"
 #include "gguf_quant.h"
 #include "gguf_iq_grids.h"
 

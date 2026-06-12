@@ -5,7 +5,7 @@
  * format split.
  */
 #include "internal.h"
-#include "../../../heap.h"
+#include "heap.h"
 #include "gguf_quant.h"
 
 #include <math.h>

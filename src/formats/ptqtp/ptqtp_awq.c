@@ -2,7 +2,7 @@
  * ptqtp_awq.c — AWQ scale loader. See ptqtp_awq.h for format.
  */
 #include "ptqtp_awq.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include <stdio.h>
 #include <stdlib.h>

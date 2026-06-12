@@ -37,7 +37,7 @@
 #include <geist_weight.h>
 
 #include "gguf_quant.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -81,18 +81,10 @@ static inline uint64_t qprof_now_ns(void) {
     return (uint64_t) ts.tv_sec * 1000000000ULL + (uint64_t) ts.tv_nsec;
 }
 
-/* Forward-decl cblas symbols — same shim pattern as linear_quant.c.
- * Used for F32 dense projections (lm.c's PLE model_proj path). On Mac
- * this dispatches to Accelerate's AMX-cblas; on Pi 5 to OpenBLAS. */
-enum { CblasRowMajor_X = 101, CblasNoTrans_X = 111, CblasTrans_X = 112 };
-extern void cblas_sgemv(int /*order*/, int /*TransA*/, int M, int N,
-                        float alpha, const float *A, int lda,
-                        const float *X, int incX, float beta,
-                        float *Y, int incY);
-extern void cblas_sgemm(int /*order*/, int /*TransA*/, int /*TransB*/,
-                        int M, int N, int K, float alpha,
-                        const float *A, int lda, const float *B, int ldb,
-                        float beta, float *C, int ldc);
+/* Dense F32 projections (e.g. the PLE model_proj path) route through the
+ * geist_gemm facade: Accelerate/AMX on Mac, OpenBLAS on Linux, or the native
+ * fallback in a BLAS-free build. */
+#include "geist_gemm.h"
 
 /* TQ2_0 q8a scratch storage lives on the backend's cpu_neon_workspace
  * (see internal.h). Kernels reach it via the `be` parameter; the
@@ -163,7 +155,7 @@ static void cpu_neon_w_iq3s_m1(const float *x, const struct geist_weight *w, str
  * since the row-major layout already has the right shape. */
 static void cpu_neon_w_f32_m1(const float *x, const struct geist_weight *w, struct geist_backend *be, float *y) {
     (void) be;
-    cblas_sgemv(CblasRowMajor_X, CblasNoTrans_X,
+    geist_sgemv(GEIST_OP_N,
                  (int) w->n_out, (int) w->n_in, 1.0f,
                  (const float *) w->raw, (int) w->n_in,
                  x, 1, 0.0f, y, 1);
@@ -172,7 +164,7 @@ static void cpu_neon_w_f32_m1(const float *x, const struct geist_weight *w, stru
 static void cpu_neon_w_f32_mN(const float *x, const struct geist_weight *w, size_t m, struct geist_backend *be, float *y) {
     (void) be;
     /* Y [m, n_out] = X [m, n_in] @ W^T   (W row-major [n_out, n_in]). */
-    cblas_sgemm(CblasRowMajor_X, CblasNoTrans_X, CblasTrans_X,
+    geist_sgemm(GEIST_OP_N, GEIST_OP_T,
                  (int) m, (int) w->n_out, (int) w->n_in, 1.0f,
                  x, (int) w->n_in,
                  (const float *) w->raw, (int) w->n_in,
@@ -742,7 +734,7 @@ static void cpu_neon_w_dequant_trampoline_m1(const float *x,
                 /* Force OpenBLAS to use 1 thread inside the parallel region
                  * to avoid 4×4 = 16-way oversubscription. Set once per call
                  * via openblas_set_num_threads — cheap. */
-                cblas_sgemv(CblasRowMajor_X, CblasNoTrans_X,
+                geist_sgemv(GEIST_OP_N,
                              (int) tr, (int) n_in, 1.0f,
                              tile, (int) n_in,
                              x, 1, 0.0f, y + r0, 1);
@@ -756,7 +748,7 @@ static void cpu_neon_w_dequant_trampoline_m1(const float *x,
     for (size_t r0 = 0; r0 < n_out; r0 += tile_rows) {
         const size_t tr = (n_out - r0 < tile_rows) ? (n_out - r0) : tile_rows;
         dequant_tile(w, r0, tr, tile);
-        cblas_sgemv(CblasRowMajor_X, CblasNoTrans_X,
+        geist_sgemv(GEIST_OP_N,
                      (int) tr, (int) n_in, 1.0f,
                      tile, (int) n_in,
                      x, 1, 0.0f, y + r0, 1);
@@ -806,7 +798,7 @@ static void cpu_neon_qk_sgemm_run(const float *x, const struct geist_weight *w,
                 const size_t r0 = t * tile_rows;
                 const size_t tr = (n_out - r0 < tile_rows) ? (n_out - r0) : tile_rows;
                 dequant_tile(w, r0, tr, t_tile);
-                cblas_sgemm(CblasRowMajor_X, CblasNoTrans_X, CblasTrans_X,
+                geist_sgemm(GEIST_OP_N, GEIST_OP_T,
                              (int) m, (int) tr, (int) n_in, 1.0f,
                              x, (int) n_in,
                              t_tile, (int) n_in,
@@ -819,7 +811,7 @@ static void cpu_neon_qk_sgemm_run(const float *x, const struct geist_weight *w,
     for (size_t r0 = 0; r0 < n_out; r0 += tile_rows) {
         const size_t tr = (n_out - r0 < tile_rows) ? (n_out - r0) : tile_rows;
         dequant_tile(w, r0, tr, tile_fp32);
-        cblas_sgemm(CblasRowMajor_X, CblasNoTrans_X, CblasTrans_X,
+        geist_sgemm(GEIST_OP_N, GEIST_OP_T,
                      (int) m, (int) tr, (int) n_in, 1.0f,
                      x, (int) n_in,
                      tile_fp32, (int) n_in,
@@ -858,7 +850,7 @@ static void cpu_neon_w_dequant_trampoline_mN(const float *x,
                 const size_t tr = (n_out - r0 < DEQ_TILE_ROWS_DEFAULT)
                     ? (n_out - r0) : DEQ_TILE_ROWS_DEFAULT;
                 dequant_tile(w, r0, tr, tile);
-                cblas_sgemm(CblasRowMajor_X, CblasNoTrans_X, CblasTrans_X,
+                geist_sgemm(GEIST_OP_N, GEIST_OP_T,
                              (int) m, (int) tr, (int) n_in, 1.0f,
                              x, (int) n_in,
                              tile, (int) n_in,
@@ -875,7 +867,7 @@ static void cpu_neon_w_dequant_trampoline_mN(const float *x,
             ? (n_out - r0)
             : DEQ_TILE_ROWS_DEFAULT;
         dequant_tile(w, r0, tr, tile);
-        cblas_sgemm(CblasRowMajor_X, CblasNoTrans_X, CblasTrans_X,
+        geist_sgemm(GEIST_OP_N, GEIST_OP_T,
                      (int) m, (int) tr, (int) n_in, 1.0f,
                      x, (int) n_in,
                      tile, (int) n_in,

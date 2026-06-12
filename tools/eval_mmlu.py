@@ -31,9 +31,9 @@ Data:
   (default)       a tiny embedded sample, enough to smoke-test the harness.
 
 Examples:
-  python3 tools/eval_mmlu.py --bin bin/mac-omp/release/eval_geist \
+  python3 tools/eval_mmlu.py --bin bin/mac-omp/release/tools/eval_geist \
       --gguf gguf_artifacts/gemma4-e2b-Q4_K_M.gguf --hf --limit 200
-  python3 tools/eval_mmlu.py --bin .../eval_geist --gguf model.gguf --selftest
+  python3 tools/eval_mmlu.py --bin .../tools/eval_geist --gguf model.gguf --selftest
 """
 from __future__ import annotations
 

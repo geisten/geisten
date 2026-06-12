@@ -6,7 +6,7 @@
  * dequant_q5_K_row stays in src/formats/gguf/q5_K.c.
  */
 #include "internal.h"
-#include "../../../heap.h"
+#include "heap.h"
 #include "gguf_quant.h"
 
 #include <math.h>

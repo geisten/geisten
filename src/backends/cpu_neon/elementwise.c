@@ -15,7 +15,7 @@
 #include "internal.h"
 
 #include "gemma4_kernels.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include <geist.h>
 #include <geist_backend.h>

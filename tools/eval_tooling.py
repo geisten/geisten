@@ -19,7 +19,7 @@ string overlap.
 
 Usage:
   make bench-tooling
-  python3 tools/eval_tooling.py --bin bin/<target>/release/eval_geist \
+  python3 tools/eval_tooling.py --bin bin/<target>/release/tools/eval_geist \
       --gguf model.gguf [--suite json|func|all] [--verbose]
 """
 from __future__ import annotations

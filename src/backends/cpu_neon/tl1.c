@@ -11,7 +11,7 @@
 #define GEIST_INTERNAL_BACKEND_LAYER
 
 #include "tl1.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include "internal.h"
 #include "gguf_quant.h"

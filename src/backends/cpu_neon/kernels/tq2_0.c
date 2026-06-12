@@ -20,7 +20,7 @@
 
 #include "../internal.h"
 #include "../parallel.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include "gguf_quant.h"
 

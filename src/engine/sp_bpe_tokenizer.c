@@ -1,5 +1,5 @@
 #include "sp_bpe_tokenizer.h"
-#include "../../heap.h"
+#include "heap.h"
 
 #include <fcntl.h>
 #include <stdio.h>

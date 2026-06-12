@@ -12,7 +12,7 @@
  * time and own the buffers thereafter.
  */
 #include "audio_encoder.h"
-#include "../../../heap.h"
+#include "heap.h"
 
 #include "audio_kernels.h"
 #include "gemma4_kernels.h"

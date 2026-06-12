@@ -7,7 +7,7 @@
  * helper is shared between dequant + W3A8 inner loop.
  */
 #include "internal.h"
-#include "../../../heap.h"
+#include "heap.h"
 #include "gguf_quant.h"
 #include "gguf_iq_grids.h"
 

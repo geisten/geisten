@@ -115,7 +115,7 @@ make fetch-model
 
 # Run the evaluation REPL against a GGUF. detect-target.sh prints the
 # build dir (mac-omp, pi5, ...); the backticks expand it in your shell.
-OMP_WAIT_POLICY=active bin/`mk/detect-target.sh`/release/eval_geist gguf_artifacts/gemma4-e2b-Q4_K_M.gguf
+OMP_WAIT_POLICY=active bin/`mk/detect-target.sh`/release/tools/eval_geist gguf_artifacts/gemma4-e2b-Q4_K_M.gguf
 ```
 
 A minimal C program using the public API lives in

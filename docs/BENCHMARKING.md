@@ -59,7 +59,7 @@ implementations:
 
 ```sh
 pip install transformers
-python3 tools/eval_runner.py --bin bin/<target>/release/eval_geist \
+python3 tools/eval_runner.py --bin bin/<target>/release/tools/eval_geist \
     --gguf gguf_artifacts/gemma4-e2b-Q4_K_M.gguf \
     --tokenizer google/gemma-4-E2B-it \
     generate --prompt "The capital of France is" --n 16
@@ -88,7 +88,7 @@ pip install datasets
 make bench-mmlu                       # 200 shuffled questions, 5-shot
 make bench-mmlu MMLU_LIMIT=0          # full ~14k-question set
 # or directly, incl. a no-dataset smoke test:
-python3 tools/eval_mmlu.py --bin bin/<target>/release/eval_geist \
+python3 tools/eval_mmlu.py --bin bin/<target>/release/tools/eval_geist \
     --gguf model.gguf --selftest --verbose     # embedded sample
 python3 tools/eval_mmlu.py --bin ... --gguf model.gguf --hf --shuffle --limit 200
 ```

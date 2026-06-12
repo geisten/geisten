@@ -8,7 +8,7 @@
  * prefill (per-row workspace allocation), and the FP32 reference.
  */
 #include "internal.h"
-#include "../../../heap.h"
+#include "heap.h"
 #include "gguf_quant.h"
 
 #include <stddef.h>
