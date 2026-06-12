@@ -1,11 +1,11 @@
 # mk/target-pi5.mk — Raspberry Pi 5 / Cortex-A76 target settings.
 #
 # Audience: Pi 5 (ARM64, Cortex-A76, 4 cores).
-# Stack: OpenBLAS for cblas, FFTW3 (single precision) for FFT, OpenMP for
+# Stack: OpenBLAS for cblas (dense fp32), OpenMP for threading; FFT is vendored.
 # parallel kernels (m>1 prefill loops in NEON backend).
 #
 # Dependencies resolved via pkg-config with manual override via OPENBLAS_LIBS,
-# FFTW3_LIBS environment variables (see `make help`).
+# OPENBLAS_LIBS environment variable (see `make help`).
 
 # Compiler — prefer gcc-13 for proper C23 constexpr support.
 # Cross-compile: override with CC=aarch64-linux-gnu-gcc-13.
@@ -35,10 +35,7 @@ CFLAGS_TARGET := -DGEIST_TARGET_PI5=1 -mcpu=cortex-a76 -fopenmp -ffast-math -Wno
 OPENBLAS_LIBS  ?= $(shell pkg-config --libs   openblas 2>/dev/null || echo '-lopenblas')
 OPENBLAS_CFLAGS ?= $(shell pkg-config --cflags openblas 2>/dev/null)
 
-# FFTW3 single-precision (libfftw3f).
-FFTW3_LIBS  ?= $(shell pkg-config --libs   fftw3f 2>/dev/null || echo '-lfftw3f')
-FFTW3_CFLAGS ?= $(shell pkg-config --cflags fftw3f 2>/dev/null)
-
-CFLAGS_TARGET  += $(OPENBLAS_CFLAGS) $(FFTW3_CFLAGS)
+# Audio FFT is vendored (mel_pipeline.c radix-2) — no FFTW3 dependency.
+CFLAGS_TARGET  += $(OPENBLAS_CFLAGS)
 LDFLAGS_TARGET := -fopenmp
-LDLIBS_TARGET  := $(OPENBLAS_LIBS) $(FFTW3_LIBS) -lm
+LDLIBS_TARGET  := $(OPENBLAS_LIBS) -lm

@@ -11,8 +11,8 @@
 #   * x86_64           → not supported yet. We fail fast with guidance rather
 #                        than emitting a wall of arm_neon.h compile errors.
 #
-# Stack mirrors pi5: OpenBLAS (cblas), FFTW3 single-precision (FFT), OpenMP.
-# Override library locations via OPENBLAS_LIBS / FFTW3_LIBS (see `make help`).
+# Stack mirrors pi5: OpenBLAS (cblas, dense fp32), OpenMP; FFT vendored.
+# Override OpenBLAS location via OPENBLAS_LIBS (see `make help`).
 
 LINUX_ARCH := $(shell uname -m)
 
@@ -39,10 +39,7 @@ CFLAGS_TARGET := -march=armv8.2-a+fp16+dotprod -fopenmp -ffast-math \
 OPENBLAS_LIBS   ?= $(shell pkg-config --libs   openblas 2>/dev/null || echo '-lopenblas')
 OPENBLAS_CFLAGS ?= $(shell pkg-config --cflags openblas 2>/dev/null)
 
-# FFTW3 single-precision (libfftw3f).
-FFTW3_LIBS   ?= $(shell pkg-config --libs   fftw3f 2>/dev/null || echo '-lfftw3f')
-FFTW3_CFLAGS ?= $(shell pkg-config --cflags fftw3f 2>/dev/null)
-
-CFLAGS_TARGET  += $(OPENBLAS_CFLAGS) $(FFTW3_CFLAGS)
+# Audio FFT is vendored (mel_pipeline.c radix-2) — no FFTW3 dependency.
+CFLAGS_TARGET  += $(OPENBLAS_CFLAGS)
 LDFLAGS_TARGET := -fopenmp
-LDLIBS_TARGET  := $(OPENBLAS_LIBS) $(FFTW3_LIBS) -lm
+LDLIBS_TARGET  := $(OPENBLAS_LIBS) -lm
