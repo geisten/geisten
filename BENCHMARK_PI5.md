@@ -38,12 +38,20 @@ CPU-only.
 | **geist** | 25.1 t/s (0.85×) | 24.0 t/s (0.80×) | **6.6 t/s** (0.97×) |
 
 **Decode is at parity** (geist 0.97× of llama). **Prefill is ~15–20 % behind:**
-the Pi 5's prefill bottleneck is fp32 GEMM, where OpenBLAS's hand-tuned sgemm
-beats geist's NEON kernels (geist's `q4k_predecode` fast path is Apple-only;
-on the Pi the prefill runs the plain NEON `m>1` kernels). Closing this — a
-quality-safe OpenBLAS sgemm prefill path, or a faster NEON `m>1` kernel — is
-tracked work. On `i8mm`/ARMv9 cores and Apple AMX the picture differs (see
-[BENCHMARK.md](BENCHMARK.md)).
+the Pi 5's prefill bottleneck is the `m>1` GEMM, where OpenBLAS's hand-tuned
+sgemm beats geist's NEON kernels.
+
+geist's `q4k_predecode` fast path (which speeds prefill on Apple) is gated to
+`has_accelerate`, i.e. **off on the Pi — correctly.** Forcing it on
+(`GEIST_Q4K_PREDECODE=1 GEIST_Q4K_MTILE_PREFILL=1 GEIST_Q4K_NTILE_PREFILL=1`)
+makes prefill **slower**, measured pp256 24.0 → 17.4 tps (−28 %): the predecoded
+block is ~1.9× the bytes of raw Q4_K, and the Pi 5's LPDDR4X bandwidth makes that
+byte-doubling cost more than the saved scale-unpack compute (the same
+bandwidth-vs-compute trade-off as the Q8_0 engine on Apple, sharper here). So the
+Pi prefill gap is genuine NEON-`m>1`-vs-OpenBLAS-sgemm, not a missing fast path.
+Closing it — a quality-safe OpenBLAS sgemm prefill, or a faster NEON `m>1`
+kernel — is tracked work. On `i8mm`/ARMv9 cores and Apple AMX the picture differs
+(see [BENCHMARK.md](BENCHMARK.md)).
 
 ## Thread placement — leave one core
 
