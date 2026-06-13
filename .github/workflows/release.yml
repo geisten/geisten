@@ -80,7 +80,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-      - name: Upload to the GitHub Release
+      - name: Publish to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" dist/*/*.tar.gz --repo "${GITHUB_REPOSITORY}" --clobber
+        # `gh release upload` needs the Release to already exist; a pushed tag
+        # alone is not a Release. Create it from the tag (auto-generated notes)
+        # if absent, then attach the per-platform tarballs. Idempotent.
+        run: |
+          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 \
+            || gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+                 --title "geist ${GITHUB_REF_NAME}" --generate-notes --verify-tag
+          gh release upload "${GITHUB_REF_NAME}" dist/*/*.tar.gz --repo "${GITHUB_REPOSITORY}" --clobber
