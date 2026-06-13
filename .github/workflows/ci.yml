@@ -19,14 +19,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # -std=c23 needs gcc >= 14 and Apple-clang >= 16 (Xcode 16 / macOS 15).
           - name: macOS arm64
-            runner: macos-14
+            runner: macos-15
             target: mac-omp
             cc: clang
           - name: Linux arm64
             runner: ubuntu-24.04-arm
             target: linux
-            cc: gcc-13
+            cc: gcc-14
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +40,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            gcc-13 libopenblas-dev
+            gcc-14 libopenblas-dev
 
       - name: Build
         run: make TARGET=${{ matrix.target }} CC=${{ matrix.cc }}

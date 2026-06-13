@@ -101,7 +101,7 @@ We don't treat low-bit formats as an afterthought. Our backend is built for a **
 ## 📦 Build & Usage
 
 ### Requirements
-- C compiler with C23 support (Apple-clang ≥ 15, gcc ≥ 13).
+- C compiler with `-std=c23` support: gcc ≥ 14, or Apple-clang ≥ 16 (Xcode 16 / macOS 15).
 - `make`.
 - **Mac:** Homebrew `libomp` recommended for multi-threading.
 

@@ -26,7 +26,7 @@ make MODE=asan            # AddressSanitizer + UBSan — run before sending kern
 make help                 # all options
 ```
 
-Toolchain: Apple-clang ≥ 15 or gcc ≥ 13 (C23). On macOS, `brew install libomp`
+Toolchain: gcc ≥ 14 or Apple-clang ≥ 16 (`-std=c23`). On macOS, `brew install libomp`
 for the multi-threaded `mac-omp` target. On ARM64 Linux you need OpenBLAS and
 FFTW3 (`libopenblas-dev libfftw3-dev`).
 

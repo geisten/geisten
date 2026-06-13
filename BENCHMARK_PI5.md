@@ -13,7 +13,7 @@ path. The numbers below were measured on a real, **quiesced** Pi 5.
 
 - **Board:** Raspberry Pi 5 Model B Rev 1.1, 4× Cortex-A76, 4 GB RAM,
   64-bit Raspberry Pi OS (kernel 6.18, Debian).
-- **geist build:** `make TARGET=pi5 CC=gcc` (gcc 14.2 — gcc-13 also fine;
+- **geist build:** `make TARGET=pi5 CC=gcc` (gcc 14.2; gcc ≥ 14 required for `-std=c23`;
   OpenBLAS + FFTW3 + OpenMP). Builds clean under `-Werror`.
 - **Reference:** llama.cpp `ba1df05`, built with OpenBLAS
   (`cmake -DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS -DGGML_NATIVE=ON`). CPU-only
