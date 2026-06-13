@@ -48,6 +48,12 @@ CFLAGS_TARGET  := -DHAVE_ACCELERATE=1 \
                   -isystem $(LIBOMP_PREFIX)/include \
                   -ffast-math -fno-finite-math-only
 
-LDFLAGS_TARGET := -framework Accelerate \
-                  -L$(LIBOMP_PREFIX)/lib -lomp
+# Default links libomp dynamically (the dev workflow). GEIST_STATIC_OMP=1 links
+# the static libomp.a instead, so a release binary depends only on system
+# frameworks (Accelerate/libSystem, always present on macOS) — self-contained.
+ifeq ($(GEIST_STATIC_OMP),1)
+  LDFLAGS_TARGET := -framework Accelerate $(LIBOMP_PREFIX)/lib/libomp.a
+else
+  LDFLAGS_TARGET := -framework Accelerate -L$(LIBOMP_PREFIX)/lib -lomp
+endif
 LDLIBS_TARGET  := -lm
