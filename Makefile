@@ -22,10 +22,11 @@ TARGET ?= $(shell mk/detect-target.sh)
 MODE   ?= release
 
 # Phony targets — do not match files.
-.PHONY: all lib bin clean distclean help test test-unit test-int test-e2e test-all test-py fetch-model bench bench-small bench-detailed bench-quality-small bench-quality-detailed bench-compare-ref bench-mmlu bench-tooling format format-check
+.PHONY: all lib bin run clean distclean help test test-unit test-int test-e2e test-all test-py fetch-model bench bench-small bench-detailed bench-quality-small bench-quality-detailed bench-compare-ref bench-mmlu bench-tooling format format-check
 
-# Default goal.
-all: lib bin
+# Default goal. The `geist` symlink (built after common.mk pins BIN_DIR) points
+# `./geist` at the freshly built CLI so you never type the bin/<target>/<mode> path.
+all: lib bin geist
 
 # Pull in target settings (CC, CFLAGS_TARGET, LDFLAGS_TARGET, LDLIBS_TARGET).
 include mk/target-$(TARGET).mk
@@ -36,6 +37,17 @@ include mk/common.mk
 # Convenience aggregate goals.
 lib: $(LIB_FILE)
 bin: $(BIN_TARGETS)
+
+# `./geist` → the built CLI for the current TARGET/MODE, so the demo is just
+#   make && OMP_WAIT_POLICY=active ./geist model.gguf "The capital of France is"
+# Re-pointed on every build (cheap); removed by `make distclean`.
+geist: $(BIN_DIR)/tools/geist
+	@ln -sf $(BIN_DIR)/tools/geist $@ && echo "./$@ -> $(BIN_DIR)/tools/geist"
+
+# `make run ARGS='model.gguf "your prompt" -n 40'` — build, then run the CLI
+# with OMP_WAIT_POLICY=active (matters for multi-thread perf on mac-omp).
+run: geist
+	@OMP_WAIT_POLICY=active ./geist $(ARGS)
 
 # Test runner — invokes mk/run-tests.sh against the test bin directory.
 # FILTER is an optional substring; e.g. `make test FILTER=q3k` runs only
@@ -152,45 +164,21 @@ bench-audio: bin
 # All multimodal encoders end-to-end. Useful as a single CI gate.
 bench-mm: bench-vision bench-video bench-audio
 
-# Reproducible quality/performance suites. Both update benchmark/BENCHMARK.md only
-# when the current run sets a new record for the same model/host/OS/target.
-bench-small: bin
-	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
-	python3 tools/bench_quality_perf.py \
-	  --suite small --target "$(TARGET)" --mode "$(MODE)" \
-	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md benchmark/BENCHMARK.md --record
+# Reproducible quality/performance suites — all drive tools/bench_quality_perf.py,
+# which records a row into benchmark/BENCHMARK.md only when the run sets a new best
+# for that (model, host, os, target/mode, threads) key. BENCH_REF_* are read by the
+# quality/compare suites only; harmless (empty) for the plain perf suites.
+BENCH_PY = BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
+           BENCH_REF_GGUF="$(BENCH_REF_GGUF)" BENCH_REF_BIN="$(BENCH_REF_BIN)" \
+           python3 tools/bench_quality_perf.py --target "$(TARGET)" --mode "$(MODE)" \
+             --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
+             --benchmark-md benchmark/BENCHMARK.md --record --suite
 
-bench-detailed: bin
-	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
-	python3 tools/bench_quality_perf.py \
-	  --suite detailed --target "$(TARGET)" --mode "$(MODE)" \
-	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md benchmark/BENCHMARK.md --record
-
-bench-quality-small: bin
-	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
-	BENCH_REF_GGUF="$(BENCH_REF_GGUF)" \
-	python3 tools/bench_quality_perf.py \
-	  --suite quality-small --target "$(TARGET)" --mode "$(MODE)" \
-	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md benchmark/BENCHMARK.md --record
-
-bench-quality-detailed: bin
-	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
-	BENCH_REF_GGUF="$(BENCH_REF_GGUF)" \
-	python3 tools/bench_quality_perf.py \
-	  --suite quality-detailed --target "$(TARGET)" --mode "$(MODE)" \
-	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md benchmark/BENCHMARK.md --record
-
-bench-compare-ref: bin
-	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
-	BENCH_REF_GGUF="$(BENCH_REF_GGUF)" BENCH_REF_BIN="$(BENCH_REF_BIN)" \
-	python3 tools/bench_quality_perf.py \
-	  --suite compare-ref --target "$(TARGET)" --mode "$(MODE)" \
-	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md benchmark/BENCHMARK.md --record
+bench-small:            bin ; @$(BENCH_PY) small
+bench-detailed:         bin ; @$(BENCH_PY) detailed
+bench-quality-small:    bin ; @$(BENCH_PY) quality-small
+bench-quality-detailed: bin ; @$(BENCH_PY) quality-detailed
+bench-compare-ref:      bin ; @$(BENCH_PY) compare-ref
 
 # Quality: MMLU accuracy via the self-contained tools/eval_mmlu.py harness
 # (drives the eval_geist REPL, tokenizes with the model's OWN GGUF tokenizer —
@@ -223,7 +211,7 @@ clean:
 
 distclean:
 	@rm -rf build lib bin
-	@rm -f *.npy *.bin test_* eval_geist profile_decode dump_llamacpp_logits bench_sgemv summary.json module_tree.txt tokens_ref.txt
+	@rm -f geist *.npy *.bin test_* eval_geist profile_decode dump_llamacpp_logits bench_sgemv summary.json module_tree.txt tokens_ref.txt
 	@echo "Cleaned all targets, modes, and temporary files."
 
 # Code formatting via clang-format. Reads .clang-format from repo root.
@@ -240,63 +228,30 @@ format-check:
 
 # Help text.
 help:
-	@echo "geist build system"
-	@echo ""
-	@echo "Common usage:"
-	@echo "  make                         build everything for detected target (mode=release)"
-	@echo "  make MODE=debug              -O0 -g for gdb stepping"
-	@echo "  make MODE=asan               AddressSanitizer + UBSan build"
-	@echo "  make MODE=perf               -O3 -g for perf record / profilers"
-	@echo "  make lib                     only libgeist.a"
-	@echo "  make bin                     only binaries (impl. requires lib)"
-	@echo "  make test                    unit + int (default; auto-fetches model if missing)"
-	@echo "  make test AUTO_FETCH_MODEL=0 same, but never download (model-gated tests skip)"
-	@echo "  make test-unit               only _unit tests (kernel-level, fast)"
-	@echo "  make test-int                only _int tests (multi-module, seconds)"
-	@echo "  make test-e2e                only _e2e tests (slow, may need GGUF)"
-	@echo "  make test-all                unit + int + e2e (excludes benches)"
-	@echo "  make test-unit FILTER=q3k    only _unit tests containing 'q3k'"
-	@echo "  make fetch-model             download reference GGUF (~3.1 GB) for _int/_e2e"
-	@echo "  make fetch-model HF_TOKEN=.. same, with HF auth for gated mirrors"
-	@echo "  make bench                   run timing benchmarks (not pass/fail)"
-	@echo "  make bench-small             short quality/perf suite + record new bests"
-	@echo "  make bench-detailed          longer quality/perf suite + record new bests"
-	@echo "  make bench-quality-small     short PPL/KL quality suite + records"
-	@echo "  make bench-quality-detailed  PPL + sampled MMLU/GSM8K quality suite"
-	@echo "  make bench-compare-ref       geist vs reference perf/KL; set BENCH_REF_*"
-	@echo "  make bench-mmlu              MMLU accuracy (5-shot cloze; needs 'pip install datasets')"
-	@echo "  make bench-mmlu MMLU_LIMIT=0 full ~14k-question MMLU set"
-	@echo "  make bench-tooling           function-calling + JSON-generation quality (self-contained)"
-	@echo "  make clean                   remove current TARGET/MODE artifacts"
-	@echo "  make distclean               remove all artifacts"
-	@echo "  make format                  rewrite all sources via clang-format"
-	@echo "  make format-check            verify formatting (no rewrite, errors on diff)"
-	@echo ""
-	@echo "Target selection:"
-	@echo "  make TARGET=mac              Mac M1+ (Apple-clang + Accelerate)"
-	@echo "  make TARGET=pi5              Pi 5 (gcc-13 + OpenBLAS + FFTW3 + OpenMP)"
-	@echo "  detected: $(TARGET)"
-	@echo ""
-	@echo "Cross-compile (host=Mac/Linux, target=Pi 5):"
-	@echo "  Install aarch64 toolchain first, then:"
-	@echo "    make TARGET=pi5 CC=aarch64-linux-gnu-gcc-13"
-	@echo "  For non-default OpenBLAS/FFTW3 location, override:"
-	@echo "    make TARGET=pi5 OPENBLAS_LIBS=\"-L/opt/lib -lopenblas\" \\"
-	@echo "                    FFTW3_LIBS=\"-L/opt/lib -lfftw3f\""
-	@echo ""
-	@echo "Current settings:"
-	@echo "  TARGET=$(TARGET)"
-	@echo "  MODE=$(MODE)"
-	@echo "  CC=$(CC)"
-	@echo "  CFLAGS=$(CFLAGS)"
-	@echo "  LDFLAGS=$(LDFLAGS)"
-	@echo "  LDLIBS=$(LDLIBS)"
-	@echo "  BENCH_GGUF=$(BENCH_GGUF)"
-	@echo "  BENCH_THREADS=$(BENCH_THREADS)"
-	@echo "  BENCH_OUT_DIR=$(BENCH_OUT_DIR)"
-	@echo "  BENCH_REF_GGUF=$(BENCH_REF_GGUF)"
-	@echo "  BENCH_REF_BIN=$(BENCH_REF_BIN)"
-	@echo "  MODEL_PATH=$(MODEL_PATH)"
-	@echo "  MODEL_URL=$(MODEL_URL)"
-	@echo "  AUTO_FETCH_MODEL=$(AUTO_FETCH_MODEL)"
-	@echo "  GEIST_GGUF_PATH=$(GEIST_GGUF_PATH)"
+	@printf '%s\n' \
+	"geist build system   (detected TARGET=$(TARGET), MODE=$(MODE), CC=$(CC))" \
+	"" \
+	"Build & run:" \
+	"  make                       lib + binaries + ./geist symlink for this TARGET/MODE" \
+	"  OMP_WAIT_POLICY=active ./geist model.gguf \"prompt\" -n 40    run the CLI" \
+	"  make run ARGS='m.gguf \"hi\"'   build, then run ./geist with OMP_WAIT_POLICY=active" \
+	"  make lib | bin             only the static lib | only the binaries" \
+	"  make MODE=debug|asan|perf  -O0+g for gdb | ASan+UBSan | -O3+g for profilers" \
+	"  make clean | distclean     remove current TARGET/MODE | remove everything" \
+	"" \
+	"Test:" \
+	"  make test                  unit + int + py  (auto-fetches model; AUTO_FETCH_MODEL=0 to skip)" \
+	"  make test-unit|test-int|test-e2e|test-all   [FILTER=substr]" \
+	"  make fetch-model [HF_TOKEN=..]              download reference GGUF (~3.1 GB)" \
+	"" \
+	"Bench (timing/quality tools, not pass/fail):" \
+	"  make bench | bench-mm                       raw probes | multimodal encoders" \
+	"  make bench-small | bench-detailed           record perf to benchmark/BENCHMARK.md" \
+	"  make bench-quality-small|-detailed|bench-compare-ref   PPL/KL (set BENCH_REF_*)" \
+	"  make bench-mmlu [MMLU_LIMIT=0] | bench-tooling         accuracy (pip install datasets)" \
+	"" \
+	"Format:  make format | format-check          (clang-format, reads .clang-format)" \
+	"" \
+	"Targets: mac, mac-omp (Accelerate), pi5 (OpenBLAS+OpenMP), linux" \
+	"  cross-compile:   make TARGET=pi5 CC=aarch64-linux-gnu-gcc-14" \
+	"  dependency-free static ARM build:   make TARGET=pi5 GEIST_BLAS_FREE=1 EXTRA_LDFLAGS=-static"

@@ -35,21 +35,24 @@ That is the bet, and it is a different one from the universal engines:
 
 Build, then point the `geist` CLI at a GGUF:
 
+`make` builds the engine and drops a `./geist` symlink in the repo root:
+
 ```console
 $ make
-$ OMP_WAIT_POLICY=active bin/`mk/detect-target.sh`/release/tools/geist \
-      gemma4-e2b-Q4_K_M.gguf "The capital of France is"
+$ OMP_WAIT_POLICY=active ./geist gemma4-e2b-Q4_K_M.gguf "The capital of France is"
 loaded gemma4-e2b-Q4_K_M.gguf (arch: transformer)
 The capital of France is Paris.
 
-$ OMP_WAIT_POLICY=active bin/`mk/detect-target.sh`/release/tools/geist \
-      gemma4-e2b-Q4_K_M.gguf "Write a haiku about the ocean:" -n 40
+$ OMP_WAIT_POLICY=active ./geist gemma4-e2b-Q4_K_M.gguf "Write a haiku about the ocean:" -n 40
 Write a haiku about the ocean:
 
 Blue waves crash on sand,
 Salt spray kisses the warm air,
 Ocean's deep secrets.
 ```
+
+(`OMP_WAIT_POLICY=active` matters for multi-thread perf; `make run ARGS='…'` sets
+it for you.)
 
 *Real output from the `geist` CLI on Gemma 4 E2B-it (Q4_K_M), greedy decode.
 Reproduce with `make fetch-model` then the commands above. The whole stable
@@ -119,14 +122,17 @@ We don't treat low-bit formats as an afterthought. Our backend is built for a **
 
 ### Quick Start
 ```bash
-# Build (target auto-detected: mac-omp / mac / pi5 / linux).
+# Build (target auto-detected: mac-omp / mac / pi5 / linux). Drops a ./geist symlink.
 make                       # or: make TARGET=mac-omp | pi5 | linux
 
 # Grab a reference model (Gemma 4 E2B-it Q4_K_M, ~3.1 GB) — optional helper.
 make fetch-model
 
-# Run the evaluation REPL against a GGUF. detect-target.sh prints the
-# build dir (mac-omp, pi5, ...); the backticks expand it in your shell.
+# Generate (the symlink saves you the bin/<target>/<mode> path):
+OMP_WAIT_POLICY=active ./geist gguf_artifacts/gemma4-e2b-Q4_K_M.gguf "The capital of France is"
+make run ARGS='gguf_artifacts/gemma4-e2b-Q4_K_M.gguf "Write a haiku" -n 40'   # same, OMP set for you
+
+# Or the interactive evaluation REPL (full build dir; eval_geist has no symlink):
 OMP_WAIT_POLICY=active bin/`mk/detect-target.sh`/release/tools/eval_geist gguf_artifacts/gemma4-e2b-Q4_K_M.gguf
 ```
 

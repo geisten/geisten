@@ -1,6 +1,8 @@
 build/
 lib/
 bin/
+# `make` symlinks ./geist -> bin/<target>/<mode>/tools/geist
+/geist
 .DS_Store
 __pycache__/
 *.py[cod]
