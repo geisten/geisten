@@ -1,22 +1,21 @@
 # geist Benchmarks
 
 geist vs **llama.cpp**, the **identical** `Gemma 4 E2B-it Q4_K_M` GGUF on both
-engines, CPU-only, on the two reference machines. The story is not "one engine is
-faster everywhere" — it is **two opposite scaling curves**, and which one wins
-depends on the machine *and* the context length.
+engines, CPU-only, on the two reference machines.
 
 | | [Raspberry Pi 5](BENCHMARK_PI5.md) | [Apple M1 Max](BENCHMARK.md) |
 | :-- | :-- | :-- |
 | Role | **primary optimization target** (edge) | dev box / Apple-AMX reference |
 | Quant matmul path | native int8 (W4A8) | native int8 |
 | Dense fp32 path | native NEON (BLAS-free) | Accelerate / **AMX** |
-| Measurement | quiesced → **mean of 10** | live desktop → **best of 10** |
+| Measurement | quiesced + cool → **mean of 10** | live desktop → **best of 10** |
 
 > **TL;DR** — On **Apple Silicon** geist wins prefill at *every* length and the
-> lead **widens** with context (1.48× at 1024 tokens). On the **Pi 5** geist's
-> prefill is now ~flat across the sweep (34 → 31.5 t/s): it wins short/mid context
-> (1.55× at 128) and llama.cpp only edges ahead at 1024 (1.07×). **Decode is ~par
-> on both** (geist slightly ahead).
+> lead **widens** with context (1.48× at 1024 tokens). On the **Pi 5** llama.cpp's
+> OpenBLAS prefill leads geist by ~10–15 % across the sweep (both flat, ~37–39 vs
+> ~32–34 t/s); **decode is a tie** (~6.8 t/s). geist's Pi value is the
+> dependency-free static binary + decode parity, not raw prefill — the A76's
+> mature OpenBLAS fp32 path is the bar geist is still chasing there.
 
 ---
 
@@ -47,52 +46,57 @@ investigation →](BENCHMARK.md)
 
 ## Raspberry Pi 5 (Cortex-A76, 4 cores) — prefill (tokens/s, higher is better)
 
+Both engines started from a cool baseline (~53–56 °C — the Pi throttles when
+heat-soaked; see the write-up):
+
 | seq_len | llama.cpp (OpenBLAS) | geist | winner |
 | ---: | :---: | :---: | :--- |
-|  128 | 22.1 | **34.3** | **geist 1.55×** |
-|  256 | 30.0 | **34.1** | **geist 1.14×** |
-|  512 | 33.2 | **33.0** | ~par |
-| 1024 | **33.8** | 31.5 | llama 1.07× |
+|  128 | **37.0** | 33.9 | llama 1.09× |
+|  256 | **39.2** | 33.8 | llama 1.16× |
+|  512 | **37.3** | 32.8 | llama 1.14× |
+| 1024 | **35.6** | 31.4 | llama 1.13× |
 
 ```
-prefill t/s   (each █ ≈ 2.4 t/s)           geist ~flat ·· llama warms up
- geist  128 ██████████████ 34       llama  128 █████████ 22
-        256 ██████████████ 34               256 █████████████ 30
-        512 ██████████████ 33               512 ██████████████ 33
-       1024 █████████████ 32              1024 ██████████████ 34
+prefill t/s   (each █ ≈ 2.4 t/s)           both flat ·· llama ~10-15% ahead
+ geist  128 ██████████████ 34       llama  128 ███████████████ 37
+        256 ██████████████ 34               256 ████████████████ 39
+        512 ██████████████ 33               512 ████████████████ 37
+       1024 █████████████ 31              1024 ███████████████ 36
 ```
 
-**Decode:** geist **6.9 t/s** vs llama.cpp 6.7 t/s — geist's by a hair, across all
-context lengths. geist's prefill curve was flattened by parallelizing the O(n²)
-attention core (it used to fade to 23 t/s at 1024 — see the write-up).
-[Full write-up + thread placement →](BENCHMARK_PI5.md)
+**Decode:** ≈ par — geist **6.9 t/s** vs llama.cpp **6.8 t/s** (best at 3 threads,
+memory-bound for both). geist's prefill curve is flat thanks to a parallelized
+O(n²) attention core (it used to fade to 23 t/s at 1024), but llama's mature
+OpenBLAS sgemm still leads Pi prefill by ~10–15 %.
+[Full write-up + the thermal correction + thread placement →](BENCHMARK_PI5.md)
 
 ---
 
 ## Reading the numbers — why the curves look the way they do
 
-The two engines reach the Q4_K matmuls through fundamentally different paths:
+Both engines reach the Q4_K matmuls differently, and both prefill curves are now
+**flat** with context on the Pi — they just sit at different heights:
 
-- **geist runs prefill on a native int8 (W4A8) kernel** — low fixed overhead, so
-  it is fastest the moment work arrives (short context). Its attention is O(n²),
-  but the SDPA core is now **parallelized across cores** (it used to be serial,
-  which made the Pi curve fade to 23 t/s at 1024); spread over 4 A76 cores the
-  per-token rise is largely absorbed, so the Pi prefill curve stays **~flat**
-  (34 → 31.5) and llama only catches it at the very longest length.
-- **llama.cpp dequantizes to fp32 and calls a BLAS sgemm** (OpenBLAS on the Pi,
-  Accelerate on the Mac). BLAS carries a large fixed per-call overhead — ruinous on
-  small matrices but *amortizing* over the tall activation matrix of a long prompt.
-  → on the Pi its prefill **warms up** (22 → 34), reaching geist only around 1024.
-- **On the M1 Max the picture is geist-favoured at every length** because geist's
-  dense-fp32 path is **Accelerate/AMX**, which scales flat to long sequences, while
-  llama.cpp's CPU-only path (`-ngl 0`) *degrades* sharply past 256 tokens.
+- **geist runs prefill on a native int8 (W4A8) kernel** — low fixed overhead. Its
+  attention is O(n²), but the SDPA core is now **parallelized across cores** (it
+  used to be serial, which made the curve fade to 23 t/s at 1024); spread over 4
+  A76 cores the per-token rise is absorbed, so geist's curve is flat at ~32–34 t/s.
+- **llama.cpp dequantizes to fp32 and calls OpenBLAS sgemm**, a decades-tuned path
+  that is genuinely fast on the A76 (which lacks `i8mm`, so geist can't use SMMLA
+  to pull ahead). llama's curve is flat and ~10–15 % *higher* (~37–39 t/s) — it
+  wins Pi prefill at every length. Closing that gap is geist's open A76 work.
+- **On the M1 Max the picture flips to geist's favour at every length** because
+  geist's dense-fp32 path is **Accelerate/AMX**, which scales flat to long
+  sequences, while llama.cpp's CPU-only path (`-ngl 0`) *degrades* sharply past 256.
 - **Decode is memory-bandwidth-bound** for both (streaming the weights per token
-  dwarfs the compute), so the kernel differences wash out and the two land within
-  a few percent — geist a touch ahead on both boxes.
+  dwarfs the compute), so the kernel differences wash out and the two tie (~6.8 t/s
+  on the Pi).
 
-> The flat Pi prefill curve is recent: profiling showed the O(n²) attention stage
+> geist's flat Pi curve is recent: profiling showed the O(n²) attention stage
 > climbing 22 %→45 % of prefill with its SDPA **core single-threaded**;
-> parallelizing it (bit-exact) lifted pp512 +22 % and pp1024 +35 %. See
+> parallelizing it (bit-exact) lifted pp512 +22 % and pp1024 +35 %. Separately,
+> the llama Pi numbers here were re-measured after a thermal-throttling artifact
+> had understated them (pp128 22→37). See
 > [BENCHMARK_PI5.md](BENCHMARK_PI5.md).
 
 **How to dig deeper.** To attribute the scaling, profile prefill *phase-by-phase*
@@ -111,9 +115,13 @@ at its best thread count, after a **discarded warm-up run** (the runtime pages
 weights resident and spins up the OpenMP pool, so timings reflect steady state, not
 cold-start). llama.cpp build `d05fe1d`.
 
-- **Raspberry Pi 5 — `mean of 10`.** A dedicated headless box, genuinely quiesced
-  (load 0.0). The mean is meaningful: spread is <2 % run-to-run. This is the
-  controlled measurement.
+- **Raspberry Pi 5 — `mean of 10`, cool start.** A dedicated headless box,
+  genuinely quiesced (load 0.0). The mean is meaningful: spread is <2 % run-to-run.
+  Crucially, **both engines are started from a cool baseline (<56 °C)** — a 4.6 B
+  prefill drives this passively-cooled board to ~78 °C and trips the soft temp
+  limit in under a minute, so benchmarking one engine right after the other
+  throttles the second (this is exactly what understated llama's pp128 to 22 t/s
+  in an earlier revision — cool, it is ~37).
 - **Apple M1 Max — `best of 10`.** A developer workstation that *cannot* be
   quiesced while in use (WindowServer, browser, IDE all contend for the P-cores).
   On a contended box the **mean** is dominated by interference spikes (±20 %

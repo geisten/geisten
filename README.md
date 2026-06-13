@@ -68,9 +68,8 @@ text-generation core is ~70 lines of C — see
 ## 🚀 Performance — geist vs llama.cpp (Gemma 4 E2B-it, Q4_K_M, CPU-only)
 
 The **identical** GGUF on both engines, full prefill sweep 128 → 1024 tokens.
-geist's prefill stays **flat with context** on both machines (low-overhead native
-int8 + a parallelized O(n²) attention core); llama.cpp's BLAS path warms up with
-length on the Pi and degrades on the Mac.
+Both engines' prefill is **flat with context**; geist wins outright on Apple
+(AMX), while on the Pi llama.cpp's OpenBLAS path sits ~10–15 % higher.
 
 **Apple M1 Max** — prefill t/s (best-of-10, both engines):
 
@@ -80,24 +79,25 @@ length on the Pi and degrades on the Mac.
 | **geist** | **164** | **161** | **150** | **144** |
 | | geist 1.16× | geist 1.10× | geist 1.17× | **geist 1.48×** |
 
-**Raspberry Pi 5** — prefill t/s (mean-of-10, quiesced):
+**Raspberry Pi 5** — prefill t/s (mean-of-10, quiesced + cool start):
 
 | seq_len | 128 | 256 | 512 | 1024 |
 | :-- | :---: | :---: | :---: | :---: |
-| llama.cpp (OpenBLAS) | 22.1 | 30.0 | 33.2 | **33.8** |
-| **geist** | **34.3** | **34.1** | **33.0** | 31.5 |
-| | geist 1.55× | geist 1.14× | ~par | llama 1.07× |
+| **llama.cpp** (OpenBLAS) | **37.0** | **39.2** | **37.3** | **35.6** |
+| geist | 33.9 | 33.8 | 32.8 | 31.4 |
+| | llama 1.09× | llama 1.16× | llama 1.14× | llama 1.13× |
 
 On **Apple Silicon** geist wins prefill at *every* length and the lead **widens**
 with context (1.48× at 1024) — geist's dense path uses **Accelerate/AMX**, which
-stays flat, while llama.cpp's CPU path drops off. On the **Pi 5** geist's prefill
-is now **nearly flat** (34 → 31.5) after parallelizing its O(n²) attention core:
-it wins short/mid context (1.55× at 128) and llama.cpp only edges ahead at 1024
-(1.07×). **Decode is ~par on both** (Pi: geist 6.9 vs llama 6.7).
+stays flat, while llama.cpp's CPU path drops off. On the **Pi 5** both curves are
+flat but **llama.cpp's decades-tuned OpenBLAS sgemm leads geist by ~10–15 %** on
+the A76 (no `i8mm`) — the hard case geist is built around; geist ties on **decode**
+(~6.8 t/s) and wins on dependency-free distribution. *(Earlier Pi tables here
+showed geist ahead — a thermal-throttling artifact in the llama measurement, now
+corrected; see [`benchmark/`](benchmark/README.md).)*
 
-📊 **Full sweep, ASCII charts, the "why the curves cross" analysis, and the
-methodology (why best-of on the live Mac, mean-of-10 on the quiesced Pi) live in
-[`benchmark/`](benchmark/README.md).**
+📊 **Full sweep, ASCII charts, the per-phase analysis, and the methodology (cool
+starts, best-of vs mean-of-10) live in [`benchmark/`](benchmark/README.md).**
 
 ---
 
