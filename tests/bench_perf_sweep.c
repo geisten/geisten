@@ -12,9 +12,14 @@
  *                              fixture lookup; consumed by bench_standard.py)
  *   --seq-lens 32,128,...      comma-separated prefill lengths (required)
  *   --decode-n N               decode steps after each prefill (default 64)
- *   --warmup N                 warmup prefill before measurement (default 64)
- *   --repeats N                measured repeats per seq_len; JSON core
- *                              metrics report the median (default 1)
+ *   --warmup N                 warmup prefill+decode run before any measurement
+ *                              (default 64); this run is DISCARDED — it pages the
+ *                              weights resident, resolves backend kernels, and
+ *                              spins up the OpenMP pool so timings reflect steady
+ *                              state, not cold-start.
+ *   --repeats N                measured repeats per seq_len; JSON core metrics
+ *                              report the MEAN over the repeats, plus best/worst
+ *                              (default 10)
  *   --m-max N                  session prefill chunk cap (default arch cap)
  *   --vocab N                  pseudo-random token range upper bound
  *                              (default 32000 — works for Llama2 SP and Llama3 BPE)
@@ -94,12 +99,13 @@ static int cmp_double(const void* a, const void* b) {
     return (da > db) - (da < db);
 }
 
-static double median_sorted(const double* v, int n) {
+static double mean_of(const double* v, int n) {
     if (n <= 0)
         return 0.0;
-    if ((n & 1) != 0)
-        return v[n / 2];
-    return 0.5 * (v[n / 2 - 1] + v[n / 2]);
+    double sum = 0.0;
+    for (int i = 0; i < n; i++)
+        sum += v[i];
+    return sum / (double) n;
 }
 
 int main(int argc, char** argv) {
@@ -107,7 +113,7 @@ int main(int argc, char** argv) {
     int n_seq_lens = 0;
     int decode_n = 64;
     int warmup = 64;
-    int repeats = 1;
+    int repeats = 10;
     int m_max = 0;
     int vocab_cap = 32000;
     int threads = 0; /* informational; the runtime reads OMP_NUM_THREADS. */
@@ -136,7 +142,7 @@ int main(int argc, char** argv) {
     if (n_seq_lens == 0) {
         fprintf(stderr,
                 "usage: %s [--gguf PATH] --seq-lens 32,128,256,512,1024,2048 "
-                "[--decode-n 64] [--warmup 64] [--repeats 1] [--vocab 32000] "
+                "[--decode-n 64] [--warmup 64] [--repeats 10] [--vocab 32000] "
                 "[--threads N] [--emit-jsonl]\n",
                 argv[0]);
         return GEIST_TEST_ERROR;
@@ -208,14 +214,26 @@ int main(int argc, char** argv) {
         ids[i] = 1 + (geist_token_t) ((i * 2654435761u) % (unsigned) (vocab_cap - 1));
     }
 
-    /* One warmup prefill — pages caches, JIT-resolves backends, etc. */
-    if (warmup > 0 && warmup <= max_seq) {
+    /* WARMUP PHASE (discarded, not measured) — one prefill + a few decode
+     * steps to page the weights resident, resolve backend kernels, and spin up
+     * the OpenMP pool, so the measured repeats reflect steady state rather than
+     * cold-start. Announced on stderr; stdout stays clean JSONL. */
+    const int warmup_n = (warmup > max_seq) ? max_seq : warmup;
+    if (warmup_n > 0) {
+        fprintf(stderr,
+                "[bench] warmup phase (discarded): %d-token prefill + 4 decode "
+                "steps\n",
+                warmup_n);
         (void) geist_session_reset(sess);
-        (void) geist_session_prefill_tokens(sess, (size_t) warmup, ids);
+        (void) geist_session_prefill_tokens(sess, (size_t) warmup_n, ids);
         geist_token_t junk = 0;
         for (int i = 0; i < 4; i++)
             (void) geist_session_decode_step(sess, &junk);
     }
+    fprintf(stderr,
+            "[bench] measuring %d repeat(s) per seq_len; reporting the MEAN "
+            "(with best/worst)\n",
+            repeats);
 
     for (int idx = 0; idx < n_seq_lens; idx++) {
         const int n_p = seq_lens[idx];
@@ -262,11 +280,13 @@ int main(int argc, char** argv) {
             continue;
         }
 
+        /* Core metric is the MEAN over the measured repeats; sort only to pull
+         * best (fastest) / worst (slowest) for the spread. */
+        const double t_prefill = mean_of(prefill_ms, measured);
+        const double t_decode = mean_of(decode_ms, measured);
         qsort(prefill_ms, (size_t) measured, sizeof(*prefill_ms), cmp_double);
         qsort(decode_ms, (size_t) measured, sizeof(*decode_ms), cmp_double);
 
-        const double t_prefill = median_sorted(prefill_ms, measured);
-        const double t_decode = median_sorted(decode_ms, measured);
         const double pre_tps = (double) n_p * 1000.0 / t_prefill;
         const double dec_tps = (double) decode_n * 1000.0 / t_decode;
         const double pre_best = prefill_ms[0];
@@ -279,7 +299,8 @@ int main(int argc, char** argv) {
                "\"prefill_tps\":%.3f,\"decode_tps\":%.3f,"
                "\"prefill_ms_best\":%.2f,\"prefill_ms_worst\":%.2f,"
                "\"decode_ms_best\":%.2f,\"decode_ms_worst\":%.2f,"
-               "\"repeats\":%d,\"rss_mb\":%.2f,\"threads\":%d}\n",
+               "\"agg\":\"mean\",\"repeats\":%d,\"warmup\":%d,"
+               "\"rss_mb\":%.2f,\"threads\":%d}\n",
                n_p,
                decode_n,
                t_prefill,
@@ -291,6 +312,7 @@ int main(int argc, char** argv) {
                dec_best,
                dec_worst,
                measured,
+               warmup_n,
                process_rss_mb(),
                threads);
         fflush(stdout);

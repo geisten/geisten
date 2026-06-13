@@ -130,10 +130,14 @@ geist's prefill down at long context. For llama.cpp, `llama-bench -p <n>` plus
 
 *Measured June 2026 on quiesced hardware, both engines CPU-only on the identical
 `Q4_K_M` GGUF, each at its best thread count (Mac auto-pins to the 8 P-cores; Pi
-uses 4 threads). llama.cpp build `d05fe1d`. **Always measure on a quiesced box** —
-on the 4-core Pi a single stray process eating one core inverts the 4-thread
-numbers. These figures supersede the earlier single-point table; the full sweep
-tells a more honest story than any one sequence length.*
+uses 4 threads). llama.cpp build `d05fe1d`. **Each geist figure is the mean of 10
+measured repeats taken after a discarded warm-up run** (a throwaway prefill+decode
+that pages the weights resident and spins up the OpenMP pool, so timings reflect
+steady state, not cold-start); `llama-bench` warms up internally the same way.
+**Always measure on a quiesced box** — on the 4-core Pi a single stray process
+eating one core inverts the 4-thread numbers. These figures supersede the earlier
+single-point table; the full sweep tells a more honest story than any one
+sequence length.*
 
 ---
 

@@ -59,9 +59,12 @@ path degrades sharply past 256 (135 → 89). Decode is par (memory-bandwidth-bou
 for both; geist's int8 GEMV a hair ahead). geist's decode eases from 31.5 (short
 context) to 24.6 (1024-token KV-cache).
 
-*Quiesced machine. Numbers shift under background load, so measure both
-back-to-back in the same state. The prior single-point table (pp512 152/156)
-predates this rebuild; the full sweep above supersedes it.*
+*Quiesced machine. Each geist figure is the **mean of 10 measured repeats taken
+after a discarded warm-up run** (`bench_perf_sweep --repeats 10 --warmup 64` — the
+warm-up pages weights resident and spins up the OpenMP pool so timings are steady
+state); `llama-bench` warms up internally. Numbers shift under background load, so
+measure both back-to-back in the same state. The prior single-point table (pp512
+152/156) predates this rebuild; the full sweep above supersedes it.*
 
 **Decode-kernel investigation (negative results, for whoever picks this up).**
 The single-row Q4_K decode GEMV measures ~17 GB/s/core single-threaded — well
