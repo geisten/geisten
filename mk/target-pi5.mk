@@ -35,7 +35,16 @@ CFLAGS_TARGET := -DGEIST_TARGET_PI5=1 -mcpu=cortex-a76 -fopenmp -ffast-math -Wno
 OPENBLAS_LIBS  ?= $(shell pkg-config --libs   openblas 2>/dev/null || echo '-lopenblas')
 OPENBLAS_CFLAGS ?= $(shell pkg-config --cflags openblas 2>/dev/null)
 
-# Audio FFT is vendored (mel_pipeline.c radix-2) — no FFTW3 dependency.
-CFLAGS_TARGET  += $(OPENBLAS_CFLAGS)
 LDFLAGS_TARGET := -fopenmp
-LDLIBS_TARGET  := $(OPENBLAS_LIBS) -lm
+
+# Dense fp32 backend. Default: cblas/OpenBLAS. GEIST_BLAS_FREE=1 routes dense
+# fp32 through the native NEON path (geist_gemm) and links NO external math
+# libs — a fully dependency-free binary (libc/libm/libgomp only), for the
+# musl-static CI artifact. Audio FFT is vendored either way (no FFTW3).
+ifeq ($(GEIST_BLAS_FREE),1)
+  CFLAGS_TARGET += -DGEIST_GEMM_NATIVE
+  LDLIBS_TARGET := -lm
+else
+  CFLAGS_TARGET += $(OPENBLAS_CFLAGS)
+  LDLIBS_TARGET := $(OPENBLAS_LIBS) -lm
+endif

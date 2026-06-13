@@ -190,6 +190,21 @@ STB_OBJ := $(BUILD_DIR)/third_party/stb/stb_impl.o
 # Excluded: dump_llamacpp_logits.c (requires external llama.h from llama.cpp).
 TEST_SOURCES := $(wildcard tests/test_*.c tests/bench_*.c)
 DEMO_SOURCES := tools/eval_geist.c tools/profile_decode.c
+
+# These tests call cblas_* directly as an independent reference to validate
+# geist's own kernels. They can't link in a BLAS-free build (GEIST_BLAS_FREE=1)
+# and aren't meaningful there (no cblas to compare against) — the BLAS-free
+# build is the ship artifact (lib + CLI), validated end-to-end by the quality
+# benchmarks. Drop them from that build; they still run in the default build.
+CBLAS_REF_TESTS := \
+    tests/test_backend_cross_ref_unit.c tests/bench_q4k_kernel.c \
+    tests/bench_sgemv.c tests/test_state_decode_int.c tests/test_iq_kernel_int.c \
+    tests/test_transformer_block_via_vtable_int.c tests/test_q4k_kernel_int.c \
+    tests/test_prefill_q3k_int.c tests/test_q6k_prefill_int.c
+ifeq ($(GEIST_BLAS_FREE),1)
+    TEST_SOURCES := $(filter-out $(CBLAS_REF_TESTS),$(TEST_SOURCES))
+endif
+
 BIN_SOURCES  := $(TEST_SOURCES) $(DEMO_SOURCES)
 
 # ---- Derived paths -------------------------------------------------------
