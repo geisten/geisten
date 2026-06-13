@@ -61,9 +61,13 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Install clang-format
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format
+      # Pin clang-format to the version the tree is formatted with — apt's
+      # clang-format on ubuntu-24.04 is v18, which disagrees with the v22
+      # formatting and would flag spurious drift. The pip package gives the
+      # exact version on PATH (/usr/local/bin).
+      - name: Install clang-format 22 (matches the tree)
+        run: sudo python3 -m pip install --break-system-packages clang-format==22.1.5
       - name: Check formatting
-        run: make format-check
+        run: |
+          clang-format --version
+          make format-check
