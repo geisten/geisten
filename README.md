@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/neuron.png" alt="geist" width="100%">
+</p>
+
 # geist 👻
 
 [![CI](https://github.com/geisten/geist/actions/workflows/ci.yml/badge.svg)](https://github.com/geisten/geist/actions/workflows/ci.yml)
