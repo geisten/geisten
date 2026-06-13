@@ -13,9 +13,10 @@ depends on the machine *and* the context length.
 | Measurement | quiesced → **mean of 10** | live desktop → **best of 10** |
 
 > **TL;DR** — On **Apple Silicon** geist wins prefill at *every* length and the
-> lead **widens** with context (1.48× at 1024 tokens). On the **Pi 5** it is a
-> crossover: geist owns short context (1.47× at 128), llama.cpp's OpenBLAS path
-> overtakes from ~512 on. **Decode is ~par on both** (geist slightly ahead).
+> lead **widens** with context (1.48× at 1024 tokens). On the **Pi 5** geist's
+> prefill is now ~flat across the sweep (34 → 31.5 t/s): it wins short/mid context
+> (1.55× at 128) and llama.cpp only edges ahead at 1024 (1.07×). **Decode is ~par
+> on both** (geist slightly ahead).
 
 ---
 
@@ -48,44 +49,51 @@ investigation →](BENCHMARK.md)
 
 | seq_len | llama.cpp (OpenBLAS) | geist | winner |
 | ---: | :---: | :---: | :--- |
-|  128 | 22.1 | **32.4** | **geist 1.47×** |
-|  256 | 30.0 | **30.5** | ~par |
-|  512 | **33.2** | 27.0 | llama 1.23× |
-| 1024 | **33.8** | 23.3 | llama 1.45× |
+|  128 | 22.1 | **34.3** | **geist 1.55×** |
+|  256 | 30.0 | **34.1** | **geist 1.14×** |
+|  512 | 33.2 | **33.0** | ~par |
+| 1024 | **33.8** | 31.5 | llama 1.07× |
 
 ```
-prefill t/s   (each █ ≈ 2.4 t/s)           geist fades ·· llama warms up
- geist  128 ██████████████ 32       llama  128 █████████ 22
-        256 █████████████ 30               256 █████████████ 30
-        512 ███████████ 27                 512 ██████████████ 33
-       1024 ██████████ 23                 1024 ██████████████ 34
+prefill t/s   (each █ ≈ 2.4 t/s)           geist ~flat ·· llama warms up
+ geist  128 ██████████████ 34       llama  128 █████████ 22
+        256 ██████████████ 34               256 █████████████ 30
+        512 ██████████████ 33               512 ██████████████ 33
+       1024 █████████████ 32              1024 ██████████████ 34
 ```
 
 **Decode:** geist **6.9 t/s** vs llama.cpp 6.7 t/s — geist's by a hair, across all
-context lengths. [Full write-up + thread placement →](BENCHMARK_PI5.md)
+context lengths. geist's prefill curve was flattened by parallelizing the O(n²)
+attention core (it used to fade to 23 t/s at 1024 — see the write-up).
+[Full write-up + thread placement →](BENCHMARK_PI5.md)
 
 ---
 
-## Reading the numbers — why the curves cross
+## Reading the numbers — why the curves look the way they do
 
-The two engines reach the Q4_K matmuls through fundamentally different paths, and
-the crossover falls straight out of that:
+The two engines reach the Q4_K matmuls through fundamentally different paths:
 
 - **geist runs prefill on a native int8 (W4A8) kernel** — low fixed overhead, so
-  it is fastest the moment work arrives (short context). But its per-token cost
-  *grows* with context: at 1024 tokens the O(n²) attention is a much larger share
-  and does not get cheaper per token the way a big GEMM does. → prefill **fades**
-  as seq_len rises (Pi: 32 → 23).
+  it is fastest the moment work arrives (short context). Its attention is O(n²),
+  but the SDPA core is now **parallelized across cores** (it used to be serial,
+  which made the Pi curve fade to 23 t/s at 1024); spread over 4 A76 cores the
+  per-token rise is largely absorbed, so the Pi prefill curve stays **~flat**
+  (34 → 31.5) and llama only catches it at the very longest length.
 - **llama.cpp dequantizes to fp32 and calls a BLAS sgemm** (OpenBLAS on the Pi,
   Accelerate on the Mac). BLAS carries a large fixed per-call overhead — ruinous on
   small matrices but *amortizing* over the tall activation matrix of a long prompt.
-  → on the Pi its prefill **warms up** (22 → 34) and overtakes geist around 512.
-- **On the M1 Max the picture flips in geist's favour** because geist's dense-fp32
-  path here is **Accelerate/AMX**, which scales flat to long sequences, while
+  → on the Pi its prefill **warms up** (22 → 34), reaching geist only around 1024.
+- **On the M1 Max the picture is geist-favoured at every length** because geist's
+  dense-fp32 path is **Accelerate/AMX**, which scales flat to long sequences, while
   llama.cpp's CPU-only path (`-ngl 0`) *degrades* sharply past 256 tokens.
 - **Decode is memory-bandwidth-bound** for both (streaming the weights per token
   dwarfs the compute), so the kernel differences wash out and the two land within
   a few percent — geist a touch ahead on both boxes.
+
+> The flat Pi prefill curve is recent: profiling showed the O(n²) attention stage
+> climbing 22 %→45 % of prefill with its SDPA **core single-threaded**;
+> parallelizing it (bit-exact) lifted pp512 +22 % and pp1024 +35 %. See
+> [BENCHMARK_PI5.md](BENCHMARK_PI5.md).
 
 **How to dig deeper.** To attribute the scaling, profile prefill *phase-by-phase*
 (attention vs FFN-matmul vs PLE) at each seq_len rather than as one number: build

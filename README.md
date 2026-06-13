@@ -63,9 +63,10 @@ text-generation core is ~70 lines of C — see
 
 ## 🚀 Performance — geist vs llama.cpp (Gemma 4 E2B-it, Q4_K_M, CPU-only)
 
-The **identical** GGUF on both engines, full prefill sweep 128 → 1024 tokens. The
-story is not "one engine is faster" — it is **two opposite scaling curves**, and
-which one wins depends on the machine *and* the context length.
+The **identical** GGUF on both engines, full prefill sweep 128 → 1024 tokens.
+geist's prefill stays **flat with context** on both machines (low-overhead native
+int8 + a parallelized O(n²) attention core); llama.cpp's BLAS path warms up with
+length on the Pi and degrades on the Mac.
 
 **Apple M1 Max** — prefill t/s (best-of-10, both engines):
 
@@ -79,16 +80,16 @@ which one wins depends on the machine *and* the context length.
 
 | seq_len | 128 | 256 | 512 | 1024 |
 | :-- | :---: | :---: | :---: | :---: |
-| llama.cpp (OpenBLAS) | 22.1 | 30.0 | **33.2** | **33.8** |
-| **geist** | **32.4** | **30.5** | 27.0 | 23.3 |
-| | geist 1.47× | ~par | llama 1.23× | llama 1.45× |
+| llama.cpp (OpenBLAS) | 22.1 | 30.0 | 33.2 | **33.8** |
+| **geist** | **34.3** | **34.1** | **33.0** | 31.5 |
+| | geist 1.55× | geist 1.14× | ~par | llama 1.07× |
 
 On **Apple Silicon** geist wins prefill at *every* length and the lead **widens**
 with context (1.48× at 1024) — geist's dense path uses **Accelerate/AMX**, which
-stays flat, while llama.cpp's CPU path drops off. On the **Pi 5** it is a
-**crossover**: geist's low-overhead native int8 owns short context (1.47× at 128),
-while llama.cpp's BLAS sgemm amortizes its fixed cost over long prompts and
-overtakes from ~512 on. **Decode is ~par on both** (Pi: geist 6.9 vs llama 6.7).
+stays flat, while llama.cpp's CPU path drops off. On the **Pi 5** geist's prefill
+is now **nearly flat** (34 → 31.5) after parallelizing its O(n²) attention core:
+it wins short/mid context (1.55× at 128) and llama.cpp only edges ahead at 1024
+(1.07×). **Decode is ~par on both** (Pi: geist 6.9 vs llama 6.7).
 
 📊 **Full sweep, ASCII charts, the "why the curves cross" analysis, and the
 methodology (why best-of on the live Mac, mean-of-10 on the quiesced Pi) live in

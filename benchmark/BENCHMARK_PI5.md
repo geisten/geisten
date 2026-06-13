@@ -42,27 +42,36 @@ figures reflect steady state, not cold caches.
 
 Each engine at its best thread count; same weights, same quantization, CPU-only.
 The Pi 5 is a dedicated headless box (load 0.0), so these are the clean **mean of
-10 repeats** (geist spread <2 %; `llama-bench` averages its own reps). The full
-prefill sweep shows a **crossover**, not a flat gap:
+10 repeats** (geist spread <2 %; `llama-bench` averages its own reps):
 
 | seq_len | llama.cpp (OpenBLAS, `d05fe1d`) | geist | winner |
 | ---: | :---: | :---: | :--- |
-|  128 | 22.1 | **32.4** | **geist 1.47×** |
-|  256 | 30.0 | **30.5** | ~par |
-|  512 | **33.2** | 27.0 | llama 1.23× |
-| 1024 | **33.8** | 23.3 | llama 1.45× |
+|  128 | 22.1 | **34.3** | **geist 1.55×** |
+|  256 | 30.0 | **34.1** | **geist 1.14×** |
+|  512 | 33.2 | **33.0** | ~par |
+| 1024 | **33.8** | 31.5 | llama 1.07× |
 | **decode** | 6.7 | **6.9** | **geist 1.03×** |
 
-**geist owns short context and decode; llama overtakes from ~512 on.** The reason
-is the matmul path: geist's native int8 (W4A8) kernel has low fixed overhead, so
-it leads the moment work arrives, but its per-token cost grows with the O(n²)
-attention as the prompt lengthens (33 → 23 t/s). llama dequantizes to fp32 and
-calls OpenBLAS sgemm — heavy fixed overhead that is ruinous at 128 tokens (22 t/s)
-but amortizes over a long activation matrix (34 t/s at 1024). **Decode** is
-memory-bandwidth-bound for both, so they land within a few percent and geist's
-int8 `m=1` GEMV edges ahead. On Apple AMX the picture flips entirely in geist's
-favour at every length (see [BENCHMARK.md](BENCHMARK.md), the Apple M1 Max
-write-up in this folder).
+**geist's prefill is now nearly flat across the sweep (34 → 31.5 t/s); it wins
+short/mid context outright and llama only edges ahead at 1024.** geist's native
+int8 (W4A8) kernel has low fixed overhead, so it leads from the first token; llama
+dequantizes to fp32 and calls OpenBLAS sgemm — heavy fixed overhead that is ruinous
+at 128 tokens (22 t/s) but amortizes over a long activation matrix (34 t/s at 1024).
+**Decode** is memory-bandwidth-bound for both, so they land within a few percent
+and geist's int8 `m=1` GEMV edges ahead.
+
+> **The flat prefill curve is recent.** Earlier geist prefill *fell* with context
+> (32.4 → 23.3 t/s) — profiling (`GEIST_PROFILE_PREFILL=1`) traced it to the O(n²)
+> attention stage rising from 22 % → 45 % of prefill time, with the SDPA **core
+> still single-threaded** (a thread-scaling test showed FFN ×3.7 from 1→4 cores
+> but the attention core ~×1.0). Parallelizing the core over query positions
+> (`#pragma omp parallel for`, bit-exact) cut the attention stage ~2× at 512
+> (36 % → 21 % of time) and lifted pp512 27 → 33 (+22 %) and pp1024 23.3 → 31.5
+> (+35 %), flattening the curve and erasing the old crossover. See
+> [BENCHMARKING.md](BENCHMARKING.md) for the profiler.
+
+On Apple AMX the picture is geist-favoured at every length (see
+[BENCHMARK.md](BENCHMARK.md), the Apple M1 Max write-up in this folder).
 
 ## Thread placement (quiesced)
 
