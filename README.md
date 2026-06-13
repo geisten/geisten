@@ -19,19 +19,17 @@ It is designed for the constraint where llama.cpp is the "universal default" but
 
 ## ✨ Demo
 
-The whole stable text-generation core is ~70 lines of C
-([`examples/simple_generate.c`](examples/simple_generate.c)). Build the library,
-build the example, point it at a GGUF:
+Build, then point the `geist` CLI at a GGUF:
 
 ```console
-$ make && make -C examples
-$ OMP_WAIT_POLICY=active examples/simple_generate gemma4-e2b-Q4_K_M.gguf \
-      "The capital of France is"
+$ make
+$ OMP_WAIT_POLICY=active bin/`mk/detect-target.sh`/release/tools/geist \
+      gemma4-e2b-Q4_K_M.gguf "The capital of France is"
 loaded gemma4-e2b-Q4_K_M.gguf (arch: transformer)
 The capital of France is Paris.
 
-$ OMP_WAIT_POLICY=active examples/simple_generate gemma4-e2b-Q4_K_M.gguf \
-      "Write a haiku about the ocean:" 40
+$ OMP_WAIT_POLICY=active bin/`mk/detect-target.sh`/release/tools/geist \
+      gemma4-e2b-Q4_K_M.gguf "Write a haiku about the ocean:" -n 40
 Write a haiku about the ocean:
 
 Blue waves crash on sand,
@@ -39,8 +37,10 @@ Salt spray kisses the warm air,
 Ocean's deep secrets.
 ```
 
-*Real output from `examples/simple_generate` on Gemma 4 E2B-it (Q4_K_M), greedy
-decode. Reproduce with `make fetch-model` then the commands above.*
+*Real output from the `geist` CLI on Gemma 4 E2B-it (Q4_K_M), greedy decode.
+Reproduce with `make fetch-model` then the commands above. The whole stable
+text-generation core is ~70 lines of C — see
+[`examples/simple_generate.c`](examples/simple_generate.c) to embed it.*
 
 ---
 
