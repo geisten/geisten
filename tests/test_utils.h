@@ -55,7 +55,8 @@ static inline void write_bin(const char* path, const void* data, size_t n_bytes)
     FILE* f = fopen(path, "wb");
     if (!f)
         return;
-    fwrite(data, 1, n_bytes, f);
+    if (fwrite(data, 1, n_bytes, f) != n_bytes)
+        fprintf(stderr, "write_bin: short write to %s\n", path);
     fclose(f);
 }
 

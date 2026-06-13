@@ -47,7 +47,7 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out) {
         fclose(f);
         return nullptr;
     }
-    fread(pcm, sizeof(int16_t), n, f);
+    xfread(pcm, sizeof(int16_t), n, f);
     fclose(f);
     *n_samples_out = n;
     return pcm;
@@ -117,8 +117,8 @@ int main(int argc, char** argv) {
         return GEIST_TEST_FAIL;
     }
     uint32_t hdr[2] = {(uint32_t) n_soft, (uint32_t) SOFT_DIM};
-    fwrite(hdr, sizeof(uint32_t), 2, fo);
-    fwrite(soft, sizeof(float), n_soft * SOFT_DIM, fo);
+    xfwrite(hdr, sizeof(uint32_t), 2, fo);
+    xfwrite(soft, sizeof(float), n_soft * SOFT_DIM, fo);
     fclose(fo);
     fprintf(stderr, "  wrote %s\n", out);
 

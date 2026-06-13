@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
         perror("fopen out");
         return 1;
     }
-    fwrite(out, sizeof(float), n_ids * HIDDEN, fo);
+    xfwrite(out, sizeof(float), n_ids * HIDDEN, fo);
     fclose(fo);
     fprintf(stderr, "wrote %s (%zu × %d fp32)\n", argv[3], n_ids, HIDDEN);
 

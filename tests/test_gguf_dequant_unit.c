@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
         gguf_close(ctx);
         return 1;
     }
-    fwrite(out, sizeof(float), elems, fo);
+    xfwrite(out, sizeof(float), elems, fo);
     fclose(fo);
     fprintf(stderr, "wrote %zu floats to %s\n", elems, argv[3]);
 

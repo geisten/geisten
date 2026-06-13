@@ -24,6 +24,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Checked fixture I/O. glibc marks fread/fwrite warn_unused_result under
+ * _FORTIFY_SOURCE (Ubuntu CI), so an ignored return is a -Werror=unused-result
+ * build failure. These wrappers also make a broken fixture fail loudly (abort)
+ * instead of feeding garbage downstream. static inline -> no unused-function
+ * warning in TUs that don't use them. */
+static inline size_t xfread(void* p, size_t sz, size_t n, FILE* f) {
+    size_t got = fread(p, sz, n, f);
+    if (got != n) {
+        fprintf(stderr, "xfread: short read (%zu of %zu items)\n", got, n);
+        abort();
+    }
+    return got;
+}
+static inline size_t xfwrite(const void* p, size_t sz, size_t n, FILE* f) {
+    size_t put = fwrite(p, sz, n, f);
+    if (put != n) {
+        fprintf(stderr, "xfwrite: short write (%zu of %zu items)\n", put, n);
+        abort();
+    }
+    return put;
+}
+
 /* ---- Exit codes (automake-compatible) ----------------------------------- */
 
 #define GEIST_TEST_PASS 0

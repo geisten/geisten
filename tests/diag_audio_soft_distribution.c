@@ -48,7 +48,7 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
     *sample_rate_out = hdr[24] | (hdr[25] << 8) | (hdr[26] << 16) | (hdr[27] << 24);
     size_t n = (size_t) (sz - 44) / 2;
     int16_t* pcm = malloc(n * sizeof(int16_t));
-    fread(pcm, sizeof(int16_t), n, f);
+    xfread(pcm, sizeof(int16_t), n, f);
     fclose(f);
     *n_samples_out = n;
     return pcm;

@@ -90,14 +90,14 @@ static int32_t* read_input_ids(const char* p, size_t* n) {
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     int32_t* ids = (int32_t*) malloc((size_t) sz);
-    fread(ids, 1, (size_t) sz, f);
+    xfread(ids, 1, (size_t) sz, f);
     fclose(f);
     *n = (size_t) sz / 4;
     return ids;
 }
 static void write_bin(const char* p, const void* d, size_t b) {
     FILE* f = fopen(p, "wb");
-    fwrite(d, 1, b, f);
+    xfwrite(d, 1, b, f);
     fclose(f);
 }
 static float* load_gguf(struct gguf_ctx* c, const char* n, size_t expected) {
@@ -429,10 +429,10 @@ int main(int argc, char** argv) {
         }
         if (li == 0) {
             FILE* dbg = fopen("/tmp/h_before_layer0.bin", "wb");
-            fwrite(h, sizeof(float), n_ids * HIDDEN, dbg);
+            xfwrite(h, sizeof(float), n_ids * HIDDEN, dbg);
             fclose(dbg);
             FILE* dbg2 = fopen("/tmp/ple_slice_layer0.bin", "wb");
-            fwrite(ple_slice, sizeof(float), n_ids * HIDDEN_PER_LAYER, dbg2);
+            xfwrite(ple_slice, sizeof(float), n_ids * HIDDEN_PER_LAYER, dbg2);
             fclose(dbg2);
         }
         forward_layer(&layers[li], n_ids, h, ple_slice, store, use, h_buf2);
@@ -441,7 +441,7 @@ int main(int argc, char** argv) {
         h_buf2 = tmp;
         if (li == 0) {
             FILE* dbg = fopen("/tmp/layer0_out_gguf.bin", "wb");
-            fwrite(h, sizeof(float), n_ids * HIDDEN, dbg);
+            xfwrite(h, sizeof(float), n_ids * HIDDEN, dbg);
             fclose(dbg);
             fprintf(stderr, "  DEBUG: dumped layer 0 inputs/output\n");
         }

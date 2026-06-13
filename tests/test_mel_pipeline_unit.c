@@ -27,7 +27,7 @@ static float* read_wav_mono16k(const char* path, size_t* n_out) {
         return nullptr;
     }
     char hdr[12];
-    fread(hdr, 1, 12, f);
+    xfread(hdr, 1, 12, f);
     if (memcmp(hdr, "RIFF", 4) || memcmp(hdr + 8, "WAVE", 4)) {
         fprintf(stderr, "not a WAV: %s\n", path);
         fclose(f);
@@ -43,7 +43,7 @@ static float* read_wav_mono16k(const char* path, size_t* n_out) {
             break;
         if (!memcmp(id, "fmt ", 4)) {
             uint8_t fmt[40] = {0};
-            fread(fmt, 1, sz < sizeof(fmt) ? sz : sizeof(fmt), f);
+            xfread(fmt, 1, sz < sizeof(fmt) ? sz : sizeof(fmt), f);
             if (sz > sizeof(fmt))
                 fseek(f, sz - sizeof(fmt), SEEK_CUR);
             nch = fmt[2] | (fmt[3] << 8);
@@ -63,7 +63,7 @@ static float* read_wav_mono16k(const char* path, size_t* n_out) {
     }
     size_t n = data_bytes / 2;
     int16_t* s16 = (int16_t*) malloc(n * sizeof(int16_t));
-    fread(s16, 2, n, f);
+    xfread(s16, 2, n, f);
     fclose(f);
     float* pcm = (float*) malloc(n * sizeof(float));
     for (size_t i = 0; i < n; i++)
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
     }
 
     FILE* of = fopen(argv[3], "wb");
-    fwrite(out, sizeof(float), n_frames * MEL_N_MEL, of);
+    xfwrite(out, sizeof(float), n_frames * MEL_N_MEL, of);
     fclose(of);
     fprintf(stderr,
             "wrote %zu mel frames (%zu floats) to %s\n",

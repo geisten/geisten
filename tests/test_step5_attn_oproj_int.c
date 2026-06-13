@@ -36,7 +36,7 @@ static int32_t* read_input_ids(const char* path, size_t* n_out) {
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     int32_t* ids = (int32_t*) malloc((size_t) sz);
-    fread(ids, 1, (size_t) sz, f);
+    xfread(ids, 1, (size_t) sz, f);
     fclose(f);
     *n_out = (size_t) sz / 4;
     return ids;
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
     linear_fp32(attn_out, o_w, nullptr, n_ids, Q_OUT, HIDDEN, out);
 
     FILE* fo = fopen(argv[3], "wb");
-    fwrite(out, sizeof(float), n_ids * HIDDEN, fo);
+    xfwrite(out, sizeof(float), n_ids * HIDDEN, fo);
     fclose(fo);
     fprintf(stderr, "wrote %s (%zu × %d fp32)\n", argv[3], n_ids, HIDDEN);
 
