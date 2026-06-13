@@ -27,8 +27,9 @@ make help                 # all options
 ```
 
 Toolchain: gcc ≥ 14 or Apple-clang ≥ 16 (`-std=c23`). On macOS, `brew install libomp`
-for the multi-threaded `mac-omp` target. On ARM64 Linux you need OpenBLAS and
-FFTW3 (`libopenblas-dev libfftw3-dev`).
+for the multi-threaded `mac-omp` target. On ARM64 Linux you need OpenBLAS
+(`libopenblas-dev`); the audio FFT is vendored. For a dependency-free build,
+`make GEIST_BLAS_FREE=1` (native fp32, no OpenBLAS).
 
 > x86 is **not supported yet** — the compute kernels are NEON-only and the
 > `src/backends/cpu_x86/` path is a policy skeleton. A vectorized x86 port is a
