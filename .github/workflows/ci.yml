@@ -39,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            gcc-13 libopenblas-dev libfftw3-dev
+            gcc-13 libopenblas-dev
 
       - name: Build
         run: make TARGET=${{ matrix.target }} CC=${{ matrix.cc }}
