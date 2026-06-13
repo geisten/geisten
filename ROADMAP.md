@@ -33,20 +33,25 @@ there until the AVX backend lands.
 
 ### Work sequence
 
-1. **`geist_gemm` / `geist_gemv` abstraction** — route all dense-fp32 cblas call
-   sites through one interface; backends selectable at build time
-   (`cblas` | `native`). Foundation for everything below, including the future
-   AVX backend (which slots in as a third backend).
-2. **Measure first** — quantify the dense-fp32 share (`model_proj` / vision /
-   audio) of the text hot path before tuning. Gate: if `model_proj` > ~10 % of
-   inference, bundle OpenBLAS on linux-arm64 too instead of going BLAS-free.
-3. **Native NEON fp32 GEMM/GEMV + vendored pocketfft** — unblocks the BLAS-free,
-   FFTW-free build. Audio keeps vDSP on macOS, uses pocketfft on Linux.
-4. **CI matrix v0.1 = ARM only** — `linux-arm64` (musl-static, Alpine CI) +
-   `macos-arm64` (Accelerate). Both are already fast today — an honest,
-   competitive first release.
+**Status (June 2026): Steps 1–4 complete and CI-green on `main` (macOS-arm64 +
+linux-arm64: build + unit tests + clang-format gate). v0.1 is tag-ready —
+`git tag v0.1.0` builds and attaches the ARM64 artifacts via `release.yml`.**
+
+1. ✅ **`geist_gemm` / `geist_gemv` abstraction** — all dense-fp32 cblas call
+   sites route through one interface; backend selectable at build time
+   (`cblas` default | `native` via `GEIST_BLAS_FREE=1`). The future AVX backend
+   slots in here as a third backend.
+2. ✅ **Measured** — dense fp32 is **~2.6 %** of text inference (Pi 5), and
+   native int8 beats the OpenBLAS dequant→sgemm path **2.3×** for the quant
+   matmuls. Well under the 10 % gate → linux-arm64 goes BLAS-free.
+3. ✅ **Native NEON fp32 GEMM/GEMV (4×4 register-blocked) + vendored radix-2
+   FFT** — the BLAS-free, FFTW-free build (`GEIST_BLAS_FREE=1`) depends only on
+   libc/libm/libgomp; quality gate unchanged (28/28). Audio keeps vDSP on macOS.
+4. ✅ **CI matrix v0.1 = ARM only** — `release.yml` builds `linux-arm64` (fully
+   static ELF, no deps) + `macos-arm64` (static libomp + Accelerate, system
+   frameworks only). Both validated; a `geist` CLI is the entry point.
 5. **v0.2, gated on the AVX backend** — x86-64 (Linux / Intel-Mac / Windows),
-   OpenBLAS stopgap → native AVX.
+   OpenBLAS stopgap → native AVX. Not started.
 
 ### Deliberate non-goals / deferred
 
@@ -57,6 +62,6 @@ there until the AVX backend lands.
 
 ### Open packaging details (not design forks)
 
-- **Release CLI artifact** — today there is only `examples/simple_generate` and
-  `tools/eval_geist`; v0.1 needs a named entry point (e.g. a `geist` CLI).
+- ✅ **Release CLI artifact** — the `geist` CLI (`tools/geist.c`); the static
+  binaries package it. `examples/simple_generate` stays as the embedding example.
 - **Windows toolchain** — MinGW vs MSVC; only relevant at v0.2.
