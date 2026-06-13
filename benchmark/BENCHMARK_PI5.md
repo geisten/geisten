@@ -46,21 +46,21 @@ figures reflect steady state, not cold caches.
 
 ## Measured results (June 2026, quiesced)
 
-Each engine at its best thread count; same weights, same quantization, CPU-only.
-Both engines **started from a cool baseline** (~53–56 °C) — see the thermal warning
-above. geist is the **mean of 10 repeats** (spread <2 %); `llama-bench` averages
-its own reps:
+**Identical protocol for both engines:** prefill-only, **8 reps**, 4 threads,
+each **started from a cool baseline** (<56 °C) and run back-to-back in one session
+(geist `bench_perf_sweep --decode-n 0 --repeats 8`; llama `llama-bench -n 0 -r 8`).
+Same weights, same quantization, CPU-only. Decode is measured separately (below).
 
 | seq_len | llama.cpp (OpenBLAS, `d05fe1d`) | geist | winner |
 | ---: | :---: | :---: | :--- |
-|  128 | **37.0** | 33.9 | llama 1.09× |
-|  256 | **39.2** | 33.8 | llama 1.16× |
-|  512 | **37.3** | 32.8 | llama 1.14× |
-| 1024 | **35.6** | 31.4 | llama 1.13× |
+|  128 | **37.4** | 34.8 | llama 1.07× |
+|  256 | **39.4** | 34.2 | llama 1.15× |
+|  512 | **37.6** | 32.9 | llama 1.14× |
+| 1024 | **35.9** | 31.5 | llama 1.14× |
 | **decode** (best, t=3) | 6.8 | 6.9 | ≈ par |
 
-**On the Pi, llama.cpp's OpenBLAS prefill leads geist by ~9–16 % at every length;
-both curves are flat (~37–39 vs ~32–34 t/s). Decode is a tie (~6.8 t/s).** This
+**On the Pi, llama.cpp's OpenBLAS prefill leads geist by ~7–15 % at every length;
+both curves are flat (~37–39 vs ~33–35 t/s). Decode is a tie (~6.8 t/s).** This
 is the hard case geist was built around: llama leans on a decades-tuned OpenBLAS
 fp32 sgemm, and on an A76 without `i8mm` that path is genuinely fast and hard to
 beat. geist's native int8 (W4A8) kernel is competitive and flat but does not

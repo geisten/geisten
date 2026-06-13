@@ -46,22 +46,23 @@ investigation →](BENCHMARK.md)
 
 ## Raspberry Pi 5 (Cortex-A76, 4 cores) — prefill (tokens/s, higher is better)
 
-Both engines started from a cool baseline (~53–56 °C — the Pi throttles when
-heat-soaked; see the write-up):
+Identical protocol for both engines — **prefill-only, 8 reps, cool start
+(<56 °C)**, t=4 — back-to-back in one session (the Pi throttles when heat-soaked;
+see the write-up):
 
 | seq_len | llama.cpp (OpenBLAS) | geist | winner |
 | ---: | :---: | :---: | :--- |
-|  128 | **37.0** | 33.9 | llama 1.09× |
-|  256 | **39.2** | 33.8 | llama 1.16× |
-|  512 | **37.3** | 32.8 | llama 1.14× |
-| 1024 | **35.6** | 31.4 | llama 1.13× |
+|  128 | **37.4** | 34.8 | llama 1.07× |
+|  256 | **39.4** | 34.2 | llama 1.15× |
+|  512 | **37.6** | 32.9 | llama 1.14× |
+| 1024 | **35.9** | 31.5 | llama 1.14× |
 
 ```
-prefill t/s   (each █ ≈ 2.4 t/s)           both flat ·· llama ~10-15% ahead
- geist  128 ██████████████ 34       llama  128 ███████████████ 37
+prefill t/s   (each █ ≈ 2.5 t/s)           both flat ·· llama ~10-15% ahead
+ geist  128 ██████████████ 35       llama  128 ███████████████ 37
         256 ██████████████ 34               256 ████████████████ 39
-        512 ██████████████ 33               512 ████████████████ 37
-       1024 █████████████ 31              1024 ███████████████ 36
+        512 █████████████ 33                512 ███████████████ 38
+       1024 █████████████ 31              1024 ██████████████ 36
 ```
 
 **Decode:** ≈ par — geist **6.9 t/s** vs llama.cpp **6.8 t/s** (best at 3 threads,

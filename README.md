@@ -79,13 +79,13 @@ Both engines' prefill is **flat with context**; geist wins outright on Apple
 | **geist** | **164** | **161** | **150** | **144** |
 | | geist 1.16× | geist 1.10× | geist 1.17× | **geist 1.48×** |
 
-**Raspberry Pi 5** — prefill t/s (mean-of-10, quiesced + cool start):
+**Raspberry Pi 5** — prefill t/s (both engines: prefill-only, 8 reps, cool start):
 
 | seq_len | 128 | 256 | 512 | 1024 |
 | :-- | :---: | :---: | :---: | :---: |
-| **llama.cpp** (OpenBLAS) | **37.0** | **39.2** | **37.3** | **35.6** |
-| geist | 33.9 | 33.8 | 32.8 | 31.4 |
-| | llama 1.09× | llama 1.16× | llama 1.14× | llama 1.13× |
+| **llama.cpp** (OpenBLAS) | **37.4** | **39.4** | **37.6** | **35.9** |
+| geist | 34.8 | 34.2 | 32.9 | 31.5 |
+| | llama 1.07× | llama 1.15× | llama 1.14× | llama 1.14× |
 
 On **Apple Silicon** geist wins prefill at *every* length and the lead **widens**
 with context (1.48× at 1024) — geist's dense path uses **Accelerate/AMX**, which
