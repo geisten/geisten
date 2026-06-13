@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C Standard](https://img.shields.io/badge/C-C23-orange.svg)](https://en.wikipedia.org/wiki/C23_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20(ARM64)-lightgrey.svg)](#-build--usage)
-[![Status](https://img.shields.io/badge/status-experimental%20(v0.1.0)-yellow.svg)](#-status)
+[![Status](https://img.shields.io/badge/status-experimental%20(v0.1.1)-yellow.svg)](#-status)
 
 **geist** is a high-performance C23 inference engine that runs LLMs **on the CPU
 with zero dependencies** — one small static binary, no BLAS, no Python, no CUDA,
@@ -24,7 +24,7 @@ That is the bet, and it is a different one from the universal engines:
   for **Low-Bit (IQ/TQ)** and **native multimodal audio** inference where
   llama.cpp is the default but you need more speed, less RAM, or no dependency tree.
 
-> **Status: experimental (v0.1.0).** The public API in [`include/geist.h`](include/geist.h)
+> **Status: experimental (v0.1.1).** The public API in [`include/geist.h`](include/geist.h)
 > carries per-symbol stability tags (`STABLE` / `EXPERIMENTAL`). Expect churn in
 > `EXPERIMENTAL` surfaces until 1.0. Issues and PRs welcome — see
 > [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -152,7 +152,7 @@ A minimal C program using the public API lives in
 
 ## 🧭 Status
 
-`geist` is **v0.1.0 — experimental**. It runs Gemma 4 (text + vision + audio) end
+`geist` is **v0.1.1 — experimental**. It runs Gemma 4 (text + vision + audio) end
 to end on the CPU backends and has a broad C test suite (`make test`), but the
 `EXPERIMENTAL`-tagged parts of the API (KV-cache modes, speculative decode, AWQ,
 multimodal attach) may still change between minor versions. The `STABLE` core
