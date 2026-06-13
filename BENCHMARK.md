@@ -41,21 +41,27 @@ size with `GEIST_BENCH_PP` / `GEIST_BENCH_TG` to match an external reference
 ## Comparison vs llama.cpp (Apple M1 Max, CPU, measured June 2026)
 
 Same machine, same `gemma4-e2b-Q4_K_M.gguf`, both CPU-only. llama.cpp build
-`d48a56eff` (9430) run with `-ngl 0` (BLAS/Accelerate, no GPU offload). Each
-engine at its best thread count; `pp512` = prompt-processing throughput,
-`tg128` = token-generation throughput.
+`d05fe1d` run with `-ngl 0` (BLAS/Accelerate, no GPU offload). geist auto-pins to
+the 8 performance cores; llama at `-t 8`. Full prefill sweep 128 → 1024 tokens:
 
-| Engine | pp512 (t/s) | tg128 (t/s) |
-| :--- | :---: | :---: |
-| llama.cpp `-ngl 0`, t=8 | 152 | 39 |
-| **geist** (P-core pinned, best-of-8) | **156** | 32 |
-| ratio (geist / llama.cpp) | **1.02×** | 0.82× |
+| seq_len | llama.cpp `-ngl 0`, t=8 | geist (P-core pinned) | winner |
+| ---: | :---: | :---: | :--- |
+|  128 | 135.2 | **140.2** | geist 1.04× |
+|  256 | 136.6 | **137.8** | ~par |
+|  512 | 116.7 | **135.4** | **geist 1.16×** |
+| 1024 |  88.6 | **127.7** | **geist 1.44×** |
+| **decode** (tg32) | 30.4 | **31.5** | **geist 1.03×** |
 
-*Quiesced machine. Numbers shift under background load (an unloaded llama.cpp
-decode runs ~39 t/s vs ~35 under load), so measure both back-to-back in the same
-state. geist's decode does not yet match: 94% of decode time is the Q4_K SDOT
-GEMV, and matching llama.cpp's years-tuned `vec_dot_q4_K_q8_K` is open kernel
-work.*
+**geist leads prefill at every length and the lead *widens* with context** —
+geist's dense-fp32 path here is **Accelerate/AMX** (Apple's matrix coprocessor),
+which holds ~flat from 128 to 1024 tokens (140 → 128), while llama.cpp's CPU-only
+path degrades sharply past 256 (135 → 89). Decode is par (memory-bandwidth-bound
+for both; geist's int8 GEMV a hair ahead). geist's decode eases from 31.5 (short
+context) to 24.6 (1024-token KV-cache).
+
+*Quiesced machine. Numbers shift under background load, so measure both
+back-to-back in the same state. The prior single-point table (pp512 152/156)
+predates this rebuild; the full sweep above supersedes it.*
 
 **Decode-kernel investigation (negative results, for whoever picks this up).**
 The single-row Q4_K decode GEMV measures ~17 GB/s/core single-threaded — well

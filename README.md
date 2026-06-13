@@ -44,43 +44,96 @@ text-generation core is ~70 lines of C — see
 
 ---
 
-## 🚀 Performance Highlights (Gemma 4 E2B IT)
+## 🚀 Performance — geist vs llama.cpp (Gemma 4 E2B-it, Q4_K_M, CPU-only)
 
-On Apple Silicon (M1 Max), CPU-only, same `Q4_K_M` GGUF, `geist` leads on
-prompt processing and is at near-parity on decode — by pinning to the
-performance cores (the efficiency cores stall a static OpenMP schedule) and
-binding every tensor to a specialized kernel at load time.
+The **identical** GGUF on both engines, quiesced boxes, full prefill sweep from
+128 → 1024 tokens plus decode. The story is not "one engine is faster" — it is
+**two opposite scaling curves**, and which one wins depends on the machine *and*
+the context length.
 
-| Engine (M1 Max, CPU, Gemma 4 E2B Q4_K_M) | Prefill pp512 | Decode tg128 |
-| :--- | :---: | :---: |
-| llama.cpp `-ngl 0` (b9430, BLAS) | 152 t/s | 39 t/s |
-| **geist** | **156 t/s** (1.02×) | 32 t/s (0.82×) |
+> **TL;DR** — On **Apple Silicon** geist wins prefill at *every* length and the
+> lead **widens** with context (1.44× at 1024 tokens). On the **Pi 5** it is a
+> crossover: geist owns short context (1.5× at 128), llama.cpp's OpenBLAS path
+> overtakes from ~512 on. **Decode is roughly par on both** (geist slightly ahead).
 
-*Measured June 2026 on a quiesced Apple M1 Max (8 P-cores), `llama.cpp` build
-`d48a56eff` (9430), both CPU-only on the identical GGUF, each at its best thread
-count. geist leads on prompt processing by auto-pinning to the performance cores
-(the efficiency cores stall a static OpenMP schedule — this alone moved pp512
-from 91 → 156 t/s). Decode is ~0.82× and bounded by the maturity of the Q4_K
-decode GEMV (94% of decode time) vs llama.cpp's long-tuned kernel; closing it is
-tracked work. See [BENCHMARK.md](BENCHMARK.md) to reproduce on your hardware.*
+### Apple M1 Max (8 P-cores) — prefill (tokens/s, higher is better)
 
-### Raspberry Pi 5 (Cortex-A76) — the edge target, iso-model & iso-quality
+| seq_len | llama.cpp `-ngl 0` | geist | winner |
+| ---: | :---: | :---: | :--- |
+|  128 | 135.2 | **140.2** | geist 1.04× |
+|  256 | 136.6 | **137.8** | ~par |
+|  512 | 116.7 | **135.4** | **geist 1.16×** |
+| 1024 |  88.6 | **127.7** | **geist 1.44×** |
 
-The Pi 5 is the design target, and the hard case (an older ARM core without `i8mm`,
-where llama.cpp leans on a decades-tuned OpenBLAS fp32 path). Running the **identical**
-Gemma 4 E2B Q4_K_M model on a quiesced board, geist **wins decode** and is **~15 %
-behind on prefill** — the OpenBLAS fp32 GEMM path is hard to match on this core:
+```
+prefill t/s   (each █ ≈ 10 t/s)            geist stays flat ·· llama drops off
+ geist  128 ██████████████ 140      llama  128 ██████████████ 135
+        256 ██████████████ 138             256 ██████████████ 137
+        512 ██████████████ 135             512 ████████████ 117
+       1024 █████████████ 128             1024 █████████ 89
+```
 
-| Engine (Pi 5, each at best threads, Q4_K_M, CPU) | Prefill pp128 | Prefill pp256 | Decode |
-| :--- | :---: | :---: | :---: |
-| llama.cpp (OpenBLAS, `ba1df05`) | **37.5 t/s** | **38.0 t/s** | 6.88 t/s |
-| **geist** | 31.5 t/s (0.84×) | 29.7 t/s (0.78×) | **7.1 t/s** (1.03×) |
+**Decode:** geist **31.5 t/s** vs llama.cpp 30.4 t/s (tg32) — par. geist's decode
+eases from 31.5 (128-token context) to 24.6 (1024) as the KV-cache grows.
 
-*Same weights, same quantization. geist runs prefill on all 4 A76 cores (compute-
-bound) and decode on 3 (memory-bound); llama is likewise fastest at 4/3. **Measure
-on a quiesced box** — a stray background process eating one core inverts the
-4-thread numbers. Decode is geist's (1.03×); the prefill gap is geist's NEON `m>1`
-kernels vs OpenBLAS sgemm. Measured June 2026; see [BENCHMARK_PI5.md](BENCHMARK_PI5.md).*
+### Raspberry Pi 5 (Cortex-A76, 4 cores) — prefill (tokens/s, higher is better)
+
+| seq_len | llama.cpp (OpenBLAS) | geist | winner |
+| ---: | :---: | :---: | :--- |
+|  128 | 22.1 | **32.6** | **geist 1.48×** |
+|  256 | 30.0 | **30.4** | ~par |
+|  512 | **33.2** | 27.0 | llama 1.23× |
+| 1024 | **33.8** | 23.3 | llama 1.45× |
+
+```
+prefill t/s   (each █ ≈ 2.4 t/s)           geist fades ·· llama warms up
+ geist  128 ██████████████ 33       llama  128 █████████ 22
+        256 █████████████ 30               256 █████████████ 30
+        512 ███████████ 27                 512 ██████████████ 33
+       1024 ██████████ 23                 1024 ██████████████ 34
+```
+
+**Decode:** geist **6.9 t/s** vs llama.cpp 6.7 t/s (tg32) — geist's by a hair,
+across all context lengths (6.9 → 6.1 as KV grows).
+
+### Reading the numbers — why the curves cross
+
+The two engines reach Q4_K matmuls through fundamentally different paths, and the
+crossover falls straight out of that:
+
+- **geist runs prefill on a native int8 (W4A8) kernel** — low fixed overhead, so
+  it is fastest the moment work arrives (short context). But its per-token cost
+  *grows* with context: at 1024 tokens the O(n²) attention is a much larger share,
+  and it does not get cheaper per token the way a big GEMM does. → prefill **fades**
+  as seq_len rises (Pi: 33 → 23).
+- **llama.cpp dequantizes to fp32 and calls a BLAS sgemm** (OpenBLAS on the Pi,
+  Accelerate on the Mac). BLAS carries a large fixed per-call overhead that is
+  ruinous on small matrices but *amortizes* over the tall activation matrix of a
+  long prompt. → on the Pi its prefill **warms up** (22 → 34) and overtakes geist
+  around 512 tokens.
+- **On the M1 Max the picture flips in geist's favour** because geist's dense-fp32
+  path here is **Accelerate/AMX** (Apple's matrix coprocessor), which scales flat
+  to long sequences, while llama.cpp's CPU-only path (`-ngl 0`) *degrades* sharply
+  past 256 tokens. Net: geist's lead widens with length (1.04× → 1.44×).
+- **Decode is memory-bandwidth-bound** for both (streaming 3 GB of weights per
+  token dwarfs the compute), so the kernel differences wash out and the two land
+  within a few percent — geist a touch ahead on both boxes.
+
+**How to dig deeper.** To attribute the scaling, profile prefill *phase-by-phase*
+(attention vs FFN-matmul vs PLE) at each seq_len rather than as one number:
+build with `-DGEIST_PROFILE_QUANT` (per-kernel ns counters, auto-reported at exit)
+and compare the attention fraction at 128 vs 1024 — that is the term pulling
+geist's prefill down at long context. For llama.cpp, `llama-bench -p <n>` plus
+`perf stat` (or Instruments on macOS) isolates where its CPU path loses time past
+256 tokens. Reproduce any row with [BENCHMARK.md](BENCHMARK.md) (Mac) and
+[BENCHMARK_PI5.md](BENCHMARK_PI5.md) (Pi).
+
+*Measured June 2026 on quiesced hardware, both engines CPU-only on the identical
+`Q4_K_M` GGUF, each at its best thread count (Mac auto-pins to the 8 P-cores; Pi
+uses 4 threads). llama.cpp build `d05fe1d`. **Always measure on a quiesced box** —
+on the 4-core Pi a single stray process eating one core inverts the 4-thread
+numbers. These figures supersede the earlier single-point table; the full sweep
+tells a more honest story than any one sequence length.*
 
 ---
 
