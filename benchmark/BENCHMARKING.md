@@ -1,14 +1,14 @@
 # Benchmarking geist
 
-How to produce trustworthy numbers. See [BENCHMARK.md](../BENCHMARK.md) for
-recorded results and [BENCHMARK_PI5.md](../BENCHMARK_PI5.md) for the Pi 5
-target.
+How to produce trustworthy numbers. See [BENCHMARK.md](BENCHMARK.md) for the
+Apple M1 Max comparison + auto-recorded results and
+[BENCHMARK_PI5.md](BENCHMARK_PI5.md) for the Raspberry Pi 5 target.
 
 ## Perf (reproducible, in-tree)
 
 ```sh
 make fetch-model                         # Gemma 4 E2B-it Q4_K_M, ~3.1 GB
-OMP_WAIT_POLICY=active make bench-small   # best-of-2, records to BENCHMARK.md
+OMP_WAIT_POLICY=active make bench-small   # best-of-2, records to benchmark/BENCHMARK.md
 OMP_WAIT_POLICY=active make bench-detailed # best-of-5
 BENCH_THREADS=6 OMP_WAIT_POLICY=active make bench-detailed  # pin thread count
 ```

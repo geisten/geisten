@@ -152,21 +152,21 @@ bench-audio: bin
 # All multimodal encoders end-to-end. Useful as a single CI gate.
 bench-mm: bench-vision bench-video bench-audio
 
-# Reproducible quality/performance suites. Both update BENCHMARK.md only
+# Reproducible quality/performance suites. Both update benchmark/BENCHMARK.md only
 # when the current run sets a new record for the same model/host/OS/target.
 bench-small: bin
 	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
 	python3 tools/bench_quality_perf.py \
 	  --suite small --target "$(TARGET)" --mode "$(MODE)" \
 	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md BENCHMARK.md --record
+	  --benchmark-md benchmark/BENCHMARK.md --record
 
 bench-detailed: bin
 	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
 	python3 tools/bench_quality_perf.py \
 	  --suite detailed --target "$(TARGET)" --mode "$(MODE)" \
 	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md BENCHMARK.md --record
+	  --benchmark-md benchmark/BENCHMARK.md --record
 
 bench-quality-small: bin
 	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
@@ -174,7 +174,7 @@ bench-quality-small: bin
 	python3 tools/bench_quality_perf.py \
 	  --suite quality-small --target "$(TARGET)" --mode "$(MODE)" \
 	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md BENCHMARK.md --record
+	  --benchmark-md benchmark/BENCHMARK.md --record
 
 bench-quality-detailed: bin
 	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
@@ -182,7 +182,7 @@ bench-quality-detailed: bin
 	python3 tools/bench_quality_perf.py \
 	  --suite quality-detailed --target "$(TARGET)" --mode "$(MODE)" \
 	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md BENCHMARK.md --record
+	  --benchmark-md benchmark/BENCHMARK.md --record
 
 bench-compare-ref: bin
 	@BENCH_GGUF="$(BENCH_GGUF)" BENCH_THREADS="$(BENCH_THREADS)" \
@@ -190,7 +190,7 @@ bench-compare-ref: bin
 	python3 tools/bench_quality_perf.py \
 	  --suite compare-ref --target "$(TARGET)" --mode "$(MODE)" \
 	  --bin-dir "$(TEST_BIN_DIR)" --out-dir "$(BENCH_OUT_DIR)" \
-	  --benchmark-md BENCHMARK.md --record
+	  --benchmark-md benchmark/BENCHMARK.md --record
 
 # Quality: MMLU accuracy via the self-contained tools/eval_mmlu.py harness
 # (drives the eval_geist REPL, tokenizes with the model's OWN GGUF tokenizer —

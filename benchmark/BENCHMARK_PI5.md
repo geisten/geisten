@@ -41,12 +41,14 @@ figures reflect steady state, not cold caches.
 ## Measured results (June 2026, quiesced)
 
 Each engine at its best thread count; same weights, same quantization, CPU-only.
-The full prefill sweep shows a **crossover**, not a flat gap:
+The Pi 5 is a dedicated headless box (load 0.0), so these are the clean **mean of
+10 repeats** (geist spread <2 %; `llama-bench` averages its own reps). The full
+prefill sweep shows a **crossover**, not a flat gap:
 
 | seq_len | llama.cpp (OpenBLAS, `d05fe1d`) | geist | winner |
 | ---: | :---: | :---: | :--- |
-|  128 | 22.1 | **32.6** | **geist 1.48×** |
-|  256 | 30.0 | **30.4** | ~par |
+|  128 | 22.1 | **32.4** | **geist 1.47×** |
+|  256 | 30.0 | **30.5** | ~par |
 |  512 | **33.2** | 27.0 | llama 1.23× |
 | 1024 | **33.8** | 23.3 | llama 1.45× |
 | **decode** | 6.7 | **6.9** | **geist 1.03×** |
@@ -59,7 +61,8 @@ calls OpenBLAS sgemm — heavy fixed overhead that is ruinous at 128 tokens (22 
 but amortizes over a long activation matrix (34 t/s at 1024). **Decode** is
 memory-bandwidth-bound for both, so they land within a few percent and geist's
 int8 `m=1` GEMV edges ahead. On Apple AMX the picture flips entirely in geist's
-favour at every length (see [BENCHMARK.md](BENCHMARK.md)).
+favour at every length (see [BENCHMARK.md](BENCHMARK.md), the Apple M1 Max
+write-up in this folder).
 
 ## Thread placement (quiesced)
 

@@ -106,7 +106,7 @@ static inline void ae_profile_print_and_reset(void) {}
 
 /* Per-tensor precision tag, set at load time based on the call-site class
  * (struct FFN macaron layers → W8A8, struct Attn projections → W8A32, struct LConv → FP32).
- * Pi-5 profiling (BENCHMARK_PI5.md) shows struct FFN dominates encoder cost,
+ * Pi-5 profiling (benchmark/BENCHMARK_PI5.md) shows struct FFN dominates encoder cost,
  * so W8A8 there. struct Attn is quant-sensitive (relative position embeddings,
  * softmax) → W8A32 keeps activations FP32 for safety. struct LConv stays FP32 —
  * depthwise convs don't benefit from the int8 dot path. */

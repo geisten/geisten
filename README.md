@@ -6,9 +6,23 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20(ARM64)-lightgrey.svg)](#-build--usage)
 [![Status](https://img.shields.io/badge/status-experimental%20(v0.1.0)-yellow.svg)](#-status)
 
-**geist** is a high-performance, ultra-lean C23 inference runtime specifically engineered for **Low-Bit models (IQ/TQ)**, **Ternary (1.58-bit) BitNet**, and **Native Multimodal Audio** on edge CPUs.
+**geist** is a high-performance C23 inference engine that runs LLMs **on the CPU
+with zero dependencies** — one small static binary, no BLAS, no Python, no CUDA,
+no runtime to install. Copy it to the machine and it runs.
 
-It is designed for the constraint where llama.cpp is the "universal default" but you need more speed, less RAM, or native multimodal integration on $50-$100 hardware like the **Raspberry Pi 5**.
+That is the bet, and it is a different one from the universal engines:
+
+- **Dependency-free, CPU-only.** The default ARM build links nothing but libc /
+  libm / libgomp and folds them in statically (~860 KB ELF). No GPU, no BLAS
+  package, no model server — it runs anywhere the CPU architecture matches.
+- **Focused, not universal.** Where llama.cpp aims to run *every* model on *every*
+  backend, geist deliberately does **a few models excellently** (Gemma 4 E2B-it
+  today; Ternary 1.58-bit BitNet next). That focus is what lets it bind every
+  tensor to a hand-picked kernel at load time and beat a generic dispatch loop.
+- **Edge-first, Raspberry Pi 5 as the primary optimization target.** The tuning
+  effort goes to the $50–$100 Cortex-A76 board first — not the datacenter GPU —
+  for **Low-Bit (IQ/TQ)** and **native multimodal audio** inference where
+  llama.cpp is the default but you need more speed, less RAM, or no dependency tree.
 
 > **Status: experimental (v0.1.0).** The public API in [`include/geist.h`](include/geist.h)
 > carries per-symbol stability tags (`STABLE` / `EXPERIMENTAL`). Expect churn in
@@ -46,110 +60,51 @@ text-generation core is ~70 lines of C — see
 
 ## 🚀 Performance — geist vs llama.cpp (Gemma 4 E2B-it, Q4_K_M, CPU-only)
 
-The **identical** GGUF on both engines, quiesced boxes, full prefill sweep from
-128 → 1024 tokens plus decode. The story is not "one engine is faster" — it is
-**two opposite scaling curves**, and which one wins depends on the machine *and*
-the context length.
+The **identical** GGUF on both engines, full prefill sweep 128 → 1024 tokens. The
+story is not "one engine is faster" — it is **two opposite scaling curves**, and
+which one wins depends on the machine *and* the context length.
 
-> **TL;DR** — On **Apple Silicon** geist wins prefill at *every* length and the
-> lead **widens** with context (1.44× at 1024 tokens). On the **Pi 5** it is a
-> crossover: geist owns short context (1.5× at 128), llama.cpp's OpenBLAS path
-> overtakes from ~512 on. **Decode is roughly par on both** (geist slightly ahead).
+**Apple M1 Max** — prefill t/s (best-of-10, both engines):
 
-### Apple M1 Max (8 P-cores) — prefill (tokens/s, higher is better)
+| seq_len | 128 | 256 | 512 | 1024 |
+| :-- | :---: | :---: | :---: | :---: |
+| llama.cpp `-ngl 0` | 141 | 147 | 128 | 97 |
+| **geist** | **164** | **161** | **150** | **144** |
+| | geist 1.16× | geist 1.10× | geist 1.17× | **geist 1.48×** |
 
-| seq_len | llama.cpp `-ngl 0` | geist | winner |
-| ---: | :---: | :---: | :--- |
-|  128 | 135.2 | **140.2** | geist 1.04× |
-|  256 | 136.6 | **137.8** | ~par |
-|  512 | 116.7 | **135.4** | **geist 1.16×** |
-| 1024 |  88.6 | **127.7** | **geist 1.44×** |
+**Raspberry Pi 5** — prefill t/s (mean-of-10, quiesced):
 
-```
-prefill t/s   (each █ ≈ 10 t/s)            geist stays flat ·· llama drops off
- geist  128 ██████████████ 140      llama  128 ██████████████ 135
-        256 ██████████████ 138             256 ██████████████ 137
-        512 ██████████████ 135             512 ████████████ 117
-       1024 █████████████ 128             1024 █████████ 89
-```
+| seq_len | 128 | 256 | 512 | 1024 |
+| :-- | :---: | :---: | :---: | :---: |
+| llama.cpp (OpenBLAS) | 22.1 | 30.0 | **33.2** | **33.8** |
+| **geist** | **32.4** | **30.5** | 27.0 | 23.3 |
+| | geist 1.47× | ~par | llama 1.23× | llama 1.45× |
 
-**Decode:** geist **31.5 t/s** vs llama.cpp 30.4 t/s (tg32) — par. geist's decode
-eases from 31.5 (128-token context) to 24.6 (1024) as the KV-cache grows.
+On **Apple Silicon** geist wins prefill at *every* length and the lead **widens**
+with context (1.48× at 1024) — geist's dense path uses **Accelerate/AMX**, which
+stays flat, while llama.cpp's CPU path drops off. On the **Pi 5** it is a
+**crossover**: geist's low-overhead native int8 owns short context (1.47× at 128),
+while llama.cpp's BLAS sgemm amortizes its fixed cost over long prompts and
+overtakes from ~512 on. **Decode is ~par on both** (Pi: geist 6.9 vs llama 6.7).
 
-### Raspberry Pi 5 (Cortex-A76, 4 cores) — prefill (tokens/s, higher is better)
-
-| seq_len | llama.cpp (OpenBLAS) | geist | winner |
-| ---: | :---: | :---: | :--- |
-|  128 | 22.1 | **32.6** | **geist 1.48×** |
-|  256 | 30.0 | **30.4** | ~par |
-|  512 | **33.2** | 27.0 | llama 1.23× |
-| 1024 | **33.8** | 23.3 | llama 1.45× |
-
-```
-prefill t/s   (each █ ≈ 2.4 t/s)           geist fades ·· llama warms up
- geist  128 ██████████████ 33       llama  128 █████████ 22
-        256 █████████████ 30               256 █████████████ 30
-        512 ███████████ 27                 512 ██████████████ 33
-       1024 ██████████ 23                 1024 ██████████████ 34
-```
-
-**Decode:** geist **6.9 t/s** vs llama.cpp 6.7 t/s (tg32) — geist's by a hair,
-across all context lengths (6.9 → 6.1 as KV grows).
-
-### Reading the numbers — why the curves cross
-
-The two engines reach Q4_K matmuls through fundamentally different paths, and the
-crossover falls straight out of that:
-
-- **geist runs prefill on a native int8 (W4A8) kernel** — low fixed overhead, so
-  it is fastest the moment work arrives (short context). But its per-token cost
-  *grows* with context: at 1024 tokens the O(n²) attention is a much larger share,
-  and it does not get cheaper per token the way a big GEMM does. → prefill **fades**
-  as seq_len rises (Pi: 33 → 23).
-- **llama.cpp dequantizes to fp32 and calls a BLAS sgemm** (OpenBLAS on the Pi,
-  Accelerate on the Mac). BLAS carries a large fixed per-call overhead that is
-  ruinous on small matrices but *amortizes* over the tall activation matrix of a
-  long prompt. → on the Pi its prefill **warms up** (22 → 34) and overtakes geist
-  around 512 tokens.
-- **On the M1 Max the picture flips in geist's favour** because geist's dense-fp32
-  path here is **Accelerate/AMX** (Apple's matrix coprocessor), which scales flat
-  to long sequences, while llama.cpp's CPU-only path (`-ngl 0`) *degrades* sharply
-  past 256 tokens. Net: geist's lead widens with length (1.04× → 1.44×).
-- **Decode is memory-bandwidth-bound** for both (streaming 3 GB of weights per
-  token dwarfs the compute), so the kernel differences wash out and the two land
-  within a few percent — geist a touch ahead on both boxes.
-
-**How to dig deeper.** To attribute the scaling, profile prefill *phase-by-phase*
-(attention vs FFN-matmul vs PLE) at each seq_len rather than as one number:
-build with `-DGEIST_PROFILE_QUANT` (per-kernel ns counters, auto-reported at exit)
-and compare the attention fraction at 128 vs 1024 — that is the term pulling
-geist's prefill down at long context. For llama.cpp, `llama-bench -p <n>` plus
-`perf stat` (or Instruments on macOS) isolates where its CPU path loses time past
-256 tokens. Reproduce any row with [BENCHMARK.md](BENCHMARK.md) (Mac) and
-[BENCHMARK_PI5.md](BENCHMARK_PI5.md) (Pi).
-
-*Measured June 2026 on quiesced hardware, both engines CPU-only on the identical
-`Q4_K_M` GGUF, each at its best thread count (Mac auto-pins to the 8 P-cores; Pi
-uses 4 threads). llama.cpp build `d05fe1d`. **Each geist figure is the mean of 10
-measured repeats taken after a discarded warm-up run** (a throwaway prefill+decode
-that pages the weights resident and spins up the OpenMP pool, so timings reflect
-steady state, not cold-start); `llama-bench` warms up internally the same way.
-**Always measure on a quiesced box** — on the 4-core Pi a single stray process
-eating one core inverts the 4-thread numbers. These figures supersede the earlier
-single-point table; the full sweep tells a more honest story than any one
-sequence length.*
+📊 **Full sweep, ASCII charts, the "why the curves cross" analysis, and the
+methodology (why best-of on the live Mac, mean-of-10 on the quiesced Pi) live in
+[`benchmark/`](benchmark/README.md).**
 
 ---
 
 ## 🛠 Why geist?
 
-### 1. Zero-Dispatch Architecture
-Unlike generic engines that use complex layer-dispatch loops, `geist` uses **Kernel Binding**. At load time, every tensor is bound directly to a specialized kernel pointer. This eliminates vtable overhead and management logic during the hot path—critical for single-core-heavy edge CPUs.
+### 1. Dependency-Free & Static
+The ARM release links only libc / libm / libgomp and folds them in statically — an ~860 KB ELF with **no dynamic dependencies** (`ldd` → *not a dynamic executable*), no BLAS package, no Python, no GPU runtime. A `geist_gemm` abstraction makes BLAS/FFT *optional per platform*: ARM ships fully self-contained (native NEON fp32 + a vendored FFT), macOS keeps Accelerate/AMX because it is always present. Distribution is "copy one file."
 
-### 2. Ternary (1.58-bit) as a First-Class Citizen
+### 2. Zero-Dispatch Architecture
+Unlike generic engines that use complex layer-dispatch loops, `geist` uses **Kernel Binding**. At load time, every tensor is bound directly to a specialized kernel pointer. This eliminates vtable overhead and management logic during the hot path—critical for single-core-heavy edge CPUs, and it is only practical because geist targets a *focused* set of models rather than every architecture.
+
+### 3. Ternary (1.58-bit) as a First-Class Citizen
 We don't treat low-bit formats as an afterthought. Our backend is built for a **multiplication-free future**. `geist` includes native paths for BitNet b1.58, where the CPU only performs additions and subtractions, maximizing performance on hardware without powerful NPUs.
 
-### 3. Native Multimodal Audio
+### 4. Native Multimodal Audio
 `geist` features a built-in Conformer-based audio tower. Instead of a slow "Whisper → Text → LLM" cascade, we support direct audio-embedding prefixes. The LLM "hears" the audio directly, reducing latency and preserving prosody.
 
 

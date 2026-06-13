@@ -8,19 +8,19 @@ results from different machines never silently overwrite each other.
 
 Perf suites (`small`, `detailed`) are fully implemented: they run the C
 `bench_session_throughput` binary against a GGUF and record prefill/decode
-tok/s into BENCHMARK.md, keeping the best run per (model, host, os, target,
+tok/s into benchmark/BENCHMARK.md, keeping the best run per (model, host, os, target,
 mode, threads) key.
 
 Quality suites (`quality-small`, `quality-detailed`) and `compare-ref` require
 a reference toolchain (HF tokenizer + datasets, and/or a llama.cpp build) that
 is out of scope for a hermetic `make` invocation. They print setup guidance and
-exit cleanly rather than failing the build. See docs/BENCHMARKING.md.
+exit cleanly rather than failing the build. See benchmark/BENCHMARKING.md.
 
 Usage (normally invoked via the Makefile):
     python3 tools/bench_quality_perf.py --suite small \\
         --target mac-omp --mode release \\
         --bin-dir bin/mac-omp/release/tests --out-dir bench_runs/quality_perf \\
-        --benchmark-md BENCHMARK.md --record
+        --benchmark-md benchmark/BENCHMARK.md --record
 
 Environment:
     BENCH_GGUF      Path to the model GGUF (falls back to GEIST_GGUF_PATH).
@@ -128,7 +128,7 @@ def perf_suite(args: argparse.Namespace) -> None:
         print(f"recorded to {args.benchmark_md}")
 
 
-# Marker block in BENCHMARK.md that this script owns. Hand-written prose above
+# Marker block in benchmark/BENCHMARK.md that this script owns. Hand-written prose above
 # the marker is preserved; only the auto-recorded table below it is rewritten.
 MARKER = "<!-- BENCH:AUTO -->"
 
@@ -182,7 +182,7 @@ def update_benchmark_md(path: Path, row: dict) -> None:
         preamble = ("# geist Benchmarks (auto-recorded)\n\n"
                     "Rows below are appended by `make bench-small` / `bench-detailed`. "
                     "Each (model, host, os, target/mode, threads) key keeps its best "
-                    "decode run. See [BENCHMARK.md](BENCHMARK.md) prose for methodology.\n\n")
+                    "decode run. See [BENCHMARKING.md](BENCHMARKING.md) for methodology.\n\n")
 
     rows = sorted(existing.values(),
                   key=lambda c: (c[COL_MODEL], c[COL_HOST], c[COL_TARGET_MODE]))
@@ -199,7 +199,7 @@ def quality_suite(args: argparse.Namespace) -> None:
     print("  compare-ref additionally needs a llama.cpp build.")
     if args.suite == "compare-ref":
         print(f"  BENCH_REF_GGUF={ref_gguf or '(unset)'}  BENCH_REF_BIN={ref_bin or '(unset)'}")
-    print("  See docs/BENCHMARKING.md for the manual procedure. Exiting cleanly.")
+    print("  See benchmark/BENCHMARKING.md for the manual procedure. Exiting cleanly.")
 
 
 def main() -> None:
@@ -210,7 +210,7 @@ def main() -> None:
     p.add_argument("--mode", default="release")
     p.add_argument("--bin-dir", default="bin")
     p.add_argument("--out-dir", default="bench_runs/quality_perf")
-    p.add_argument("--benchmark-md", default="BENCHMARK.md")
+    p.add_argument("--benchmark-md", default="benchmark/BENCHMARK.md")
     p.add_argument("--record", action="store_true")
     args = p.parse_args()
 

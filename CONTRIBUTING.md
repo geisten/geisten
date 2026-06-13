@@ -61,10 +61,10 @@ cleanly (exit 77) when their preconditions aren't met.
 
 ```sh
 make bench           # raw timing probes (bench_* binaries)
-make bench-small     # reproducible perf suite, records to BENCHMARK.md
+make bench-small     # reproducible perf suite, records to benchmark/BENCHMARK.md
 ```
 
-See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for methodology and the
+See [benchmark/BENCHMARKING.md](benchmark/BENCHMARKING.md) for methodology and the
 quality/compare-ref procedures. **Never hand-edit recorded benchmark numbers** —
 regenerate them on the relevant hardware.
 
