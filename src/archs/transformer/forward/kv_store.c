@@ -166,18 +166,12 @@ enum geist_status transformer_kv_store_attention(
         const float *k_scalep = (const float *) v->buffer_map(ctx->k_cache_scale_buf);
         const float *v_scalep = (const float *) v->buffer_map(ctx->v_cache_scale_buf);
         float *outp = (float *) v->buffer_map(st->sess->scratch_attn);
-        float *scores = (float *) frame_arena_alloc(&st->sess->scratch_arena,
-                                                    kv_len_now * sizeof(float), 16);
-        if (scores == nullptr) {
-            geist_backend_set_error(be, GEIST_E_OOM,
-                                    "transformer: scratch arena exhausted for "
-                                    "INT8 scores (kv_len_now=%zu)", kv_len_now);
-            return GEIST_E_OOM;
-        }
+        /* `scores` scratch is now private per query position inside the kernel
+         * (the loop is parallelized), so no shared arena buffer is needed. */
         attention_int8_via_buffers(qp, ctx->seq, st->n_q_heads, ctx->hd,
                                    k_q8p, k_scalep, v_q8p, v_scalep,
                                    kv_len_now, st->n_kv_heads,
-                                   ctx->q_position, L->sliding_window, scores, outp);
+                                   ctx->q_position, L->sliding_window, outp);
         v->buffer_unmap(st->sess->scratch_q);
         v->buffer_unmap(ctx->k_cache_q8_buf);
         v->buffer_unmap(ctx->v_cache_q8_buf);

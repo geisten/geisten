@@ -202,12 +202,14 @@ void attention_kivi_via_buffers(
     size_t drained_count, size_t R,
     float *scores, float *out);
 
+/* Parallelized over query positions; `scores` scratch is now private per
+ * iteration, so it is no longer a caller-supplied buffer. */
 void attention_int8_via_buffers(
     const float *q, size_t n_q, size_t n_q_heads, size_t head_dim,
     const int8_t *k_q8, const float *k_scale,
     const int8_t *v_q8, const float *v_scale,
     size_t n_kv, size_t n_kv_heads, size_t q_offset, size_t sliding_window,
-    float *scores, float *out);
+    float *out);
 
 /* forward/layer_attn.c */
 [[nodiscard]] enum geist_status transformer_layer_run_attention_block(

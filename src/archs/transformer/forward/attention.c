@@ -201,15 +201,28 @@ void attention_int8_via_buffers(
     const int8_t *k_q8, const float *k_scale,
     const int8_t *v_q8, const float *v_scale,
     size_t n_kv, size_t n_kv_heads, size_t q_offset, size_t sliding_window,
-    float scores[static n_kv], float *out) {
+    float *out) {
 
     const size_t kv_group_size = n_q_heads / n_kv_heads;
+    /* The O(n^2) attention core. Every (t,h) is independent: it reads the
+     * shared Q/K/V and writes only its own out[(t*n_q_heads+h)*head_dim..]
+     * slice plus a private `scores` scratch, so the outer loop parallelizes
+     * with no change to any per-(t,h) reduction order — bit-exact vs serial.
+     * Causal + sliding-window masking makes per-t work uneven (later positions
+     * attend to more keys), so schedule(dynamic). The FFN/projection matmuls
+     * are already threaded in the backend; this closes the one prefill phase
+     * that was still serial. Guarded so a non-OpenMP build (no -fopenmp) skips
+     * the pragma cleanly under -Wunknown-pragmas -Werror. */
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(dynamic)
+#endif
     for (size_t t = 0; t < n_q; t++) {
         const size_t q_pos = q_offset + t;
         const size_t s_lo  = (sliding_window > 0 && q_pos + 1 > sliding_window)
                                  ? q_pos + 1 - sliding_window
                                  : 0;
         const size_t s_hi  = q_pos < n_kv ? q_pos : n_kv - 1;
+        float scores[n_kv]; /* private per t-iteration (was a shared param) */
 
         for (size_t h = 0; h < n_q_heads; h++) {
             const size_t kv_h = h / kv_group_size;
