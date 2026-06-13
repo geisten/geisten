@@ -54,14 +54,12 @@ jobs:
         run: make -C examples TARGET=${{ matrix.target }} CC=${{ matrix.cc }}
 
   format:
-    name: clang-format (advisory)
+    name: clang-format
     # ARM64 runner: `make format-check` auto-detects the target, and the linux
     # target $(error)s on x86_64 (kernels are NEON-only) before clang-format
     # even runs. aarch64 detects cleanly.
     runs-on: ubuntu-24.04-arm
-    # Advisory only: surfaces formatting drift without blocking the badge.
-    # Flip to a hard gate once the tree is confirmed clang-format-clean.
-    continue-on-error: true
+    # Hard gate: the tree is clang-format-clean (clang-format 22.1.x), enforced.
     steps:
       - uses: actions/checkout@v4
       # Pin clang-format to the version the tree is formatted with — apt's
