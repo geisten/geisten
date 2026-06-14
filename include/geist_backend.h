@@ -12,6 +12,7 @@
 #define GEIST_BACKEND_H
 
 #include <geist.h>
+#include <geist_types.h>  /* tensor / op / dtype types the vtable speaks in */
 #include <geist_weight.h>
 
 #ifdef __cplusplus

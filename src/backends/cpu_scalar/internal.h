@@ -14,6 +14,7 @@
 #endif
 
 #include <geist.h>
+#include <geist_types.h>
 
 /* CPU buffer = host pointer + size + role. */
 struct geist_buffer {

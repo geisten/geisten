@@ -25,6 +25,7 @@
 #endif
 
 #include <geist.h>
+#include <geist_types.h>
 
 /* Backend vtable — every backend implements this (engine-known shape). */
 struct geist_backend_vtbl;

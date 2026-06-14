@@ -26,6 +26,7 @@
 #include "gguf_reader.h"
 
 #include <geist.h>
+#include <geist_util.h>  /* eos/bos/token_by_text live here as of 0.2.0 */
 
 #include <stdarg.h>
 #include <stdio.h>

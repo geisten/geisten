@@ -17,6 +17,7 @@
 #endif
 
 #include "hw_probe.h"
+#include <geist_types.h>
 
 #include <geist.h>          /* enum geist_dtype */
 #include <geist_weight.h>   /* struct geist_weight */

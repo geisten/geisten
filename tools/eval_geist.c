@@ -37,6 +37,7 @@
  *   eval_geist <gguf> [--awq <scales.bin>]
  */
 #include <geist.h>
+#include <geist_util.h>
 #include <geist_backend.h>
 
 #include <ctype.h>

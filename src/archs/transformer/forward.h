@@ -17,6 +17,7 @@
 #endif
 
 #include "arch_state.h"
+#include <geist_types.h>
 
 /* Layer loop: feed `seq` token rows through all GEIST_GEMMA4_NUM_LAYERS
  * layers. Writes into out_h_buf (residual stream). KV slot is at

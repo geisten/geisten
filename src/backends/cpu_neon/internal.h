@@ -15,6 +15,7 @@
 #endif
 
 #include <geist.h>
+#include <geist_types.h>
 #include "hw_probe.h"
 #include "kernel_catalog.h"
 

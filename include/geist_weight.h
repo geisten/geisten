@@ -51,6 +51,7 @@
 #define GEIST_WEIGHT_H
 
 #include <geist.h>
+#include <geist_types.h>  /* enum geist_dtype */
 
 #include <stddef.h>
 #include <stdint.h>

@@ -1,4 +1,5 @@
 #include "gemma4_kernels.h"
+#include <geist_types.h>
 #include "heap.h"
 
 #include <math.h>

@@ -9,6 +9,7 @@
 #include "test_helpers.h"
 
 #include <geist.h>
+#include <geist_util.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -42,8 +43,14 @@ int main(void) {
 
     int fail = 0;
     /* A usable instruct GGUF exposes BOS and EOS. */
-    if (eos == GEIST_TOKEN_NONE) { fprintf(stderr, "FAIL: no eos id\n"); fail = 1; }
-    if (bos == GEIST_TOKEN_NONE) { fprintf(stderr, "FAIL: no bos id\n"); fail = 1; }
+    if (eos == GEIST_TOKEN_NONE) {
+        fprintf(stderr, "FAIL: no eos id\n");
+        fail = 1;
+    }
+    if (bos == GEIST_TOKEN_NONE) {
+        fprintf(stderr, "FAIL: no bos id\n");
+        fail = 1;
+    }
 
     /* Round-trip: looking up eos's own surface string returns eos again. This
      * exercises token_by_text positively without hardcoding model-specific
@@ -57,8 +64,7 @@ int main(void) {
         }
     }
     /* A non-token string resolves to NONE, not a stray id. */
-    if (geist_model_token_by_text(model, "definitely not a single token") !=
-        GEIST_TOKEN_NONE) {
+    if (geist_model_token_by_text(model, "definitely not a single token") != GEIST_TOKEN_NONE) {
         fprintf(stderr, "FAIL: bogus text did not return GEIST_TOKEN_NONE\n");
         fail = 1;
     }
@@ -69,7 +75,9 @@ int main(void) {
         fail = 1;
     }
 
-    if (sess) { geist_session_destroy(sess); }
+    if (sess) {
+        geist_session_destroy(sess);
+    }
     geist_model_destroy(model);
     geist_backend_destroy(be);
     return fail ? GEIST_TEST_FAIL : GEIST_TEST_PASS;

@@ -9,6 +9,7 @@
 #define GEIST_INTERNAL_ARCH_LAYER
 
 #include "internal.h"
+#include <geist_types.h>
 
 struct dtype_map_entry map_gguf_dtype(gguf_dtype_t gd) {
     switch (gd) {

@@ -17,6 +17,7 @@
 #include "test_helpers.h"
 
 #include <geist.h>
+#include <geist_util.h>
 #include <geist_backend.h>
 
 /* gemma4-E2B "Hello" → this single vocab id (see test_session_sampling_int). */

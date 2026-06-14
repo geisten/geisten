@@ -7,6 +7,7 @@
  * existing "CBLAS is expected" signal (see gemma4_kernels.c).
  */
 #include "geist_gemm.h"
+#include <geist_types.h>
 
 #include <stddef.h>
 

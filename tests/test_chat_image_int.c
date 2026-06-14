@@ -24,6 +24,7 @@
 #include "stb_image.h"
 
 #include <geist.h>
+#include <geist_util.h>
 #include <geist_backend.h>
 
 #include <stdint.h>

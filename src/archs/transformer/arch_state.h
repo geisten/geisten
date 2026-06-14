@@ -34,6 +34,7 @@
 #define GEIST_INTERNAL_ENGINE_LAYER
 
 #include <geist.h>
+#include <geist_types.h>
 #include <geist_weight.h>
 
 #include "arch_config.h"

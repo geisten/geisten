@@ -26,6 +26,7 @@
 #include "gguf_tokenizer.h"
 
 #include <geist.h>
+#include <geist_util.h>  /* tokenize/prefill/attach/peek/speculative/stats moved here in 0.2.0 */
 
 #include <stdarg.h>
 #include <stdio.h>

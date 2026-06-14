@@ -31,6 +31,7 @@
  */
 #define GEIST_INTERNAL_ARCH_LAYER
 #include "vision_encoder.h"
+#include <geist_util.h>
 #undef GEIST_INTERNAL_ARCH_LAYER
 
 #include "test_helpers.h"

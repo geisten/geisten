@@ -19,6 +19,7 @@
 #include "test_helpers.h"
 
 #include <geist.h>
+#include <geist_util.h>
 #include <geist_backend.h>
 
 #include <stdio.h>

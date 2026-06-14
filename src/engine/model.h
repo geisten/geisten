@@ -16,6 +16,7 @@
 #endif
 
 #include <geist.h>
+#include <geist_types.h>
 
 /* Forward decls for arch op-tables — Architecture layer fills these in. */
 struct geist_arch_ops_decoder;

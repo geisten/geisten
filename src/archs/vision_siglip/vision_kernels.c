@@ -9,6 +9,7 @@
  *   - eager_attention_forward (no causal mask in the vision path)
  */
 #include "vision_kernels.h"
+#include <geist_types.h>
 
 #include "heap.h"
 

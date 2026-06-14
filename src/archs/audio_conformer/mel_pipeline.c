@@ -10,6 +10,7 @@
  *   6. log_mel      = log(mel_spec + 1e-3)
  */
 #include "mel_pipeline.h"
+#include <geist_types.h>
 #include "heap.h"
 
 #include <math.h>

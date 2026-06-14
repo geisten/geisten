@@ -5,6 +5,7 @@
 #define GEIST_INTERNAL_ARCH_LAYER
 
 #include "internal.h"
+#include <geist_types.h>
 #include "profile.h"
 
 #include <math.h>
