@@ -10,23 +10,41 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20(ARM64)-lightgrey.svg)](#-build--usage)
 [![Status](https://img.shields.io/badge/status-experimental%20(v0.1.1)-yellow.svg)](#-status)
 
-**geist** is a high-performance C23 inference engine that runs LLMs **on the CPU
+**geist** is a high-performance inference engine that runs LLMs **on the CPU
 with zero dependencies** — one small static binary, no BLAS, no Python, no CUDA,
 no runtime to install. Copy it to the machine and it runs.
 
 That is the bet, and it is a different one from the universal engines:
 
-- **Dependency-free, CPU-only.** The default ARM build links nothing but libc /
-  libm / libgomp and folds them in statically (~860 KB ELF). No GPU, no BLAS
-  package, no model server — it runs anywhere the CPU architecture matches.
+- **Dependency-free, CPU-only — the whole point.** The default ARM build links
+  nothing but libc / libm / libgomp and folds them in statically: **one ~860 KB
+  ELF with no dynamic dependencies** (`ldd` → *not a dynamic executable*). There is
+  nothing to install — no Python or virtualenv, no CUDA/ROCm or driver stack, no
+  GPU, no OpenBLAS or system libraries to `apt-get`, no model server, no container
+  runtime. A `geist_gemm` abstraction makes even BLAS/FFT *optional per platform*,
+  so ARM ships fully self-contained (native NEON fp32 + a vendored FFT). The
+  consequences are the pitch: **you deploy by copying one file** — `scp`, a USB
+  stick, a `FROM scratch` container, a read-only/immutable rootfs, an airgapped
+  box — and it runs on any machine whose CPU architecture matches (Linux kernel
+  ≥ 3.7), with no distro- or glibc-version hell. The supply-chain and attack
+  surface shrink to *your code*, the artifact is byte-reproducible, and embedding
+  the engine in another program is one C header away (the public API **is** the ABI).
 - **Focused, not universal.** Where llama.cpp aims to run *every* model on *every*
   backend, geist deliberately does **a few models excellently** (Gemma 4 E2B-it
   today; Ternary 1.58-bit BitNet next). That focus is what lets it bind every
   tensor to a hand-picked kernel at load time and beat a generic dispatch loop.
-- **Edge-first, Raspberry Pi 5 as the primary optimization target.** The tuning
-  effort goes to the $50–$100 Cortex-A76 board first — not the datacenter GPU —
-  for **Low-Bit (IQ/TQ)** and **native multimodal audio** inference where
-  llama.cpp is the default but you need more speed, less RAM, or no dependency tree.
+- **Edge-first, Raspberry Pi 5 as the primary optimization target.** The edge win
+  is *not* raw prefill speed — on the A76 (no `i8mm`) llama.cpp's decades-tuned
+  OpenBLAS sgemm is ~10–15 % faster there (see below). It is the **operational**
+  fit on a $50–$100 board: the dependency-free binary deploys where a Python /
+  CUDA / BLAS stack simply can't; **mmap'd weights run the 4.6 B model on a 4 GB
+  Pi**, and low-bit **IQ/TQ/ternary** fits bigger models into still less RAM (less
+  memory *and* less energy per token than a dequantize-to-fp32 path); there is **no
+  GPU or driver stack** to babysit; **decode — what interactive generation actually
+  feels like — is at parity**; and a built-in **Conformer audio tower** enables
+  on-device voice without a Whisper→LLM cloud cascade. geist trades a few percent
+  of prefill for *running at all, simply, on hardware where the alternative is a
+  deployment project.*
 
 > **Status: experimental (v0.1.1).** The public API in [`include/geist.h`](include/geist.h)
 > carries per-symbol stability tags (`STABLE` / `EXPERIMENTAL`). Expect churn in
@@ -101,18 +119,21 @@ starts, best-of vs mean-of-10) live in [`benchmark/`](benchmark/README.md).**
 
 ---
 
-## 🛠 Why geist?
+## 🛠 Under the hood
 
-### 1. Dependency-Free & Static
-The ARM release links only libc / libm / libgomp and folds them in statically — an ~860 KB ELF with **no dynamic dependencies** (`ldd` → *not a dynamic executable*), no BLAS package, no Python, no GPU runtime. A `geist_gemm` abstraction makes BLAS/FFT *optional per platform*: ARM ships fully self-contained (native NEON fp32 + a vendored FFT), macOS keeps Accelerate/AMX because it is always present. Distribution is "copy one file."
+The pitch above (dependency-free, focused, edge-first) is delivered by a few
+deliberate engineering choices — the *how* behind the *why*:
 
-### 2. Zero-Dispatch Architecture
+### Zero-Dispatch Architecture
 Unlike generic engines that use complex layer-dispatch loops, `geist` uses **Kernel Binding**. At load time, every tensor is bound directly to a specialized kernel pointer. This eliminates vtable overhead and management logic during the hot path—critical for single-core-heavy edge CPUs, and it is only practical because geist targets a *focused* set of models rather than every architecture.
 
-### 3. Ternary (1.58-bit) as a First-Class Citizen
+### BLAS/FFT optional per platform
+The `geist_gemm` abstraction (and the same per-platform pattern for the audio FFT) lets each platform pick the fastest path *and* the leanest dependency set: ARM ships fully self-contained (native NEON fp32 + a vendored radix-2 FFT, no OpenBLAS/FFTW), while macOS keeps Accelerate/AMX and vDSP because the framework is always present. This is what makes the "copy one file" deployment above possible without giving up the platform's matrix accelerator.
+
+### Ternary (1.58-bit) as a First-Class Citizen
 We don't treat low-bit formats as an afterthought. Our backend is built for a **multiplication-free future**. `geist` includes native paths for BitNet b1.58, where the CPU only performs additions and subtractions, maximizing performance on hardware without powerful NPUs.
 
-### 4. Native Multimodal Audio
+### Native Multimodal Audio
 `geist` features a built-in Conformer-based audio tower. Instead of a slow "Whisper → Text → LLM" cascade, we support direct audio-embedding prefixes. The LLM "hears" the audio directly, reducing latency and preserving prosody.
 
 ### Why C?
@@ -170,9 +191,15 @@ A minimal C program using the public API lives in
 
 ## 🗺 Roadmap
 
-- [x] **Close the Pi 5 Gap:** Implement FFN-streaming and lm-head argmax for ARM dominance.
+- [x] **Flatten Pi 5 prefill:** FFN-streaming, lm-head argmax, and a multi-threaded
+  O(n²) attention core — the Pi prefill curve is now flat (pp1024 +35 %), though
+  llama.cpp's OpenBLAS still edges raw prefill on the A76.
 - [ ] **BitNet Optimization:** Reach 1.0x reference parity for 2B-4T ternary models on Pi 5.
 - [ ] **Dynamic Quantization:** Release the first mixed-low-bit recipe for Gemma 4.
+- [ ] **Dynamic runtime threading:** choose the thread count per phase, and back off
+  under thermal/load pressure, at runtime — instead of the fixed prefill=4 / decode=3.
+- [ ] **Single-file app + model:** fuse the weights into the executable so a
+  deployment is literally *one* binary — engine and model, nothing else to ship.
 - [ ] **Realtime Audio Demo:** A standalone VAD-to-Instruction voice assistant on Pi 5.
 
 ---
