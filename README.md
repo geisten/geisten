@@ -97,10 +97,22 @@ On **Apple Silicon** geist wins prefill at *every* length and the lead **widens*
 with context (1.48× at 1024) — geist's dense path uses **Accelerate/AMX**, which
 stays flat, while llama.cpp's CPU path drops off. On the **Pi 5** both curves are
 flat but **llama.cpp's decades-tuned OpenBLAS sgemm leads geist by ~10–15 %** on
-the A76 (no `i8mm`) — the hard case geist is built around; geist ties on **decode**
-(~6.8 t/s) and wins on dependency-free distribution. *(Earlier Pi tables here
-showed geist ahead — a thermal-throttling artifact in the llama measurement, now
-corrected; see [`benchmark/`](benchmark/README.md).)*
+the A76 (no `i8mm`) — the hard case geist is built around; and it wins on
+dependency-free distribution. *(Earlier Pi tables here showed geist ahead — a
+thermal-throttling artifact in the llama measurement, now corrected; see
+[`benchmark/`](benchmark/README.md).)*
+
+**Pi 5 decode** (Gemma 4 E2B Q4_K_M, greedy, 2.4 GHz, best thread count):
+
+| engine | decode t/s |
+| :-- | --: |
+| **geist** (spec head) | **7.3** |
+| llama.cpp (OpenBLAS) | 7.2 |
+
+Gemma's tied **Q6_K** lm_head is ~32 % of decode; the speculative output head
+(below) trims it and nudges geist past llama.cpp here (it was ~parity before).
+The head is bit-exact for greedy — see the BitNet section and
+[`benchmark/TERNARY_BITNET.md`](benchmark/TERNARY_BITNET.md).
 
 📊 **Full sweep, ASCII charts, the per-phase analysis, and the methodology (cool
 starts, best-of vs mean-of-10) live in [`benchmark/`](benchmark/README.md).**
@@ -133,18 +145,29 @@ Microsoft's `bitnet-b1.58-2B-4T` (`ggml-model-i2_s.gguf`), measured with
 | 128 | 48.5 | **16.4** | 29.3 |
 | 256 | 47.0 | **15.0** | 33.0 |
 
-Reference points on the **same machine + model**: bitnet.cpp decode **8.2–8.7 t/s**
-(geist is ~2× faster), and the Rust engine [**Cougar**](https://github.com/petlukk/Cougar)
-reports **16.1 t/s** decode / 16.3 prefill on a Pi 5 — geist's 17.4 decode edges
-it, and prefill is ~3× higher.
+**Decode, all three engines run on this same Pi + model** (greedy, 2.4 GHz; each
+engine at its own best thread count):
+
+| engine | decode t/s | notes |
+| :-- | --: | :-- |
+| **geist** (spec head) | **17.4** | 2 threads; 17.2 / 17.0 at 3 / 4 |
+| [Cougar](https://github.com/petlukk/Cougar) (Rust + `ea` SIMD) | 12.3 | 2 threads; 11.6 / 10.8 at 3 / 4. Its README cites 16.1 on a different board |
+| bitnet.cpp (LUT) | 8.2–8.7 | |
+
+geist leads Cougar by **~42 %** here (and ~2× bitnet.cpp). Cougar's own profile on
+this box shows its **FFN ternary matmuls** dominate (gate+up + down ≈ 71 % of its
+114 ms/token) — geist's SDOT FFN kernels are simply faster on the A76; both
+engines already make the lm_head cheap via a sketch. Prefill: geist ~47 vs
+Cougar's reported 16.3.
 
 The decode win comes from a **speculative output head** (`GEIST_SPEC_HEAD=1`):
 on this model the lm_head is a tied **F16** embedding (656 MB read *per token*,
 ~50 % of decode). geist keeps a stride-subsampled int8 "sketch" of the table
 (~82 MB), rough-ranks the whole 128 K vocabulary with one SDOT pass, then
 computes **exact** f16 logits for only the top-512 candidates. Greedy output is
-byte-identical to the dense head. Full method, caveats (clock-matched numbers,
-what *didn't* work) and Cougar's algorithm: [`benchmark/TERNARY_BITNET.md`](benchmark/TERNARY_BITNET.md).
+byte-identical to the dense head. Full method, the three-engine same-box
+comparison, what *didn't* work, and Cougar's algorithm:
+[`benchmark/TERNARY_BITNET.md`](benchmark/TERNARY_BITNET.md).
 
 The same head also works on **Gemma 4 E2B** (tied Q6_K lm_head over a 256 K
 vocab, ~32 % of decode). There phase 3 reuses the dense **W6A8** kernel on a
@@ -260,9 +283,8 @@ recompiles the CLI with the model baked in.)
   O(n²) attention core — the Pi prefill curve is now flat (pp1024 +35 %), though
   llama.cpp's OpenBLAS still edges raw prefill on the A76.
 - [x] **BitNet Optimization:** 2B-4T `I2_S` on the Pi 5 now decodes at **17.4 t/s**
-  — past bitnet.cpp (~2×) and Cougar's published 16.1 — via a speculative int8
-  output head. (Clock-matched to a throttled stock-cooler board the layer matmuls
-  still trail Cougar's `ea`-compiled kernels; see `benchmark/TERNARY_BITNET.md`.)
+  via a speculative int8 output head — ahead of Cougar (measured **12.3** on the
+  same box) and ~2× bitnet.cpp; see `benchmark/TERNARY_BITNET.md`.
 - [ ] **Dynamic Quantization:** Release the first mixed-low-bit recipe for Gemma 4.
 - [ ] **Dynamic runtime threading:** choose the thread count per phase, and back off
   under thermal/load pressure, at runtime — instead of the fixed prefill=4 / decode=3.

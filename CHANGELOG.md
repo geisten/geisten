@@ -19,11 +19,11 @@ minor release.
   those. Greedy output is byte-identical to the dense head (the deciding logits
   are unquantized); opt-in, non-greedy sampling falls back automatically.
 - Result on a Raspberry Pi 5 (A76, `tests/bench_perf_sweep`, 2 t, 2.4 GHz):
-  BitNet 2B-4T `I2_S` **decode 9.83 → 17.4 tok/s** — past bitnet.cpp on the same
-  box (~2×) and past Cougar's published 16.1. See `benchmark/TERNARY_BITNET.md`
-  for method, the same-box bitnet.cpp/Cougar comparison, the clock-matched caveat,
-  and the layer-matmul kernel shapes (4-row, fused gate+up) that were tried and
-  reverted as A76 regressions.
+  BitNet 2B-4T `I2_S` **decode 9.83 → 17.4 tok/s** — ahead of both other engines
+  built and run on the same box: Cougar (Rust + `ea` SIMD) **12.3** and bitnet.cpp
+  **8.2** (~2×). See `benchmark/TERNARY_BITNET.md` for the same-box three-engine
+  comparison and the layer-matmul kernel shapes (4-row, fused gate+up) that were
+  tried and reverted as A76 regressions.
 - The spec head also covers **block-quantized** tied lm_heads (Q3_K/Q4_K/Q5_K/
   Q6_K/Q8_0). Phase 3 builds a one-row view of the embedding and calls the *same*
   `linear_m1` the dense head uses (W6A8 for Q6_K), so finalist logits are

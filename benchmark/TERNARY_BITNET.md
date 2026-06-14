@@ -139,7 +139,8 @@ tied as the lm_head). Built `make TARGET=pi5`; `bench_perf_sweep`, mean-of-5
 after a discarded warm-up.
 
 **Reference:** [petlukk/Cougar](https://github.com/petlukk/Cougar) reports
-**16.1 tok/s decode** on a Pi 5 for this model (its headline ARM number).
+**16.1 tok/s decode** on a Pi 5 for this model (its headline ARM number); built
+and run on *this* Pi it reaches **12.3** (see the three-engine table below).
 
 ### The bottleneck: a bandwidth-bound decode dominated by the F16 lm_head
 
@@ -186,36 +187,38 @@ Baseline (spec off) decode was **9.83** tok/s → spec on **17.4** (+77 %). The
 end-to-end column is `(prompt + 64 decoded) / wall` — it rises with context
 because the fast prefill amortizes over more tokens.
 
-**Head-to-head, identical box + model + clock** (`llama-bench`, 2.4 GHz):
+**Head-to-head — all three engines built and run on THIS Pi, same model, 2.4 GHz,
+greedy** (decode tok/s, each at its best thread count):
 
-| engine | decode (tg) | prefill (pp32) |
-| :-- | --: | --: |
-| **geist** (spec head) | **17.4** | ~47 |
-| bitnet.cpp (LUT) | 8.2 (2t) / 8.7 (4t) | 38 / 64 |
-| Cougar (published, 1.6 GHz throttled) | 16.1 | 16.3 |
+| engine | t=2 | t=3 | t=4 | prefill |
+| :-- | --: | --: | --: | --: |
+| **geist** (spec head) | **17.4** | 17.2 | 17.0 | ~47 |
+| Cougar (Rust + `ea` SIMD) | 12.3 | 11.6 | 10.8 | 16.3* |
+| bitnet.cpp (LUT) | 8.2 | — | 8.7 | 38 / 64 |
 
-**vs bitnet.cpp on the same machine geist decode is ~2× faster** — wider than
-Cougar's own +22 %-over-bitnet.cpp claim. bitnet.cpp's LUT prefill (64) is
-faster, the known LUT prefill / SDOT decode trade-off (Cougar's prefill, 16.3,
-also trails it; ours ~47 matches Cougar's 47.5).
+\* Cougar prefill from its own profile/README. Cougar measured here with
+`~/workspace/Cougar/target/release/cougar --model … --max-tokens 64 -t N`.
 
-**vs Cougar:** on this server geist's **17.4 decode beats Cougar's published
-16.1**. Caveat worth stating plainly — Cougar's 16.1 was a stock-cooler board
-throttled to ~1.6 GHz; this server holds 2.4 GHz. Unlike the baseline, decode
-*after* the spec head is **compute-bound**, not BW-bound: capping this board to
-1.5 GHz drops spec-on decode to **11.5 tok/s** (CPU-clock-linear; the Pi's DRAM
-clock is unchanged by the cap). So clock-matched to Cougar's ~1.6 GHz we are
-*behind* on the layer ternary matmuls — Cougar's `ea`-compiled kernels are ~30 %
-faster there. The win at this board's native clock is real but partly reflects
-its cooling. Closing the clock-matched gap is layer-matmul work, not lm_head.
+**geist leads Cougar by ~42 % and bitnet.cpp by ~2×** on this box. All three peak
+at 2 threads (more threads contend). bitnet.cpp's LUT prefill (64 @ 4t) is the
+known LUT-prefill / SDOT-decode trade-off; geist's ~47 prefill matches Cougar's.
 
-### Closing the clock-matched layer-matmul gap — what did NOT work
+> Earlier drafts of this doc inferred (from Cougar's **published** 16.1 t/s, which
+> it cites on a different board) that Cougar's `ea`-compiled layer matmuls were
+> ~30 % faster than geist's at matched clock. **Directly measuring Cougar on this
+> Pi disproves that** — it reaches only 12.3 t/s here, and its own profile shows
+> its ternary **FFN matmuls** (gate+up 53 ms + down 28.6 ms = 71 % of 114 ms/tok)
+> are the bottleneck, i.e. geist's SDOT FFN kernels are faster on the A76. Both
+> engines already make the lm_head cheap with a sketch (Cougar's output stage is
+> ~9 %). Lesson: measure the competitor, don't extrapolate its headline number.
+
+### Pushing the layer matmuls further — what did NOT work
 
 After the spec head, decode is dominated by the ternary FFN matmuls (gate+up
-≈25.5 ms, down ≈12.6 ms of a ~57 ms token). Per call the existing M=1 kernel
-already runs at **~54 % of A76 SDOT peak** (2 threads). Two of Cougar's kernel
-shapes were ported to try to close the ~30 % clock-matched gap to Cougar; **both
-regressed** on the A76 with gcc, and both were reverted:
+≈25.5 ms, down ≈12.6 ms of a ~57 ms token) — the same stage that bottlenecks
+Cougar. Per call the existing M=1 kernel already runs at **~54 % of A76 SDOT
+peak** (2 threads). Two of Cougar's kernel shapes were ported to try to speed it
+up anyway; **both regressed** on the A76 with gcc, and both were reverted:
 
 1. **4-row output blocking** (`i2_s_block_dot_4row`, 4 rows share one
    activation-block load, 1 accumulator/row): **14.8 vs 17.5 t/s** (2t). Decode
@@ -263,7 +266,9 @@ compiler is needed and not distributed), so this is from source reading of the
 
 Published Cougar numbers (its README): Pi 5 BitNet **decode 16.1 t/s**, prefill
 16.3, ~62 ms/tok, ~2.0 GB RSS, at ~1.6 GHz (stock-cooler throttling); x86
-BitNet decode 18.0 t/s (+22 % vs bitnet.cpp), prefill 47.5.
+BitNet decode 18.0 t/s (+22 % vs bitnet.cpp), prefill 47.5. (Directly measured on
+this Pi at 2.4 GHz it does 12.3 t/s decode — the published 16.1 did not
+reproduce on this board.)
 
 ---
 
@@ -306,6 +311,9 @@ Decode (`bench_perf_sweep`, 4 t, mean-3, the bigger TOP_K costs phase-3 time):
 
 So the bit-exact Gemma win is **+5 %** decode (the recall-driven 8× larger
 phase-3 eats ~9 pts vs the approximate +14 %). Modest but real and reproducible.
+For reference, **llama.cpp** (OpenBLAS) decodes this same Gemma model at **7.23
+t/s** (2 t) on this box — so the exact spec head (7.29) nudges geist from ≈parity
+to a slight lead; the approximate mode (7.89) leads more clearly.
 (The per-finalist `linear_m1` re-quantizes the activation each call — pre-quantizing
 once via a backend `_pre` entry would recover some of that; left as future work.)
 
