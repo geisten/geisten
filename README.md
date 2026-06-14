@@ -230,8 +230,11 @@ recompiles the CLI with the model baked in.)
 - [ ] **Dynamic Quantization:** Release the first mixed-low-bit recipe for Gemma 4.
 - [ ] **Dynamic runtime threading:** choose the thread count per phase, and back off
   under thermal/load pressure, at runtime — instead of the fixed prefill=4 / decode=3.
-- [ ] **Single-file app + model:** fuse the weights into the executable so a
+- [x] **Single-file app + model:** fuse the weights into the executable so a
   deployment is literally *one* binary — engine and model, nothing else to ship.
+  Shipped in v0.2.1 (`make EMBED_MODEL=…` + `geist_model_load_from_memory`,
+  zero-copy aliased). Practical for **small** models — the binary grows by the
+  model size; large GGUFs (a streamed `geist pack` format) remain future work.
 - [ ] **Realtime Audio Demo:** A standalone VAD-to-Instruction voice assistant on Pi 5.
 
 ---
