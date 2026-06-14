@@ -8,6 +8,8 @@ minor release.
 
 ## [Unreleased]
 
+## [0.2.1]
+
 ### Added — embed a model into the binary (single-file deploy)
 
 - `geist_model_load_from_memory(data, size, be, &model)` (`geist.h`): load a GGUF
@@ -29,6 +31,11 @@ minor release.
   Honestly measured: **no effect on the Raspberry Pi 5** — it already uses 16 KB
   base pages and has no THP, so the TLB win is moot there; the lever is for
   4 KB-page Linux. No regression (Pi pp256 unchanged within noise).
+
+### Added — docs
+- `docs/QUICKSTART.md`: a two-minute guide to running the CLI and embedding the
+  library (complete copy-paste C program, clean EOS stop, single-file build,
+  performance knobs), linked from the README.
 
 ## [0.2.0]
 
@@ -102,7 +109,8 @@ First public release.
   reproducible perf benchmark harness (`make bench-small`).
 - `examples/simple_generate` demonstrating the stable text-generation core.
 
-[Unreleased]: https://github.com/geisten/geist/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/geisten/geist/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/geisten/geist/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/geisten/geist/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/geisten/geist/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/geisten/geist/compare/v0.1.1...v0.1.2
