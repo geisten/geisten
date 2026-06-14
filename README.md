@@ -16,35 +16,17 @@ no runtime to install. Copy it to the machine and it runs.
 
 That is the bet, and it is a different one from the universal engines:
 
-- **Dependency-free, CPU-only — the whole point.** The default ARM build links
-  nothing but libc / libm / libgomp and folds them in statically: **one ~860 KB
-  ELF with no dynamic dependencies** (`ldd` → *not a dynamic executable*). There is
-  nothing to install — no Python or virtualenv, no CUDA/ROCm or driver stack, no
-  GPU, no OpenBLAS or system libraries to `apt-get`, no model server, no container
-  runtime. A `geist_gemm` abstraction makes even BLAS/FFT *optional per platform*,
-  so ARM ships fully self-contained (native NEON fp32 + a vendored FFT). The
-  consequences are the pitch: **you deploy by copying one file** — `scp`, a USB
-  stick, a `FROM scratch` container, a read-only/immutable rootfs, an airgapped
-  box — and it runs on any machine whose CPU architecture matches (Linux kernel
-  ≥ 3.7), with no distro- or glibc-version hell. The supply-chain and attack
-  surface shrink to *your code*, the artifact is byte-reproducible, and embedding
-  the engine in another program is one C header away (the public API **is** the ABI).
-- **Focused, not universal.** Where llama.cpp aims to run *every* model on *every*
-  backend, geist deliberately does **a few models excellently** (Gemma 4 E2B-it
-  today; Ternary 1.58-bit BitNet next). That focus is what lets it bind every
-  tensor to a hand-picked kernel at load time and beat a generic dispatch loop.
-- **Edge-first, Raspberry Pi 5 as the primary optimization target.** The edge win
-  is *not* raw prefill speed — on the A76 (no `i8mm`) llama.cpp's decades-tuned
-  OpenBLAS sgemm is ~10–15 % faster there (see below). It is the **operational**
-  fit on a $50–$100 board: the dependency-free binary deploys where a Python /
-  CUDA / BLAS stack simply can't; **mmap'd weights run the 4.6 B model on a 4 GB
-  Pi**, and low-bit **IQ/TQ/ternary** fits bigger models into still less RAM (less
-  memory *and* less energy per token than a dequantize-to-fp32 path); there is **no
-  GPU or driver stack** to babysit; **decode — what interactive generation actually
-  feels like — is at parity**; and a built-in **Conformer audio tower** enables
-  on-device voice without a Whisper→LLM cloud cascade. geist trades a few percent
-  of prefill for *running at all, simply, on hardware where the alternative is a
-  deployment project.*
+- **Dependency-free, CPU-only.** The ARM build is a single ~860 KB static binary
+  (`ldd` → *not a dynamic executable*) — nothing to install, deploy by copying one
+  file, embed it elsewhere through its C ABI.
+- **Focused, not universal.** Where llama.cpp runs *every* model on *every*
+  backend, geist does **a few models excellently** (Gemma 4 E2B-it today, ternary
+  1.58-bit BitNet next) — every tensor bound to a hand-picked kernel at load time,
+  not a generic dispatch loop.
+- **Edge-first (Raspberry Pi 5).** Tuned for $50–$100 CPUs: a 4.6 B model fits in
+  4 GB of RAM, no GPU or driver stack, decode at parity, on-device audio built in.
+  The win is deploying and running *simply* on cheap hardware — not topping the
+  prefill chart.
 
 > **Status: experimental (v0.1.1).** The public API in [`include/geist.h`](include/geist.h)
 > carries per-symbol stability tags (`STABLE` / `EXPERIMENTAL`). Expect churn in
