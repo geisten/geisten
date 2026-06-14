@@ -30,7 +30,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/src" -w /src alpine:3.21 sh -c '
             set -e
-            apk add --no-cache build-base
+            apk add --no-cache build-base linux-headers
             make TARGET=linux CC=gcc GEIST_BLAS_FREE=1 \
                  EXTRA_LDFLAGS="-static -s" bin/linux/release/tools/geist
           '
