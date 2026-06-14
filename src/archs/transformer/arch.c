@@ -37,6 +37,21 @@ static void *op_state_create(struct geist_backend            *be,
     return st;
 }
 
+static void *op_state_create_from_memory(struct geist_backend            *be,
+                                         const void                      *data,
+                                         size_t                           size,
+                                         const struct geist_session_opts *opts) {
+    if (be == nullptr || data == nullptr) {
+        return nullptr;
+    }
+    struct transformer_arch_state *st = nullptr;
+    enum geist_status s = transformer_state_create_from_memory(be, data, size, opts, &st);
+    if (s != GEIST_OK) {
+        return nullptr;
+    }
+    return st;
+}
+
 static void op_state_destroy(void *arch_state) {
     transformer_state_destroy(arch_state);
 }
@@ -177,6 +192,7 @@ static void op_session_attach(void *arch_state, void *session_meta) {
 const struct geist_arch_ops_decoder geist_arch_transformer = {
     .name             = "transformer",
     .state_create     = op_state_create,
+    .state_create_from_memory = op_state_create_from_memory,
     .state_destroy    = op_state_destroy,
     .state_reset      = op_state_reset,
     .set_session_opts = op_set_session_opts,

@@ -30,9 +30,10 @@ struct gguf_meta_kv_t {
 };
 
 struct gguf_ctx {
-    int    fd;
+    int    fd;          /* -1 for the from-memory path */
     void*  map;
     size_t map_size;
+    bool   owns_map;    /* true: we mmap'd it (munmap on close); false: caller's buffer */
 
     uint32_t version;
     uint64_t tensor_count;
@@ -195,32 +196,33 @@ static bool record_meta_kv(struct gguf_ctx *ctx, size_t slot_idx,
 
 static const char* set_err(const char** out, const char* msg) { if (out) *out = msg; return msg; }
 
-struct gguf_ctx* gguf_open(const char* path, const char** errmsg) {
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) { set_err(errmsg, "open() failed"); return nullptr; }
-
-    struct stat sb;
-    if (fstat(fd, &sb) != 0) { close(fd); set_err(errmsg, "fstat() failed"); return nullptr; }
-    size_t fsize = (size_t)sb.st_size;
-
-    void* map = mmap(nullptr, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (map == MAP_FAILED) { close(fd); set_err(errmsg, "mmap() failed"); return nullptr; }
-
+/* Shared parser: `map`/`fsize` already point at the GGUF bytes — an mmap we
+ * own (file path) or a caller-provided buffer (from-memory path, owns_map=0).
+ * On failure the bytes are released only if we own them. */
+static struct gguf_ctx* gguf_parse(void* map, size_t fsize, int fd,
+                                   bool owns_map, const char** errmsg) {
     struct cur_t c = { .p = (const uint8_t*)map, .end = (const uint8_t*)map + fsize, .ok = true };
 
+#define GGUF_FAIL(msg) do { \
+        if (owns_map) { munmap(map, fsize); if (fd >= 0) close(fd); } \
+        set_err(errmsg, (msg)); return nullptr; \
+    } while (0)
+
     uint32_t magic = read_u32(&c);
-    if (!c.ok || magic != MAGIC_LE) { munmap(map, fsize); close(fd); set_err(errmsg, "bad magic (not GGUF)"); return nullptr; }
+    if (!c.ok || magic != MAGIC_LE) { GGUF_FAIL("bad magic (not GGUF)"); }
     uint32_t version = read_u32(&c);
-    if (!c.ok || version != 3) { munmap(map, fsize); close(fd); set_err(errmsg, "unsupported version (need v3)"); return nullptr; }
+    if (!c.ok || version != 3) { GGUF_FAIL("unsupported version (need v3)"); }
     uint64_t tcount = read_u64(&c);
     uint64_t mcount = read_u64(&c);
-    if (!c.ok) { munmap(map, fsize); close(fd); set_err(errmsg, "header truncated"); return nullptr; }
+    if (!c.ok) { GGUF_FAIL("header truncated"); }
 
     struct gguf_ctx* ctx = heap_calloc_array_aligned(struct gguf_ctx, 1);
-    if (!ctx) { munmap(map, fsize); close(fd); set_err(errmsg, "calloc ctx"); return nullptr; }
+    if (!ctx) { GGUF_FAIL("calloc ctx"); }
+#undef GGUF_FAIL
     ctx->fd = fd;
     ctx->map = map;
     ctx->map_size = fsize;
+    ctx->owns_map = owns_map;
     ctx->version = version;
     ctx->tensor_count = tcount;
     ctx->metadata_kv_count = mcount;
@@ -320,9 +322,33 @@ struct gguf_ctx* gguf_open(const char* path, const char** errmsg) {
     return ctx;
 }
 
+struct gguf_ctx* gguf_open(const char* path, const char** errmsg) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) { set_err(errmsg, "open() failed"); return nullptr; }
+
+    struct stat sb;
+    if (fstat(fd, &sb) != 0) { close(fd); set_err(errmsg, "fstat() failed"); return nullptr; }
+    size_t fsize = (size_t)sb.st_size;
+
+    void* map = mmap(nullptr, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (map == MAP_FAILED) { close(fd); set_err(errmsg, "mmap() failed"); return nullptr; }
+
+    return gguf_parse(map, fsize, fd, /*owns_map=*/true, errmsg);
+}
+
+struct gguf_ctx* gguf_open_memory(const void* data, size_t size, const char** errmsg) {
+    if (data == nullptr || size < 8) {
+        set_err(errmsg, "gguf_open_memory: null or too-small buffer");
+        return nullptr;
+    }
+    /* The caller owns `data`; we alias it read-only and never munmap/free it.
+     * The buffer must outlive the model (it is the tensor backing store). */
+    return gguf_parse((void*)data, size, /*fd=*/-1, /*owns_map=*/false, errmsg);
+}
+
 void gguf_close(struct gguf_ctx* ctx) {
     if (!ctx) return;
-    if (ctx->map && ctx->map != MAP_FAILED) munmap(ctx->map, ctx->map_size);
+    if (ctx->owns_map && ctx->map && ctx->map != MAP_FAILED) munmap(ctx->map, ctx->map_size);
     if (ctx->fd >= 0) close(ctx->fd);
     safe_free((void **) &ctx->name_arena);
     safe_free((void **) &ctx->tensors);

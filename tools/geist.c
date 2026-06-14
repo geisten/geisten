@@ -15,8 +15,32 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* When built with `make EMBED_MODEL=...`, the GGUF is baked into the binary
+ * (embedded_model.S) and the CLI takes only a prompt — no model-path argument. */
+#if defined(GEIST_EMBEDDED_MODEL)
+extern const unsigned char geist_embedded_model_start[];
+extern const unsigned char geist_embedded_model_end[];
+enum { geist_embedded = 1 };
+#else
+enum { geist_embedded = 0 };
+#endif
+
 static int usage(const char *prog, int code) {
     FILE *o = code ? stderr : stdout;
+#if defined(GEIST_EMBEDDED_MODEL)
+    fprintf(o,
+        "geist %s — minimal CPU LLM inference (model embedded in this binary)\n\n"
+        "Usage:\n"
+        "  %s [prompt] [-n N]\n"
+        "  %s --version\n\n"
+        "Options:\n"
+        "  -n, --max-tokens N   max new tokens to generate (default 64)\n"
+        "  -v, --version        print version and exit\n"
+        "  -h, --help           print this help and exit\n\n"
+        "Example:\n"
+        "  OMP_WAIT_POLICY=active %s \"The capital of France is\" -n 40\n",
+        geist_version_string(), prog, prog, prog);
+#else
     fprintf(o,
         "geist %s — minimal CPU LLM inference\n\n"
         "Usage:\n"
@@ -29,6 +53,7 @@ static int usage(const char *prog, int code) {
         "Example:\n"
         "  OMP_WAIT_POLICY=active %s model.gguf \"The capital of France is\" -n 40\n",
         geist_version_string(), prog, prog, prog);
+#endif
     return code;
 }
 
@@ -53,7 +78,7 @@ int main(int argc, char **argv) {
         } else if (a[0] == '-' && a[1] != '\0') {
             fprintf(stderr, "%s: unknown option '%s'\n", prog, a);
             return usage(prog, 2);
-        } else if (model_path == nullptr) {
+        } else if (!geist_embedded && model_path == nullptr) {
             model_path = a;
         } else if (!got_prompt) {
             prompt = a; got_prompt = 1;
@@ -62,7 +87,7 @@ int main(int argc, char **argv) {
             return usage(prog, 2);
         }
     }
-    if (model_path == nullptr) return usage(prog, 2);
+    if (!geist_embedded && model_path == nullptr) return usage(prog, 2);
 
     /* "auto" picks the best backend compiled into this build for the host. */
     struct geist_backend *be = nullptr;
@@ -72,12 +97,23 @@ int main(int argc, char **argv) {
     }
 
     struct geist_model *model = nullptr;
-    if (geist_model_load(model_path, be, &model) != GEIST_OK) {
+    enum geist_status ls;
+    const char *src;
+#if defined(GEIST_EMBEDDED_MODEL)
+    ls  = geist_model_load_from_memory(
+        geist_embedded_model_start,
+        (size_t) (geist_embedded_model_end - geist_embedded_model_start), be, &model);
+    src = "<embedded>";
+#else
+    ls  = geist_model_load(model_path, be, &model);
+    src = model_path;
+#endif
+    if (ls != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
         return 1;
     }
-    fprintf(stderr, "loaded %s (arch: %s)\n", model_path, geist_model_arch(model));
+    fprintf(stderr, "loaded %s (arch: %s)\n", src, geist_model_arch(model));
 
     /* Zero-initialized opts == greedy decode (temperature 0). */
     struct geist_session_opts opts = {0};

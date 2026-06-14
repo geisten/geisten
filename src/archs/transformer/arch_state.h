@@ -484,6 +484,22 @@ transformer_state_create(struct geist_backend                *be,
                             const struct geist_session_opts     *opts,
                             struct transformer_arch_state   **out);
 
+/* Same, but the GGUF is already in memory (embedded blob); the buffer is
+ * aliased read-only and must outlive the state. No aux files searched. */
+[[nodiscard]] enum geist_status
+transformer_state_create_from_memory(struct geist_backend            *be,
+                                     const void                      *data,
+                                     size_t                           size,
+                                     const struct geist_session_opts *opts,
+                                     struct transformer_arch_state  **out);
+
+/* Shared body for both entry points; takes ownership of an open gguf_ctx. */
+[[nodiscard]] enum geist_status
+transformer_state_create_from_gguf(struct geist_backend            *be,
+                                   struct gguf_ctx                 *gguf,
+                                   const struct geist_session_opts *opts,
+                                   struct transformer_arch_state  **out);
+
 void transformer_state_destroy(struct transformer_arch_state *state);
 
 /* Reset conversational state — drops the KV cache and stored logits;

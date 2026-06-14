@@ -393,24 +393,20 @@ static void release_layer_weight_aux(struct transformer_layer_weights *L) {
 
 /* ---- Public entry points ---------------------------------------------- */
 
+/* Shared body: takes ownership of an already-open `gguf` (closes it on error,
+ * and on success either keeps it open for zero-copy weight aliasing or closes
+ * it after copying, depending on mmap_alias_mode). The path/from-memory entry
+ * points below just open the gguf and delegate here. */
 enum geist_status
-transformer_state_create(struct geist_backend                *be,
-                            const char                          *gguf_path,
-                            const struct geist_session_opts     *opts,
-                            struct transformer_arch_state   **out) {
-    if (be == nullptr || gguf_path == nullptr || out == nullptr) {
+transformer_state_create_from_gguf(struct geist_backend            *be,
+                                   struct gguf_ctx                 *gguf,
+                                   const struct geist_session_opts *opts,
+                                   struct transformer_arch_state  **out) {
+    if (be == nullptr || gguf == nullptr || out == nullptr) {
+        if (gguf != nullptr) { gguf_close(gguf); }
         return GEIST_E_INVALID_ARG;
     }
     *out = nullptr;
-
-    const char *err = nullptr;
-    struct gguf_ctx *gguf = gguf_open(gguf_path, &err);
-    if (gguf == nullptr) {
-        geist_backend_set_error(be, GEIST_E_FILE_NOT_FOUND,
-                                "transformer: gguf_open(%s): %s", gguf_path,
-                                err != nullptr ? err : "(no detail)");
-        return GEIST_E_FILE_NOT_FOUND;
-    }
 
     struct transformer_arch_state *st = heap_alloc_aligned(
         sizeof(*st), alignof(struct transformer_arch_state));
@@ -625,6 +621,47 @@ transformer_state_create(struct geist_backend                *be,
 
     *out = st;
     return GEIST_OK;
+}
+
+enum geist_status
+transformer_state_create(struct geist_backend            *be,
+                         const char                      *gguf_path,
+                         const struct geist_session_opts *opts,
+                         struct transformer_arch_state  **out) {
+    if (be == nullptr || gguf_path == nullptr || out == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    *out = nullptr;
+    const char *err = nullptr;
+    struct gguf_ctx *gguf = gguf_open(gguf_path, &err);
+    if (gguf == nullptr) {
+        geist_backend_set_error(be, GEIST_E_FILE_NOT_FOUND,
+                                "transformer: gguf_open(%s): %s", gguf_path,
+                                err != nullptr ? err : "(no detail)");
+        return GEIST_E_FILE_NOT_FOUND;
+    }
+    return transformer_state_create_from_gguf(be, gguf, opts, out);
+}
+
+enum geist_status
+transformer_state_create_from_memory(struct geist_backend            *be,
+                                     const void                      *data,
+                                     size_t                           size,
+                                     const struct geist_session_opts *opts,
+                                     struct transformer_arch_state  **out) {
+    if (be == nullptr || data == nullptr || out == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    *out = nullptr;
+    const char *err = nullptr;
+    struct gguf_ctx *gguf = gguf_open_memory(data, size, &err);
+    if (gguf == nullptr) {
+        geist_backend_set_error(be, GEIST_E_FORMAT,
+                                "transformer: gguf_open_memory: %s",
+                                err != nullptr ? err : "(no detail)");
+        return GEIST_E_FORMAT;
+    }
+    return transformer_state_create_from_gguf(be, gguf, opts, out);
 }
 
 void transformer_state_destroy(struct transformer_arch_state *st) {

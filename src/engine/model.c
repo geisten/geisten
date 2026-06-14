@@ -265,6 +265,91 @@ static char *find_tokenizer_path(const char *gguf_path) {
     return GEIST_OK;
 }
 
+[[nodiscard]] enum geist_status
+geist_model_load_from_memory(const void *data, size_t size,
+                             struct geist_backend *be, struct geist_model **out) {
+    if (out == nullptr) {
+        geist_error_set_create_time(GEIST_E_INVALID_ARG, "geist_model_load_from_memory",
+                                    "out is null");
+        return GEIST_E_INVALID_ARG;
+    }
+    *out = nullptr;
+    if (data == nullptr || size == 0 || be == nullptr) {
+        geist_error_set_create_time(GEIST_E_INVALID_ARG, "geist_model_load_from_memory",
+                                    "data/size/backend is null or empty");
+        return GEIST_E_INVALID_ARG;
+    }
+
+    const struct geist_arch_descriptor *desc = geist_arch_registry_lookup("gemma");
+    if (desc == nullptr || desc->decoder_ops == nullptr ||
+        desc->decoder_ops->state_create_from_memory == nullptr) {
+        geist_error_set_create_time(GEIST_E_UNSUPPORTED, "geist_model_load_from_memory",
+                                    "no decoder architecture supports memory loading in this build");
+        return GEIST_E_UNSUPPORTED;
+    }
+
+    /* Weights are aliased zero-copy from `data` — it must outlive the model
+     * (for an embedded blob it lives in .rodata, i.e. forever). No aux files
+     * (tokenizer.bin / vision / audio safetensors) are searched: a memory blob
+     * has no directory. The GGUF must carry its own tokenizer. */
+    void *arch_state = desc->decoder_ops->state_create_from_memory(be, data, size, nullptr);
+    if (arch_state == nullptr) {
+        geist_error_set_create_time(GEIST_E_FORMAT, "geist_model_load_from_memory",
+                                    "decoder state_create_from_memory failed "
+                                    "(malformed GGUF or out of memory?)");
+        return GEIST_E_FORMAT;
+    }
+
+    struct geist_model *m = heap_alloc_aligned(sizeof(*m), alignof(struct geist_model));
+    if (m == nullptr) {
+        desc->decoder_ops->state_destroy(arch_state);
+        geist_error_set_create_time(GEIST_E_OOM, "geist_model_load_from_memory",
+                                    "failed to allocate model handle");
+        return GEIST_E_OOM;
+    }
+    struct model_engine_state *eng =
+        heap_alloc_aligned(sizeof(*eng), alignof(struct model_engine_state));
+    if (eng == nullptr) {
+        safe_free((void **) &m);
+        desc->decoder_ops->state_destroy(arch_state);
+        geist_error_set_create_time(GEIST_E_OOM, "geist_model_load_from_memory",
+                                    "failed to allocate engine-side state");
+        return GEIST_E_OOM;
+    }
+
+    /* GGUF-embedded tokenizer only (no sibling tokenizer.bin to find). */
+    struct gguf_tokenizer *gguf_tok = nullptr;
+    {
+        const char *terr = nullptr;
+        struct gguf_ctx *tg = gguf_open_memory(data, size, &terr);
+        if (tg != nullptr) {
+            gguf_tok = heap_alloc_aligned(sizeof(*gguf_tok), alignof(struct gguf_tokenizer));
+            if (gguf_tok != nullptr && !gguf_tokenizer_load_copy(gguf_tok, tg)) {
+                void *p = gguf_tok;
+                safe_free(&p);
+                gguf_tok = nullptr;
+            }
+            gguf_close(tg);
+        }
+    }
+
+    *eng = (struct model_engine_state){
+        .path     = nullptr, /* embedded — no file path */
+        .sp_tok   = nullptr,
+        .gguf_tok = gguf_tok,
+    };
+    *m = (struct geist_model){
+        .text_decoder   = {.arch_ops = desc->decoder_ops, .arch_meta = arch_state},
+        .audio_encoder  = {.arch_ops = nullptr, .arch_meta = nullptr},
+        .vision_encoder = {.arch_ops = nullptr, .arch_meta = nullptr},
+        .weights        = eng,
+        .tokenizer      = (void *) gguf_tok,
+        .backend        = be,
+    };
+    *out = m;
+    return GEIST_OK;
+}
+
 void geist_model_destroy(struct geist_model *m) {
     if (m == nullptr) {
         return;

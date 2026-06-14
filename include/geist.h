@@ -156,6 +156,20 @@ enum geist_status geist_model_load(const char            *path,
                                    struct geist_backend  *be,
                                    struct geist_model   **out);
 
+/* @stability STABLE since 0.2.1
+ * Load a GGUF that is already in memory — e.g. embedded in the executable, so
+ * the engine *and* the model ship as a single binary. The bytes are aliased
+ * read-only (zero-copy, like the file path's mmap) and are NOT freed by
+ * geist_model_destroy: the caller must keep `data` valid for the model's
+ * lifetime (for an `.incbin`-embedded blob that is automatic — it lives in
+ * .rodata). The GGUF must carry its own tokenizer (no sibling file is searched)
+ * and is text-only (no external vision/audio safetensors). See
+ * `make EMBED_MODEL=...` for the build-side helper. */
+enum geist_status geist_model_load_from_memory(const void           *data,
+                                               size_t                size,
+                                               struct geist_backend *be,
+                                               struct geist_model  **out);
+
 void        geist_model_destroy(struct geist_model *m);
 const char *geist_model_errmsg(const struct geist_model *m);
 

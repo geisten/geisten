@@ -49,6 +49,33 @@ geist: $(BIN_DIR)/tools/geist
 run: geist
 	@OMP_WAIT_POLICY=active ./geist $(ARGS)
 
+# ---- Optional: embed a model into the geist CLI (single-binary deploy) -----
+# `make EMBED_MODEL=path/to/model.gguf` bakes the GGUF into ./geist via an
+# .incbin stub, so the binary needs no model file — the CLI then takes only a
+# prompt:  ./geist "The capital of France is".  Zero-copy: weights alias the
+# in-binary .rodata blob. Small models only — the binary grows by the model
+# size; >~1.5 GB exceeds the 2 GB release limit. The GGUF must carry its own
+# tokenizer (no sibling file is searched). Text-only (no external vision/audio).
+ifneq ($(strip $(EMBED_MODEL)),)
+  ifeq ($(wildcard $(EMBED_MODEL)),)
+    $(error EMBED_MODEL='$(EMBED_MODEL)' not found)
+  endif
+  EMBED_ABS  := $(abspath $(EMBED_MODEL))
+  EMBED_SIZE := $(shell wc -c < "$(EMBED_ABS)")
+  $(info embedding $(EMBED_MODEL) ($(shell echo $$(($(EMBED_SIZE)/1048576))) MB) into ./geist)
+  ifeq ($(shell test $(EMBED_SIZE) -gt 1610612736 && echo big),big)
+    $(warning EMBED_MODEL >1.5 GB — the binary will exceed the 2 GB GitHub-release limit and be unwieldy)
+  endif
+  EMBED_OBJ := $(BUILD_DIR)/src/engine/embedded_model.o
+  # Stub TU: -DGEIST_EMBED_MODEL_PATH points .incbin at the model; rebuild if it changes.
+  $(EMBED_OBJ): EMBED_CFLAGS := -DGEIST_EMBED_MODEL_PATH='"$(EMBED_ABS)"'
+  $(EMBED_OBJ): $(EMBED_ABS)
+  # geist CLI: compile its TU with the embed flag and link the stub object in.
+  $(BUILD_DIR)/tools/geist.o: CFLAGS += -DGEIST_EMBEDDED_MODEL
+  $(BIN_DIR)/tools/geist: EXTRA_LINK_OBJS := $(EMBED_OBJ)
+  $(BIN_DIR)/tools/geist: $(EMBED_OBJ)
+endif
+
 # Test runner — invokes mk/run-tests.sh against the test bin directory.
 # FILTER is an optional substring; e.g. `make test FILTER=q3k` runs only
 # tests whose binary name contains "q3k".

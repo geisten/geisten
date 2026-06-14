@@ -8,6 +8,17 @@ minor release.
 
 ## [Unreleased]
 
+### Added — embed a model into the binary (single-file deploy)
+
+- `geist_model_load_from_memory(data, size, be, &model)` (`geist.h`): load a GGUF
+  that is already in memory. Weights are aliased zero-copy from the buffer (the
+  caller keeps it alive); the GGUF must carry its own tokenizer; text-only. Backed
+  by a new internal `gguf_open_memory`.
+- `make EMBED_MODEL=path/to/model.gguf` bakes a GGUF into the `geist` CLI via an
+  `.incbin` stub (portable ELF + Mach-O), so the engine *and* the model ship as
+  one binary; the CLI then takes only a prompt. For small models — the binary
+  grows by the model size (build warns past ~1.5 GB).
+
 ## [0.2.0]
 
 ### Changed — public API split by audience (source-compatibility break)

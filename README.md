@@ -189,6 +189,29 @@ includes a small surface:
 #include <geist_util.h>   // add this for eos-token stop handling, multimodal, etc.
 ```
 
+### Single-binary builds (model included)
+
+geist already ships as one dependency-free binary; you can fold the **model** in
+too, so deployment is *literally one file* — no GGUF to ship alongside:
+
+```bash
+make EMBED_MODEL=path/to/model.gguf       # bakes the GGUF into ./geist
+./geist "The capital of France is"        # the CLI now takes only a prompt
+```
+
+The weights are aliased **zero-copy** from the binary's read-only data (no extra
+RAM), so this is for **small models** — the binary grows by the model size, and
+>~1.5 GB exceeds the 2 GB GitHub-release limit. The model must carry its own
+tokenizer. Your own app gets the same superpower via the public API:
+
+```c
+extern const unsigned char model_start[], model_end[];   // your embedded blob
+geist_model_load_from_memory(model_start, model_end - model_start, be, &model);
+```
+
+(Start `make EMBED_MODEL=...` from a clean tree — `make clean` first — since it
+recompiles the CLI with the model baked in.)
+
 ---
 
 ## 🗺 Roadmap

@@ -43,6 +43,16 @@ struct geist_arch_ops_decoder {
                           const char                      *gguf_path,
                           const struct geist_session_opts *opts);
 
+    /* state_create_from_memory: like state_create but the GGUF is already in
+     * memory (e.g. embedded in the binary). The buffer is aliased read-only and
+     * must outlive the arch_state. No aux files (tokenizer.bin / vision / audio
+     * safetensors) are searched — text-only with the GGUF-embedded tokenizer.
+     * nullptr if the arch does not support memory loading. */
+    void *(*state_create_from_memory)(struct geist_backend            *be,
+                                      const void                      *data,
+                                      size_t                           size,
+                                      const struct geist_session_opts *opts);
+
     /* state_destroy: tear down arch_state. nullptr is a no-op. */
     void (*state_destroy)(void *arch_state);
 

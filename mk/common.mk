@@ -250,10 +250,21 @@ $(LIB_FILE): $(LIB_OBJS)
 	@mkdir -p $(@D)
 	$(AR) rcs $@ $^
 
-# Binary linking — each binary links against libgeist.a.
+# Preprocessed-assembly rule (.S). Used by the optional embedded-model stub
+# (src/engine/embedded_model.S); EMBED_CFLAGS carries the per-target -DGEIST_
+# EMBED_MODEL_PATH from the EMBED block in the top Makefile.
+EMBED_CFLAGS ?=
+$(BUILD_DIR)/%.o: %.S
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS_MODE) $(CFLAGS_TARGET) $(EMBED_CFLAGS) -c $< -o $@
+
+# Binary linking — each binary links against libgeist.a. EXTRA_LINK_OBJS is
+# empty except for targets that opt in (e.g. the embedded-model object on the
+# geist CLI) via a target-specific assignment.
+EXTRA_LINK_OBJS ?=
 $(BIN_DIR)/%: $(BUILD_DIR)/%.o $(LIB_FILE)
 	@mkdir -p $(@D)
-	$(CC) $(LDFLAGS) -o $@ $< $(LIB_FILE) $(LDLIBS)
+	$(CC) $(LDFLAGS) -o $@ $< $(EXTRA_LINK_OBJS) $(LIB_FILE) $(LDLIBS)
 
 # Include generated dependency files (silent if missing).
 -include $(DEPS)

@@ -86,6 +86,12 @@ struct gguf_ctx;
 
 /* Open + parse header. errmsg is a static-string-or-heap pointer on failure. */
 struct gguf_ctx* gguf_open(const char* path, const char** errmsg);
+
+/* Parse a GGUF already in memory (e.g. embedded in the binary). The buffer is
+ * aliased read-only and NOT freed by gguf_close — the caller must keep it alive
+ * for the ctx's lifetime. Backs geist_model_load_from_memory. */
+struct gguf_ctx* gguf_open_memory(const void* data, size_t size, const char** errmsg);
+
 void        gguf_close(struct gguf_ctx* ctx);
 
 size_t                   gguf_tensor_count(const struct gguf_ctx* ctx);
