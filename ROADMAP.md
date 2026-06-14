@@ -35,7 +35,7 @@ there until the AVX backend lands.
 
 **Status (June 2026): Steps 1–4 complete and CI-green on `main` (macOS-arm64 +
 linux-arm64: build + unit tests + clang-format gate). Tagging a `v*` tag
-(`git tag v0.1.2`) builds and attaches the ARM64 artifacts via `release.yml`.**
+(`git tag v0.1.3`) builds and attaches the ARM64 artifacts via `release.yml`.**
 
 1. ✅ **`geist_gemm` / `geist_gemv` abstraction** — all dense-fp32 cblas call
    sites route through one interface; backend selectable at build time
