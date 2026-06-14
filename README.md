@@ -23,8 +23,8 @@ That is the bet, and it is a different one from the universal engines:
   (Accelerate + libSystem — Apple ships no static libc), so there's nothing to
   install there either.
 - **Focused, not universal.** Where llama.cpp runs *every* model on *every*
-  backend, geist does **a few models excellently** (Gemma 4 E2B-it today, ternary
-  1.58-bit BitNet next) — every tensor bound to a hand-picked kernel at load time,
+  backend, geist does **a few models excellently** (Gemma 4 E2B-it and ternary
+  1.58-bit BitNet today) — every tensor bound to a hand-picked kernel at load time,
   not a generic dispatch loop.
 - **Edge-first (Raspberry Pi 5).** Tuned for $50–$100 CPUs: a 4.6 B model fits in
   4 GB of RAM, no GPU or driver stack, decode at parity, on-device audio built in.
@@ -71,13 +71,40 @@ text-generation core is ~70 lines of C — see
 
 ---
 
-## 🚀 Performance — geist vs llama.cpp (Gemma 4 E2B-it, Q4_K_M, CPU-only)
+## 🚀 Performance on a Raspberry Pi 5
 
-The **identical** GGUF on both engines, full prefill sweep 128 → 1024 tokens.
-Both engines' prefill is **flat with context**; geist wins outright on Apple
-(AMX), while on the Pi llama.cpp's OpenBLAS path sits ~10–15 % higher.
+What you actually feel when you run a model is **end-to-end throughput**: type a
+short prompt, watch tokens stream out. That's decode-dominated. Same GGUF on both
+engines, greedy, on a Pi 5 (Cortex-A76, 2.4 GHz, best thread count).
 
-**Apple M1 Max** — prefill t/s (best-of-10, both engines):
+**Gemma 4 E2B-it (Q4_K_M)** — end-to-end, 32-token prompt + 128 generated:
+
+| engine | **total tok/s** | decode tok/s |
+| :-- | --: | --: |
+| **geist** | **8.4** | 7.1 |
+| llama.cpp (OpenBLAS) | 8.3 | 7.2 |
+
+A **dead heat on speed** — geist just gets there as a single **< 1 MB static
+binary** (no OpenBLAS, no Python, no runtime): copy it onto the Pi and it runs.
+
+**BitNet b1.58 2B-4T (`i2_s`)** — where 1.58-bit ternary pays off:
+
+| engine | **decode tok/s** |
+| :-- | --: |
+| **geist** | **17.4** |
+| bitnet.cpp (Microsoft's reference) | 8.2 |
+
+**~2× the reference engine** on the same Pi — from a speculative int8 output head
+([how it works](#bitnet-b158-2b-4t-on-a-raspberry-pi-5)). This is the model to
+pick if you want the fastest tokens-per-second on cheap hardware.
+
+<details>
+<summary>Prefill throughput sweep (Gemma 4, 128 → 1024 tokens; Apple M1 Max + Pi 5)</summary>
+
+Prefill barely moves the end-to-end number above (decode dominates generation),
+but for prompt-heavy workloads here is the full sweep, identical GGUF both engines:
+
+**Apple M1 Max** — prefill t/s (best-of-10):
 
 | seq_len | 128 | 256 | 512 | 1024 |
 | :-- | :---: | :---: | :---: | :---: |
@@ -85,37 +112,18 @@ Both engines' prefill is **flat with context**; geist wins outright on Apple
 | **geist** | **164** | **161** | **150** | **144** |
 | | geist 1.16× | geist 1.10× | geist 1.17× | **geist 1.48×** |
 
-**Raspberry Pi 5** — prefill t/s (both engines: prefill-only, 8 reps, cool start):
+**Raspberry Pi 5** — prefill t/s (8 reps, cool start):
 
 | seq_len | 128 | 256 | 512 | 1024 |
 | :-- | :---: | :---: | :---: | :---: |
 | **llama.cpp** (OpenBLAS) | **37.4** | **39.4** | **37.6** | **35.9** |
 | geist | 34.8 | 34.2 | 32.9 | 31.5 |
-| | llama 1.07× | llama 1.15× | llama 1.14× | llama 1.14× |
 
-On **Apple Silicon** geist wins prefill at *every* length and the lead **widens**
-with context (1.48× at 1024) — geist's dense path uses **Accelerate/AMX**, which
-stays flat, while llama.cpp's CPU path drops off. On the **Pi 5** both curves are
-flat but **llama.cpp's decades-tuned OpenBLAS sgemm leads geist by ~10–15 %** on
-the A76 (no `i8mm`) — the hard case geist is built around; and it wins on
-dependency-free distribution. *(Earlier Pi tables here showed geist ahead — a
-thermal-throttling artifact in the llama measurement, now corrected; see
-[`benchmark/`](benchmark/README.md).)*
-
-**Pi 5 decode** (Gemma 4 E2B Q4_K_M, greedy, 2.4 GHz, best thread count):
-
-| engine | decode t/s |
-| :-- | --: |
-| **geist** (spec head) | **7.3** |
-| llama.cpp (OpenBLAS) | 7.2 |
-
-Gemma's tied **Q6_K** lm_head is ~32 % of decode; the speculative output head
-(below) trims it and nudges geist past llama.cpp here (it was ~parity before).
-The head is bit-exact for greedy — see the BitNet section and
-[`benchmark/TERNARY_BITNET.md`](benchmark/TERNARY_BITNET.md).
-
-📊 **Full sweep, ASCII charts, the per-phase analysis, and the methodology (cool
-starts, best-of vs mean-of-10) live in [`benchmark/`](benchmark/README.md).**
+geist's dense path uses **Accelerate/AMX** on Apple (wins, lead widens to 1.48× at
+1024); on the A76 (no `i8mm`) llama.cpp's decades-tuned OpenBLAS sgemm leads
+prefill by ~10–15 % — the hard case geist is built around. Charts, per-phase
+analysis and methodology: [`benchmark/`](benchmark/README.md).
+</details>
 
 ---
 
@@ -145,28 +153,16 @@ Microsoft's `bitnet-b1.58-2B-4T` (`ggml-model-i2_s.gguf`), measured with
 | 128 | 48.5 | **16.4** | 29.3 |
 | 256 | 47.0 | **15.0** | 33.0 |
 
-**Decode, all three engines run on this same Pi + model** (greedy, 2.4 GHz; each
-engine at its own best thread count):
-
-| engine | decode t/s | notes |
-| :-- | --: | :-- |
-| **geist** (spec head) | **17.4** | 2 threads; 17.2 / 17.0 at 3 / 4 |
-| [Cougar](https://github.com/petlukk/Cougar) (Rust + `ea` SIMD) | 12.3 | 2 threads; 11.6 / 10.8 at 3 / 4. Its README cites 16.1 on a different board |
-| bitnet.cpp (LUT) | 8.2–8.7 | |
-
-geist leads Cougar by **~42 %** here (and ~2× bitnet.cpp). Cougar's own profile on
-this box shows its **FFN ternary matmuls** dominate (gate+up + down ≈ 71 % of its
-114 ms/token) — geist's SDOT FFN kernels are simply faster on the A76; both
-engines already make the lm_head cheap via a sketch. Prefill: geist ~47 vs
-Cougar's reported 16.3.
+Versus **bitnet.cpp** (Microsoft's reference, the same `i2_s` model on the same
+Pi): geist decode **17.4 t/s vs 8.2–8.7** — roughly **2× faster**. Both peak at
+2 threads.
 
 The decode win comes from a **speculative output head** (`GEIST_SPEC_HEAD=1`):
 on this model the lm_head is a tied **F16** embedding (656 MB read *per token*,
 ~50 % of decode). geist keeps a stride-subsampled int8 "sketch" of the table
 (~82 MB), rough-ranks the whole 128 K vocabulary with one SDOT pass, then
 computes **exact** f16 logits for only the top-512 candidates. Greedy output is
-byte-identical to the dense head. Full method, the three-engine same-box
-comparison, what *didn't* work, and Cougar's algorithm:
+byte-identical to the dense head. Full method and what *didn't* work:
 [`benchmark/TERNARY_BITNET.md`](benchmark/TERNARY_BITNET.md).
 
 The same head also works on **Gemma 4 E2B** (tied Q6_K lm_head over a 256 K
@@ -283,8 +279,8 @@ recompiles the CLI with the model baked in.)
   O(n²) attention core — the Pi prefill curve is now flat (pp1024 +35 %), though
   llama.cpp's OpenBLAS still edges raw prefill on the A76.
 - [x] **BitNet Optimization:** 2B-4T `I2_S` on the Pi 5 now decodes at **17.4 t/s**
-  via a speculative int8 output head — ahead of Cougar (measured **12.3** on the
-  same box) and ~2× bitnet.cpp; see `benchmark/TERNARY_BITNET.md`.
+  via a speculative int8 output head — ~2× bitnet.cpp on the same box; see
+  `benchmark/TERNARY_BITNET.md`.
 - [ ] **Dynamic Quantization:** Release the first mixed-low-bit recipe for Gemma 4.
 - [ ] **Dynamic runtime threading:** choose the thread count per phase, and back off
   under thermal/load pressure, at runtime — instead of the fixed prefill=4 / decode=3.
