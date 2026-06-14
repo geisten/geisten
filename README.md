@@ -16,9 +16,11 @@ no runtime to install. Copy it to the machine and it runs.
 
 That is the bet, and it is a different one from the universal engines:
 
-- **Dependency-free, CPU-only.** The ARM build is a single ~860 KB static binary
-  (`ldd` → *not a dynamic executable*) — nothing to install, deploy by copying one
-  file, embed it elsewhere through its C ABI.
+- **Dependency-free, CPU-only.** Nothing to install — deploy by copying one file,
+  embed it through the C ABI. The Linux ARM build is a single **fully static** ELF
+  (~860 KB, `ldd` → *not a dynamic executable*); the macOS build links **only the
+  OS's own frameworks** (Accelerate + libSystem — Apple ships no static libc), so
+  there's still nothing to install.
 - **Focused, not universal.** Where llama.cpp runs *every* model on *every*
   backend, geist does **a few models excellently** (Gemma 4 E2B-it today, ternary
   1.58-bit BitNet next) — every tensor bound to a hand-picked kernel at load time,
