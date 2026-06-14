@@ -20,6 +20,13 @@ minor release.
   `.incbin` stub (portable ELF + Mach-O), so the engine *and* the model ship as
   one binary; the CLI then takes only a prompt. For small models — the binary
   grows by the model size (build warns past ~1.5 GB).
+- This **completes the "Single-file app + model" roadmap item** — deployment can
+  be literally one binary. Scoped to small models on purpose: beyond the build
+  cost, the default `-mcmodel=small` PC-relative addressing range caps an
+  embedded blob (~2 GB on x86-64, ~4 GB on AArch64), and a standalone GGUF is
+  already `mmap`-aliased zero-copy at runtime — so for large models the
+  separate-file form keeps engine/model decoupling with no RAM penalty. A
+  streamed `geist pack` format for large models remains future work.
 
 ### Added — per-platform mmap hints for large models
 
