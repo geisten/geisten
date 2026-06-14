@@ -133,6 +133,10 @@ struct gguf_tokenizer {
 
 void gguf_tokenizer_unload(struct gguf_tokenizer *tok);
 
+/* Exact vocab lookup: token id for the surface string `text`, or -1 if it is
+ * not a single vocab entry. Backs the public geist_model_token_by_text. */
+int32_t gguf_tokenizer_id_for_text(const struct gguf_tokenizer *tok, const char *text);
+
 /* Decode `n` token IDs into `out` (UTF-8 bytes, no trailing NUL). The
  * caller-supplied buffer must hold `out_cap` bytes. Returns the
  * number of bytes written; if `out_cap` is too small, writes as much

@@ -11,8 +11,7 @@
  *
  * See README.md and docs/ARCHITECTURE.md for the design rationale.
  */
-#ifndef GEIST_H
-#define GEIST_H
+#pragma once
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -336,6 +335,30 @@ struct geist_session;
 
 typedef int32_t geist_token_t;
 
+/* Sentinel returned by the token-id accessors below when the model has no
+ * tokenizer, the metadata field is unset, or a lookup misses. */
+#define GEIST_TOKEN_NONE ((geist_token_t) -1)
+
+/* @stability STABLE since 0.1.4 — special-token ids from the model's
+ * tokenizer metadata. Use these for clean stop handling and chat templating
+ * by token-id instead of string-matching decoded output. Each returns
+ * GEIST_TOKEN_NONE when the model has no tokenizer or the field is unset.
+ *
+ *   const geist_token_t eos = geist_model_eos_token(model);
+ *   ...
+ *   geist_session_decode_step(s, &tok);
+ *   if (tok == eos) break;            // stop cleanly, no string match
+ */
+geist_token_t geist_model_eos_token(const struct geist_model *m);
+geist_token_t geist_model_bos_token(const struct geist_model *m);
+
+/* @stability STABLE since 0.1.4 — look up the token id for an exact vocab
+ * entry, e.g. "<end_of_turn>". Returns GEIST_TOKEN_NONE if the model has no
+ * tokenizer or `text` is not a single vocab token. Lets a chat app discover
+ * extra stop tokens / template markers by name (Gemma ends a turn with
+ * `<end_of_turn>`, which some GGUFs set as eos and some do not). */
+geist_token_t geist_model_token_by_text(const struct geist_model *m, const char *text);
+
 /* @stability EXPERIMENTAL — per-session KV-cache quantization mode.
  * AUTO = env / platform default; FP32/INT8/KIVI = explicit override. */
 enum geist_kv_mode {
@@ -578,5 +601,3 @@ enum geist_status geist_session_reset_stats(struct geist_session *s);
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
-
-#endif /* GEIST_H */

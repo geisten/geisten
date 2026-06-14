@@ -534,6 +534,13 @@ static int32_t vocab_lookup(const struct gguf_tokenizer *tok,
     }
 }
 
+int32_t gguf_tokenizer_id_for_text(const struct gguf_tokenizer *tok, const char *text) {
+    if (tok == nullptr || text == nullptr) {
+        return -1;
+    }
+    return vocab_lookup(tok, text, strlen(text));
+}
+
 /* O(1) merge-rank lookup. Returns SIZE_MAX when no merge has
  * (left, right) as its operands. */
 static size_t merge_lookup(const struct gguf_tokenizer *tok,

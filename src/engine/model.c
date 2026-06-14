@@ -313,6 +313,58 @@ const char *geist_model_arch(const struct geist_model *m) {
     return "transformer"; /* hardcoded for Gemma 4 in B-4a */
 }
 
+/* Special-token accessors — read the ids the tokenizer parsed from the GGUF
+ * metadata (or tokenizer.bin). Both tokenizer paths default unset ids to -1,
+ * which is GEIST_TOKEN_NONE. */
+static const struct model_engine_state *model_engine(const struct geist_model *m) {
+    if (m == nullptr || m->weights == nullptr) {
+        return nullptr;
+    }
+    return (const struct model_engine_state *) m->weights;
+}
+
+geist_token_t geist_model_eos_token(const struct geist_model *m) {
+    const struct model_engine_state *eng = model_engine(m);
+    if (eng == nullptr) {
+        return GEIST_TOKEN_NONE;
+    }
+    if (eng->gguf_tok != nullptr) {
+        return (geist_token_t) eng->gguf_tok->eos_id;
+    }
+    if (eng->sp_tok != nullptr) {
+        return (geist_token_t) sp_bpe_tokenizer_eos_id(eng->sp_tok);
+    }
+    return GEIST_TOKEN_NONE;
+}
+
+geist_token_t geist_model_bos_token(const struct geist_model *m) {
+    const struct model_engine_state *eng = model_engine(m);
+    if (eng == nullptr) {
+        return GEIST_TOKEN_NONE;
+    }
+    if (eng->gguf_tok != nullptr) {
+        return (geist_token_t) eng->gguf_tok->bos_id;
+    }
+    if (eng->sp_tok != nullptr) {
+        return (geist_token_t) sp_bpe_tokenizer_bos_id(eng->sp_tok);
+    }
+    return GEIST_TOKEN_NONE;
+}
+
+geist_token_t geist_model_token_by_text(const struct geist_model *m, const char *text) {
+    const struct model_engine_state *eng = model_engine(m);
+    if (eng == nullptr || text == nullptr) {
+        return GEIST_TOKEN_NONE;
+    }
+    /* Exact-vocab lookup is the GGUF-embedded tokenizer path (what a chat app
+     * loading the .gguf directly uses). The external SentencePiece path has no
+     * reverse lookup exposed; callers there rely on eos/bos. */
+    if (eng->gguf_tok != nullptr) {
+        return (geist_token_t) gguf_tokenizer_id_for_text(eng->gguf_tok, text);
+    }
+    return GEIST_TOKEN_NONE;
+}
+
 struct sp_bpe_tokenizer *geist_model_internal_tokenizer(struct geist_model *m) {
     if (m == nullptr || m->weights == nullptr) {
         return nullptr;
