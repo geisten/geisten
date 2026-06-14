@@ -322,6 +322,33 @@ static struct gguf_ctx* gguf_parse(void* map, size_t fsize, int fd,
     return ctx;
 }
 
+/* Best-effort per-platform mmap hints for the weight mapping — helps larger
+ * models. All hints are advisory and silently ignored where unsupported.
+ *
+ *  - Linux MADV_HUGEPAGE: request transparent huge pages → fewer TLB misses on
+ *    the big weight tables. A real win on 4 KB-page Linux (Graviton, generic
+ *    ARM/x86 servers); a no-op where THP is off or base pages are already large
+ *    (Raspberry Pi 5 = 16 KB pages; macOS Apple Silicon = 16 KB). Disable with
+ *    GEIST_NO_HUGEPAGE=1.
+ *  - MADV_WILLNEED (opt-in via GEIST_MMAP_PREFETCH=1): prefault the whole
+ *    mapping so first-token latency doesn't pay page faults — trades a bigger
+ *    upfront read. Off by default (the page cache is usually warm on repeat
+ *    runs, and a cold multi-GB prefault just front-loads the same I/O). */
+static void apply_mmap_advice(void* map, size_t size) {
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+    if (getenv("GEIST_NO_HUGEPAGE") == nullptr) {
+        (void) madvise(map, size, MADV_HUGEPAGE);
+    }
+#endif
+#if defined(MADV_WILLNEED)
+    if (getenv("GEIST_MMAP_PREFETCH") != nullptr) {
+        (void) madvise(map, size, MADV_WILLNEED);
+    }
+#endif
+    (void) map;
+    (void) size;
+}
+
 struct gguf_ctx* gguf_open(const char* path, const char** errmsg) {
     int fd = open(path, O_RDONLY);
     if (fd < 0) { set_err(errmsg, "open() failed"); return nullptr; }
@@ -332,6 +359,7 @@ struct gguf_ctx* gguf_open(const char* path, const char** errmsg) {
 
     void* map = mmap(nullptr, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
     if (map == MAP_FAILED) { close(fd); set_err(errmsg, "mmap() failed"); return nullptr; }
+    apply_mmap_advice(map, fsize);
 
     return gguf_parse(map, fsize, fd, /*owns_map=*/true, errmsg);
 }

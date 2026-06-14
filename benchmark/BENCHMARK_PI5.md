@@ -120,6 +120,18 @@ makes that byte-doubling cost more than the saved scale-unpack compute (the same
 bandwidth-vs-compute trade-off as the Q8_0 engine on Apple, sharper here). The
 gate is correct.
 
+## mmap tuning is a no-op on the Pi (16 KB pages, no THP)
+
+geist applies best-effort `madvise` hints to the weight mapping (Linux
+`MADV_HUGEPAGE`; opt-in `MADV_WILLNEED` via `GEIST_MMAP_PREFETCH=1`). On a 4 KB-
+page Linux server transparent huge pages cut TLB misses on the big weight
+tables — a real win. **On the Pi 5 it does nothing:** the kernel already uses
+**16 KB base pages** (4× fewer than 4 KB → TLB pressure is already low) and ships
+**no THP** (`/sys/kernel/mm/transparent_hugepage` is absent), so `MADV_HUGEPAGE`
+is literally a no-op. Measured pp256: default 34.0, `GEIST_MMAP_PREFETCH=1` 34.3,
+`GEIST_NO_HUGEPAGE=1` 34.3 — all within noise. The hints are correct and harmless
+here; the lever lives on 4 KB-page hosts.
+
 ## Quality
 
 The Pi 5 build is numerically sound: the function-calling / JSON benchmark

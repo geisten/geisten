@@ -19,6 +19,17 @@ minor release.
   one binary; the CLI then takes only a prompt. For small models — the binary
   grows by the model size (build warns past ~1.5 GB).
 
+### Added — per-platform mmap hints for large models
+
+- The weight `mmap` now applies best-effort `madvise` hints. Linux:
+  `MADV_HUGEPAGE` (transparent huge pages → fewer TLB misses on the big weight
+  tables — a real win on **4 KB-page Linux servers**; `GEIST_NO_HUGEPAGE=1` to
+  disable). All platforms: opt-in `MADV_WILLNEED` prefault via
+  `GEIST_MMAP_PREFETCH=1` (steadier first-token latency, bigger upfront read).
+  Honestly measured: **no effect on the Raspberry Pi 5** — it already uses 16 KB
+  base pages and has no THP, so the TLB win is moot there; the lever is for
+  4 KB-page Linux. No regression (Pi pp256 unchanged within noise).
+
 ## [0.2.0]
 
 ### Changed — public API split by audience (source-compatibility break)
