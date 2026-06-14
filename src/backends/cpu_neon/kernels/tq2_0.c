@@ -786,3 +786,429 @@ void cpu_neon_w_tq2_0_m1(const float *x, const struct geist_weight *w, struct ge
         y[r] = row_sum;
     }
 }
+
+/* ======================= I2_S (BitNet b1.58 official) ======================
+ * Microsoft distributes BitNet-2B-4T only as i2_s. It is ternary like TQ2_0
+ * (same {0,1,2}={-1,0,+1} trit codes, same 256-elem/64-byte blocks, same int8
+ * SDOT compute) and differs in exactly two ways:
+ *   (1) the four 2-bit fields within each byte are in REVERSE order — i2_s
+ *       stores element 32*g+b at shift (6-2g); TQ2_0 stores it at shift 2g; and
+ *   (2) there is NO per-block scale — ONE f32 per-TENSOR scale lives at the tail
+ *       of the tensor data (offset n_in*n_out/4) and is applied once per row.
+ * So we reuse the whole W1.58×A8 machinery (activation quant, per-block bsum
+ * for the −1 bias, the dispatch) and only swap the shift↔activation pairing and
+ * fold a single scale at the end. Source: BitNet/src/ggml-bitnet-mad.cpp
+ * quantize_i2_s (one scale_ptr[0] per tensor).
+ *
+ * NOTE: reads the scale at w->raw + n_in*n_out/4, i.e. just past the packed
+ * bytes — valid under the default mmap-alias load (the bytes are in the mmap);
+ * the β/arena copy path would need to also copy the 4-byte scale tail. */
+#if defined(__ARM_NEON)
+static inline int32_t i2_s_block_dot_q8a_neon_unbiased(
+        const uint8_t *qs, const int8_t *xb) {
+    const uint8x16_t three = vdupq_n_u8(3);
+    int32x4_t acc0 = vdupq_n_s32(0);
+    int32x4_t acc1 = vdupq_n_s32(0);
+    for (int h = 0; h < 2; h++) {
+        const uint8x16_t pa = vld1q_u8(qs + h * 32 +  0);
+        const uint8x16_t pb = vld1q_u8(qs + h * 32 + 16);
+        const size_t xo = (size_t) h * 128;
+        const int8x16_t s_a0 = vreinterpretq_s8_u8(vandq_u8(pa, three));
+        const int8x16_t s_b0 = vreinterpretq_s8_u8(vandq_u8(pb, three));
+        const int8x16_t s_a2 = vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 2), three));
+        const int8x16_t s_b2 = vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 2), three));
+        const int8x16_t s_a4 = vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 4), three));
+        const int8x16_t s_b4 = vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 4), three));
+        const int8x16_t s_a6 = vreinterpretq_s8_u8(vshrq_n_u8(pa, 6));
+        const int8x16_t s_b6 = vreinterpretq_s8_u8(vshrq_n_u8(pb, 6));
+        /* Reversed shift↔offset pairing vs TQ2_0: shift6→elems 0..31,
+         * shift4→32..63, shift2→64..95, shift0→96..127. */
+        acc0 = vdotq_s32(acc0, s_a6, vld1q_s8(xb + xo +   0));
+        acc1 = vdotq_s32(acc1, s_b6, vld1q_s8(xb + xo +  16));
+        acc0 = vdotq_s32(acc0, s_a4, vld1q_s8(xb + xo +  32));
+        acc1 = vdotq_s32(acc1, s_b4, vld1q_s8(xb + xo +  48));
+        acc0 = vdotq_s32(acc0, s_a2, vld1q_s8(xb + xo +  64));
+        acc1 = vdotq_s32(acc1, s_b2, vld1q_s8(xb + xo +  80));
+        acc0 = vdotq_s32(acc0, s_a0, vld1q_s8(xb + xo +  96));
+        acc1 = vdotq_s32(acc1, s_b0, vld1q_s8(xb + xo + 112));
+    }
+    return vaddvq_s32(vaddq_s32(acc0, acc1));
+}
+#endif
+
+static inline float i2_s_tensor_scale(const struct geist_weight *w) {
+    const size_t packed = (size_t) w->n_in * (size_t) w->n_out / 4;
+    float s;
+    memcpy(&s, (const uint8_t *) w->raw + packed, sizeof s);
+    return s;
+}
+
+struct i2s_m1_ctx {
+    const uint8_t *W;
+    const int8_t  *xq;
+#if defined(__ARM_NEON)
+    const int32_t *bsum_cache;
+#endif
+    float         *y;
+    float          scale;     /* tensor_scale * inv_act_scale */
+    size_t         row_bytes; /* blocks_per_row * 64 (no per-block scale) */
+    size_t         blocks_per_row;
+};
+
+static void i2s_m1_row_body(size_t r, void *vctx) {
+    const struct i2s_m1_ctx *c = (const struct i2s_m1_ctx *) vctx;
+    const uint8_t *Wr = c->W + r * c->row_bytes;
+    int64_t acc = 0;
+    for (size_t b = 0; b < c->blocks_per_row; b++) {
+        const uint8_t *qs = Wr + b * 64;
+#if defined(__ARM_NEON)
+        const int32_t dot_raw = i2_s_block_dot_q8a_neon_unbiased(qs, c->xq + b * 256);
+        acc += (int64_t) (dot_raw - c->bsum_cache[b]);
+#else
+        const int8_t *xb = c->xq + b * 256;
+        for (size_t h = 0; h < 2; h++) {
+            for (size_t bb = 0; bb < 32; bb++) {
+                const uint8_t byte = qs[h * 32 + bb];
+                for (size_t g = 0; g < 4; g++) {
+                    const int trit = (int) ((byte >> (6 - 2 * g)) & 3) - 1;
+                    acc += (int64_t) trit * (int64_t) xb[h * 128 + g * 32 + bb];
+                }
+            }
+        }
+#endif
+    }
+    c->y[r] = (float) acc * c->scale;
+}
+
+void cpu_neon_w_i2_s_q8a_m1(const float *x, const struct geist_weight *w,
+                            struct geist_backend *be, float *y) {
+    struct cpu_neon_workspace *ws =
+        &((struct cpu_neon_state *) be->state)->workspace;
+    const size_t n_in  = (size_t) w->n_in;
+    const size_t n_out = (size_t) w->n_out;
+    const size_t blocks_per_row = n_in / 256;
+    const size_t row_bytes = blocks_per_row * 64;
+    const uint8_t *W = (const uint8_t *) w->raw;
+
+    float max_abs = 1e-5f;
+    for (size_t i = 0; i < n_in; i++) {
+        const float a = x[i] < 0.0f ? -x[i] : x[i];
+        if (a > max_abs) max_abs = a;
+    }
+    const float act_scale     = 127.0f / max_abs;
+    const float inv_act_scale = max_abs / 127.0f;
+
+    if (ws->m1_xq_cap < n_in) {
+        safe_free((void **) &ws->m1_xq);
+        ws->m1_xq = heap_alloc_array_aligned(int8_t, n_in);
+        if (ws->m1_xq == nullptr) { ws->m1_xq_cap = 0; memset(y, 0, n_out * sizeof *y); return; }
+        ws->m1_xq_cap = n_in;
+    }
+    int8_t *xq = ws->m1_xq;
+    for (size_t i = 0; i < n_in; i++) {
+        const float q = x[i] * act_scale;
+        int32_t qi = (int32_t) (q < 0.0f ? q - 0.5f : q + 0.5f);
+        if (qi >  127) qi =  127;
+        if (qi < -128) qi = -128;
+        xq[i] = (int8_t) qi;
+    }
+
+#if defined(__ARM_NEON)
+    if (ws->m1_bsum_cap < blocks_per_row) {
+        safe_free((void **) &ws->m1_bsum);
+        ws->m1_bsum = heap_alloc_array_aligned(int32_t, blocks_per_row);
+        if (ws->m1_bsum == nullptr) { ws->m1_bsum_cap = 0; memset(y, 0, n_out * sizeof *y); return; }
+        ws->m1_bsum_cap = blocks_per_row;
+    }
+    for (size_t b = 0; b < blocks_per_row; b++) {
+        ws->m1_bsum[b] = q8a_block_bsum(xq + b * 256);
+    }
+    const int32_t *const bsum_cache = ws->m1_bsum;
+#endif
+
+    struct i2s_m1_ctx ctx = {
+        .W = W, .xq = xq, .y = y,
+#if defined(__ARM_NEON)
+        .bsum_cache = bsum_cache,
+#endif
+        .scale = i2_s_tensor_scale(w) * inv_act_scale,
+        .row_bytes = row_bytes,
+        .blocks_per_row = blocks_per_row,
+    };
+
+    static int pp_enabled = -1;
+    if (pp_enabled < 0) {
+        const char *e = getenv("GEIST_PP");
+        pp_enabled = (e && e[0] == '1') ? 1 : 0;
+    }
+    if (pp_enabled) {
+        geist_pp_parallel_for(n_out, i2s_m1_row_body, &ctx);
+    }
+#ifdef _OPENMP
+    else if (omp_in_parallel()) {
+#pragma omp for schedule(static) nowait
+        for (size_t r = 0; r < n_out; r++) i2s_m1_row_body(r, &ctx);
+    }
+#endif
+    else {
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+        for (size_t r = 0; r < n_out; r++) i2s_m1_row_body(r, &ctx);
+    }
+}
+
+/* MT=4 i2_s block dot — like the tq2_0 mt4 but with the reversed shift↔offset
+ * pairing. Unpacks one weight block once and dots it against 4 tokens. */
+#if defined(__ARM_NEON)
+static inline void i2_s_block_dot_q8a_neon_unbiased_mt4(
+        const uint8_t *qs, const int8_t *xb0, const int8_t *xb1,
+        const int8_t *xb2, const int8_t *xb3, int32_t out[4]) {
+    const uint8x16_t three = vdupq_n_u8(3);
+    int32x4_t a0 = vdupq_n_s32(0), a1 = vdupq_n_s32(0);
+    int32x4_t a2 = vdupq_n_s32(0), a3 = vdupq_n_s32(0);
+    #define I2S_MT4_POS(S, XOFF) do {                                   \
+        const int8x16_t _w = (S);                                       \
+        a0 = vdotq_s32(a0, _w, vld1q_s8(xb0 + (XOFF)));                 \
+        a1 = vdotq_s32(a1, _w, vld1q_s8(xb1 + (XOFF)));                 \
+        a2 = vdotq_s32(a2, _w, vld1q_s8(xb2 + (XOFF)));                 \
+        a3 = vdotq_s32(a3, _w, vld1q_s8(xb3 + (XOFF)));                 \
+    } while (0)
+    for (int h = 0; h < 2; h++) {
+        const uint8x16_t pa = vld1q_u8(qs + h * 32 +  0);
+        const uint8x16_t pb = vld1q_u8(qs + h * 32 + 16);
+        const size_t xo = (size_t) h * 128;
+        I2S_MT4_POS(vreinterpretq_s8_u8(vshrq_n_u8(pa, 6)),                 xo +  0);
+        I2S_MT4_POS(vreinterpretq_s8_u8(vshrq_n_u8(pb, 6)),                 xo + 16);
+        I2S_MT4_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 4), three)), xo + 32);
+        I2S_MT4_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 4), three)), xo + 48);
+        I2S_MT4_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 2), three)), xo + 64);
+        I2S_MT4_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 2), three)), xo + 80);
+        I2S_MT4_POS(vreinterpretq_s8_u8(vandq_u8(pa, three)),               xo + 96);
+        I2S_MT4_POS(vreinterpretq_s8_u8(vandq_u8(pb, three)),               xo + 112);
+    }
+    #undef I2S_MT4_POS
+    out[0] = vaddvq_s32(a0); out[1] = vaddvq_s32(a1);
+    out[2] = vaddvq_s32(a2); out[3] = vaddvq_s32(a3);
+}
+#endif
+
+/* MT=8 i2_s block dot — 8 tokens per weight-block unpack (reversed shifts). */
+#if defined(__ARM_NEON)
+static inline void i2_s_block_dot_q8a_neon_unbiased_mt8(
+        const uint8_t *qs, const int8_t *const xb[8], int32_t out[8]) {
+    const uint8x16_t three = vdupq_n_u8(3);
+    int32x4_t a0 = vdupq_n_s32(0), a1 = vdupq_n_s32(0);
+    int32x4_t a2 = vdupq_n_s32(0), a3 = vdupq_n_s32(0);
+    int32x4_t a4 = vdupq_n_s32(0), a5 = vdupq_n_s32(0);
+    int32x4_t a6 = vdupq_n_s32(0), a7 = vdupq_n_s32(0);
+    #define I2S_MT8_POS(S, XOFF) do {                               \
+        const int8x16_t _w = (S);                                   \
+        a0 = vdotq_s32(a0, _w, vld1q_s8(xb[0] + (XOFF)));           \
+        a1 = vdotq_s32(a1, _w, vld1q_s8(xb[1] + (XOFF)));           \
+        a2 = vdotq_s32(a2, _w, vld1q_s8(xb[2] + (XOFF)));           \
+        a3 = vdotq_s32(a3, _w, vld1q_s8(xb[3] + (XOFF)));           \
+        a4 = vdotq_s32(a4, _w, vld1q_s8(xb[4] + (XOFF)));           \
+        a5 = vdotq_s32(a5, _w, vld1q_s8(xb[5] + (XOFF)));           \
+        a6 = vdotq_s32(a6, _w, vld1q_s8(xb[6] + (XOFF)));           \
+        a7 = vdotq_s32(a7, _w, vld1q_s8(xb[7] + (XOFF)));           \
+    } while (0)
+    for (int h = 0; h < 2; h++) {
+        const uint8x16_t pa = vld1q_u8(qs + h * 32 +  0);
+        const uint8x16_t pb = vld1q_u8(qs + h * 32 + 16);
+        const size_t xo = (size_t) h * 128;
+        I2S_MT8_POS(vreinterpretq_s8_u8(vshrq_n_u8(pa, 6)),                 xo +  0);
+        I2S_MT8_POS(vreinterpretq_s8_u8(vshrq_n_u8(pb, 6)),                 xo + 16);
+        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 4), three)), xo + 32);
+        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 4), three)), xo + 48);
+        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 2), three)), xo + 64);
+        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 2), three)), xo + 80);
+        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(pa, three)),               xo + 96);
+        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(pb, three)),               xo + 112);
+    }
+    #undef I2S_MT8_POS
+    out[0] = vaddvq_s32(a0); out[1] = vaddvq_s32(a1);
+    out[2] = vaddvq_s32(a2); out[3] = vaddvq_s32(a3);
+    out[4] = vaddvq_s32(a4); out[5] = vaddvq_s32(a5);
+    out[6] = vaddvq_s32(a6); out[7] = vaddvq_s32(a7);
+}
+#endif
+
+struct i2s_mN_ctx {
+    const uint8_t *W;
+    const int8_t  *xq;
+    const int32_t *bsum_cache;
+    const float   *inv_scales;
+    float         *y;
+    float          scale;          /* per-tensor i2_s scale */
+    size_t         m, n_in, n_out, blocks_per_row, row_bytes;
+};
+
+static void i2s_mN_row_body(size_t r, void *vctx) {
+    const struct i2s_mN_ctx *c = (const struct i2s_mN_ctx *) vctx;
+    const uint8_t *Wr = c->W + r * c->row_bytes;
+    const size_t bpr = c->blocks_per_row;
+    const float sc = c->scale;
+    size_t i = 0;
+#if defined(__ARM_NEON)
+    for (; i + 8 <= c->m; i += 8) {
+        const int8_t *xb[8];
+        const int32_t *bs[8];
+        for (int j = 0; j < 8; j++) {
+            xb[j] = c->xq + (i + (size_t) j) * c->n_in;
+            bs[j] = c->bsum_cache + (i + (size_t) j) * bpr;
+        }
+        int32_t acc[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        for (size_t b = 0; b < bpr; b++) {
+            const uint8_t *qs = Wr + b * 64;
+            const int8_t *xbb[8];
+            for (int j = 0; j < 8; j++) xbb[j] = xb[j] + b * 256;
+            int32_t dots[8];
+            i2_s_block_dot_q8a_neon_unbiased_mt8(qs, xbb, dots);
+            for (int j = 0; j < 8; j++) acc[j] += dots[j] - bs[j][b];
+        }
+        for (int j = 0; j < 8; j++)
+            c->y[(i + (size_t) j) * c->n_out + r] =
+                (float) acc[j] * sc * c->inv_scales[i + (size_t) j];
+    }
+    for (; i + 4 <= c->m; i += 4) {
+        const int8_t *x0 = c->xq + (i + 0) * c->n_in, *x1 = c->xq + (i + 1) * c->n_in;
+        const int8_t *x2 = c->xq + (i + 2) * c->n_in, *x3 = c->xq + (i + 3) * c->n_in;
+        const int32_t *bs0 = c->bsum_cache + (i + 0) * bpr;
+        const int32_t *bs1 = c->bsum_cache + (i + 1) * bpr;
+        const int32_t *bs2 = c->bsum_cache + (i + 2) * bpr;
+        const int32_t *bs3 = c->bsum_cache + (i + 3) * bpr;
+        int32_t acc0 = 0, acc1 = 0, acc2 = 0, acc3 = 0;
+        for (size_t b = 0; b < bpr; b++) {
+            const uint8_t *qs = Wr + b * 64;
+            int32_t dots[4];
+            i2_s_block_dot_q8a_neon_unbiased_mt4(qs, x0 + b * 256, x1 + b * 256,
+                                                  x2 + b * 256, x3 + b * 256, dots);
+            acc0 += dots[0] - bs0[b]; acc1 += dots[1] - bs1[b];
+            acc2 += dots[2] - bs2[b]; acc3 += dots[3] - bs3[b];
+        }
+        c->y[(i + 0) * c->n_out + r] = (float) acc0 * sc * c->inv_scales[i + 0];
+        c->y[(i + 1) * c->n_out + r] = (float) acc1 * sc * c->inv_scales[i + 1];
+        c->y[(i + 2) * c->n_out + r] = (float) acc2 * sc * c->inv_scales[i + 2];
+        c->y[(i + 3) * c->n_out + r] = (float) acc3 * sc * c->inv_scales[i + 3];
+    }
+#endif
+    for (; i < c->m; i++) {
+        const int8_t *xqi = c->xq + i * c->n_in;
+        int64_t acc = 0;
+        for (size_t b = 0; b < bpr; b++) {
+            const uint8_t *qs = Wr + b * 64;
+#if defined(__ARM_NEON)
+            acc += i2_s_block_dot_q8a_neon_unbiased(qs, xqi + b * 256)
+                   - c->bsum_cache[i * bpr + b];
+#else
+            for (size_t h = 0; h < 2; h++)
+                for (size_t bb = 0; bb < 32; bb++) {
+                    const uint8_t byte = qs[h * 32 + bb];
+                    for (size_t g = 0; g < 4; g++) {
+                        const int trit = (int) ((byte >> (6 - 2 * g)) & 3) - 1;
+                        acc += (int64_t) trit * xqi[b * 256 + h * 128 + g * 32 + bb];
+                    }
+                }
+#endif
+        }
+        c->y[i * c->n_out + r] = (float) acc * sc * c->inv_scales[i];
+    }
+}
+
+/* M>1 prefill: per-row int8 activation quant (shared across output rows), then
+ * mt4 token-tiled dots reusing each weight row once. Mirrors tq2_0/q8a_mN. */
+void cpu_neon_w_i2_s_q8a_mN(const float *x, const struct geist_weight *w,
+                            size_t m, struct geist_backend *be, float *y) {
+    struct cpu_neon_workspace *ws =
+        &((struct cpu_neon_state *) be->state)->workspace;
+    const size_t n_in  = (size_t) w->n_in;
+    const size_t n_out = (size_t) w->n_out;
+    const size_t blocks_per_row = n_in / 256;
+    const size_t row_bytes = blocks_per_row * 64;
+    const uint8_t *W = (const uint8_t *) w->raw;
+    if (m == 0 || m > GEIST_QUANT_M_CAP) return;
+
+    const size_t xq_need = m * n_in;
+    if (ws->mN_xq_cap < xq_need) {
+        safe_free((void **) &ws->mN_xq);
+        ws->mN_xq = heap_alloc_array_aligned(int8_t, xq_need);
+        if (ws->mN_xq == nullptr) { ws->mN_xq_cap = 0; memset(y, 0, m * n_out * sizeof *y); return; }
+        ws->mN_xq_cap = xq_need;
+    }
+    if (ws->mN_sc_cap < m) {
+        safe_free((void **) &ws->mN_sc);
+        ws->mN_sc = heap_alloc_array_aligned(float, m);
+        if (ws->mN_sc == nullptr) { ws->mN_sc_cap = 0; memset(y, 0, m * n_out * sizeof *y); return; }
+        ws->mN_sc_cap = m;
+    }
+    int8_t *xq         = ws->mN_xq;
+    float  *inv_scales = ws->mN_sc;
+
+#if defined(__ARM_NEON)
+    const size_t bsum_need = m * blocks_per_row;
+    if (ws->mN_bsum_cap < bsum_need) {
+        safe_free((void **) &ws->mN_bsum);
+        ws->mN_bsum = heap_alloc_array_aligned(int32_t, bsum_need);
+        if (ws->mN_bsum == nullptr) { ws->mN_bsum_cap = 0; memset(y, 0, m * n_out * sizeof *y); return; }
+        ws->mN_bsum_cap = bsum_need;
+    }
+    int32_t *const bsum_cache = ws->mN_bsum;
+#endif
+
+    for (size_t i = 0; i < m; i++) {
+        const float *xi = x + i * n_in;
+        float max_abs = 1e-5f;
+        for (size_t k = 0; k < n_in; k++) {
+            const float a = xi[k] < 0.0f ? -xi[k] : xi[k];
+            if (a > max_abs) max_abs = a;
+        }
+        const float act_scale = 127.0f / max_abs;
+        inv_scales[i] = max_abs / 127.0f;
+        int8_t *xqi = xq + i * n_in;
+        for (size_t k = 0; k < n_in; k++) {
+            const float q = xi[k] * act_scale;
+            int32_t qi = (int32_t) (q < 0.0f ? q - 0.5f : q + 0.5f);
+            if (qi >  127) qi =  127;
+            if (qi < -128) qi = -128;
+            xqi[k] = (int8_t) qi;
+        }
+#if defined(__ARM_NEON)
+        for (size_t b = 0; b < blocks_per_row; b++) {
+            bsum_cache[i * blocks_per_row + b] = q8a_block_bsum(xqi + b * 256);
+        }
+#endif
+    }
+
+    const struct i2s_mN_ctx ctx = {
+        .W = W, .xq = xq,
+#if defined(__ARM_NEON)
+        .bsum_cache = bsum_cache,
+#endif
+        .inv_scales = inv_scales, .y = y,
+        .scale = i2_s_tensor_scale(w),
+        .m = m, .n_in = n_in, .n_out = n_out,
+        .blocks_per_row = blocks_per_row, .row_bytes = row_bytes,
+    };
+
+    static int pp_enabled = -1;
+    if (pp_enabled < 0) {
+        const char *e = getenv("GEIST_PP");
+        pp_enabled = (e && e[0] == '1') ? 1 : 0;
+    }
+    if (pp_enabled) {
+        geist_pp_parallel_for(n_out, i2s_mN_row_body, (void *) &ctx);
+    }
+#ifdef _OPENMP
+    else if (omp_in_parallel()) {
+#pragma omp for schedule(static) nowait
+        for (size_t r = 0; r < n_out; r++) i2s_mN_row_body(r, (void *) &ctx);
+    }
+#endif
+    else {
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+        for (size_t r = 0; r < n_out; r++) i2s_mN_row_body(r, (void *) &ctx);
+    }
+}

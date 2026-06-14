@@ -45,10 +45,10 @@ typedef enum {
     GGUF_TYPE_TQ1_0 = 34,   /* 1.69 bpw ternary; 256-elem block; 5 trits/byte */
     GGUF_TYPE_TQ2_0 = 35,   /* 2.06 bpw ternary; 256-elem block; 4 trits/byte */
     /* I2_S is Microsoft bitnet.cpp's custom ggml extension type for BitNet
-     * b1.58 weights — NOT in mainline llama.cpp. Per-row scale + 2-bit
-     * packed signed ternary (4 trits/byte). Block size in the GGUF table
-     * is reported as 0/0 here; loaders that consume the tensor's data
-     * must understand the row-scale layout separately. */
+     * b1.58 weights — NOT in mainline llama.cpp. 2-bit packed signed ternary
+     * (4 trits/byte, 2.0 bpw, 256-elem/64-byte blocks) + ONE f32 per-TENSOR
+     * scale at the tail (offset n_elems/4). geist reads it as ternary and
+     * transcodes the trit field-order to its TQ2_0 SDOT kernel. */
     GGUF_TYPE_I2_S  = 36,
 } gguf_dtype_t;
 

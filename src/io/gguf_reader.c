@@ -76,10 +76,13 @@ static const struct dtype_row_t DTYPE_ROWS[] = {
     {GGUF_TYPE_IQ2_S,  82, 256, "IQ2_S"},  /* fp16 d + 64 qs (incl signs) + 8 qh + 8 scales */
     {GGUF_TYPE_TQ1_0,  54, 256, "TQ1_0"},  /* 5-trit packed; 52 + 2-byte fp16 scale */
     {GGUF_TYPE_TQ2_0,  66, 256, "TQ2_0"},  /* 4-trit packed; 64 + 2-byte fp16 scale */
-    /* I2_S has no fixed "block" — the storage is 2-bit packed signed
-     * trits with a per-row scale. We register it as 0/0 so the reader
-     * recognizes the dtype id but doesn't compute nbytes from it. */
-    {GGUF_TYPE_I2_S,    0,   0, "I2_S"},
+    /* I2_S (BitNet b1.58 official): 256-elem blocks of 64 packed bytes (4
+     * trits/byte, 2.0 bpw), NO per-block scale. A single f32 per-TENSOR scale
+     * is stored right after the packed bytes (offset n_elems/4); it sits just
+     * past the block-computed nbytes but inside the mmap, so the kernel reads
+     * it from raw + n_in*n_out/4. (Confirmed against bitnet.cpp quantize_i2_s:
+     * one scale_ptr[0] per tensor, not per row.) */
+    {GGUF_TYPE_I2_S,   64, 256, "I2_S"},
 };
 static const size_t DTYPE_ROWS_N = sizeof(DTYPE_ROWS) / sizeof(DTYPE_ROWS[0]);
 

@@ -133,6 +133,19 @@ void cpu_neon_w_tq2_0_q8a_mN(const float *x, const struct geist_weight *w,
 void cpu_neon_w_tq2_0_m1(const float *x, const struct geist_weight *w,
                          struct geist_backend *be, float *y);
 
+/* I2_S (BitNet b1.58 official): ternary W1.58 × A8, int8-SDOT. Same compute
+ * as tq2_0/q8a but the in-byte 2-bit field order is reversed and a single
+ * per-tensor scale (at raw + n_in*n_out/4) is applied per row. Dotprod only. */
+void cpu_neon_w_i2_s_q8a_m1(const float *x, const struct geist_weight *w,
+                            struct geist_backend *be, float *y);
+void cpu_neon_w_i2_s_q8a_mN(const float *x, const struct geist_weight *w,
+                            size_t m, struct geist_backend *be, float *y);
+
+/* Fused F16 × A32 GEMV (M=1) — in-register vcvt_f32_f16, no f32 materialization.
+ * Used for the BitNet-2B-4T tied f16 lm_head (the decode bottleneck). */
+void cpu_neon_w_f16_m1(const float *x, const struct geist_weight *w,
+                       struct geist_backend *be, float *y);
+
 /* P1.1.b → P2.e: load-time weight resolver. Inspects w->dtype
  * and writes direct M=1 / M>1 kernel function pointers. Returns
  * GEIST_E_UNSUPPORTED for dtypes the backend doesn't implement —

@@ -56,6 +56,14 @@ enum geist_dtype {
     GEIST_DTYPE_TQ1_0,
     GEIST_DTYPE_TQ2_0,
 
+    /* BitNet b1.58 official format (GGML_TYPE_I2_S): 2.0 bpw ternary, 256-elem
+     * blocks of 64 packed bytes with NO per-block scale — instead ONE f32
+     * per-tensor scale stored at the tensor tail (offset n_in*n_out/4). Same
+     * {-1,0,+1} trit codes as TQ2_0; only the in-byte 2-bit field order differs
+     * (i2_s puts element 32*g+b at shift 6-2g, TQ2_0 at shift 2g). Microsoft's
+     * distribution format for BitNet-2B-4T. layout=GEIST_LAYOUT_BLOCK_QUANTIZED. */
+    GEIST_DTYPE_I2_S,
+
     GEIST_DTYPE_BINARY,  /* 1-bit values; storage via layout */
     GEIST_DTYPE_TERNARY, /* {-1, 0, +1}; storage via layout */
 

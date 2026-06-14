@@ -757,6 +757,38 @@ static void cpu_neon_w_dequant_trampoline_m1(const float *x,
 #endif
 }
 
+/* Fused F16 × A32 GEMV (M=1) — reads the f16 weight once and converts
+ * 4-at-a-time in-register (vcvt_f32_f16), accumulating directly against the
+ * fp32 activation. Avoids the dequant-trampoline's full f32 materialization
+ * (which reads 656 MB + writes 1.3 GB + BLAS-reads 1.3 GB per call on the
+ * BitNet-2B-4T tied f16 lm_head — the decode bottleneck). Bandwidth-bound:
+ * one pass over the f16 weight. */
+#if defined(__ARM_NEON)
+void cpu_neon_w_f16_m1(const float *x, const struct geist_weight *w,
+                       struct geist_backend *be, float *y) {
+    (void) be;
+    const size_t n_in  = (size_t) w->n_in;
+    const size_t n_out = (size_t) w->n_out;
+    const float16_t *W = (const float16_t *) w->raw;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (size_t r = 0; r < n_out; r++) {
+        const float16_t *wr = W + r * n_in;
+        float32x4_t acc0 = vdupq_n_f32(0.0f);
+        float32x4_t acc1 = vdupq_n_f32(0.0f);
+        size_t k = 0;
+        for (; k + 8 <= n_in; k += 8) {
+            acc0 = vfmaq_f32(acc0, vcvt_f32_f16(vld1_f16(wr + k)),     vld1q_f32(x + k));
+            acc1 = vfmaq_f32(acc1, vcvt_f32_f16(vld1_f16(wr + k + 4)), vld1q_f32(x + k + 4));
+        }
+        float sum = vaddvq_f32(vaddq_f32(acc0, acc1));
+        for (; k < n_in; k++) { sum += (float) wr[k] * x[k]; }
+        y[r] = sum;
+    }
+}
+#endif
+
 /* Definitions of the forward-declared SGEMM-prefill helpers. */
 static bool cpu_neon_dequant_w_workspace_prepare(struct cpu_neon_workspace *ws,
                                                   size_t tile_rows,
@@ -918,9 +950,18 @@ static const struct cpu_neon_kernel_entry CPU_NEON_KERNELS[] = {
     /* Dequant-and-cblas trampolines for formats without a native NEON
      * kernel: F16 / BF16 / Q4_0. M>1 prefill via OpenBLAS / Accelerate
      * SGEMM after dequant; M=1 via the same trampoline. */
+    /* F16: fused in-register-convert GEMV for decode (M=1) — avoids the
+     * trampoline's full f32 materialization (the BitNet-2B-4T tied lm_head is
+     * f16 and dominates decode). M>1 prefill stays on the SGEMM trampoline. */
+#if defined(__ARM_NEON)
+    { GEIST_DTYPE_F16,  CPU_NEON_ISA_NEON,
+      cpu_neon_w_f16_m1, cpu_neon_w_dequant_trampoline_mN,
+      "f16/fused-m1"  },
+#else
     { GEIST_DTYPE_F16,  CPU_NEON_ISA_NEON,
       cpu_neon_w_dequant_trampoline_m1, cpu_neon_w_dequant_trampoline_mN,
       "f16/trampoline"  },
+#endif
     { GEIST_DTYPE_BF16, CPU_NEON_ISA_NEON,
       cpu_neon_w_dequant_trampoline_m1, cpu_neon_w_dequant_trampoline_mN,
       "bf16/trampoline" },
@@ -937,6 +978,14 @@ static const struct cpu_neon_kernel_entry CPU_NEON_KERNELS[] = {
 #endif
     { GEIST_DTYPE_TQ2_0, CPU_NEON_ISA_NEON,
       cpu_neon_w_tq2_0_m1, cpu_neon_w_dequant_trampoline_mN, "tq2_0/fp32" },
+
+    /* I2_S: BitNet b1.58 official ternary (Microsoft 2B-4T). Dotprod-only —
+     * the SDOT i2_s kernels assume ARMv8.2; no fp32 fallback row yet (every
+     * geist ARM target enables +dotprod). */
+#if defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
+    { GEIST_DTYPE_I2_S, CPU_NEON_ISA_NEON | CPU_NEON_ISA_DOTPROD,
+      cpu_neon_w_i2_s_q8a_m1, cpu_neon_w_i2_s_q8a_mN, "i2_s/q8a" },
+#endif
 };
 static_assert(sizeof(CPU_NEON_KERNELS) / sizeof(CPU_NEON_KERNELS[0]) > 0,
               "kernel table must not be empty");

@@ -243,6 +243,23 @@ transformer_forward_one_layer(struct transformer_arch_state *st,
     case GEIST_DTYPE_F32:
         memcpy(dst, raw + row_idx * n_in * sizeof(float), n_in * sizeof(float));
         break;
+    case GEIST_DTYPE_F16: {
+        const uint8_t *r = raw + row_idx * n_in * 2;
+        for (size_t i = 0; i < n_in; i++) {
+            uint16_t h = (uint16_t) r[2 * i] | ((uint16_t) r[2 * i + 1] << 8);
+            dst[i] = fp16_to_fp32(h);
+        }
+        break;
+    }
+    case GEIST_DTYPE_BF16: {
+        const uint8_t *r = raw + row_idx * n_in * 2;
+        for (size_t i = 0; i < n_in; i++) {
+            uint16_t b = (uint16_t) r[2 * i] | ((uint16_t) r[2 * i + 1] << 8);
+            uint32_t f = (uint32_t) b << 16;
+            memcpy(&dst[i], &f, sizeof f);
+        }
+        break;
+    }
     case GEIST_DTYPE_Q3_K:
         dequant_q3_K_row(raw + row_idx * n_in / Q3_K_BLOCK_ELEMS * Q3_K_BLOCK_BYTES,
                           dst, n_in);
@@ -271,6 +288,28 @@ transformer_forward_one_layer(struct transformer_arch_state *st,
         dequant_iq3_s_row(raw + row_idx * n_in / IQ3_S_BLOCK_ELEMS * IQ3_S_BLOCK_BYTES,
                            dst, n_in);
         break;
+    case GEIST_DTYPE_I2_S: {
+        /* BitNet i2_s: 256-elem/64-byte ternary blocks, reversed in-byte field
+         * order vs TQ2_0, ONE f32 per-TENSOR scale at the tail (offset
+         * total_elems/4). Used for the token-embedding table on BitNet-2B-4T. */
+        const size_t total = (size_t) t->shape[0] * (size_t) t->shape[1];
+        float scale;
+        memcpy(&scale, raw + total / 4, sizeof scale);
+        const uint8_t *row = raw + row_idx * (n_in / 4);
+        for (size_t b = 0; b < n_in / 256; b++) {
+            const uint8_t *qs = row + b * 64;
+            for (size_t h = 0; h < 2; h++) {
+                for (size_t bb = 0; bb < 32; bb++) {
+                    const uint8_t byte = qs[h * 32 + bb];
+                    for (size_t g = 0; g < 4; g++) {
+                        const int trit = (int) ((byte >> (6 - 2 * g)) & 3) - 1;
+                        dst[b * 256 + h * 128 + g * 32 + bb] = (float) trit * scale;
+                    }
+                }
+            }
+        }
+        break;
+    }
     default:
         geist_backend_set_error(be, GEIST_E_UNSUPPORTED,
                                 "transformer: unsupported dtype %d for row dequant",
