@@ -993,44 +993,39 @@ static inline void i2_s_block_dot_q8a_neon_unbiased_mt4(
 }
 #endif
 
-/* MT=8 i2_s block dot — 8 tokens per weight-block unpack (reversed shifts). */
+/* MT=8 i2_s block dot — 8 tokens per weight-block unpack (reversed shifts).
+ * ACCUMULATES into the caller's int32x4 lanes ACROSS blocks (no per-block
+ * horizontal reduce — the caller reduces once per row), keeping the vdotq
+ * pipeline full. This is the structural prefill win. */
 #if defined(__ARM_NEON)
-static inline void i2_s_block_dot_q8a_neon_unbiased_mt8(
-        const uint8_t *qs, const int8_t *const xb[8], int32_t out[8]) {
+static inline void i2_s_block_dot_q8a_mt8_accum(
+        const uint8_t *qs, const int8_t *const xb[8], int32x4_t acc[8]) {
     const uint8x16_t three = vdupq_n_u8(3);
-    int32x4_t a0 = vdupq_n_s32(0), a1 = vdupq_n_s32(0);
-    int32x4_t a2 = vdupq_n_s32(0), a3 = vdupq_n_s32(0);
-    int32x4_t a4 = vdupq_n_s32(0), a5 = vdupq_n_s32(0);
-    int32x4_t a6 = vdupq_n_s32(0), a7 = vdupq_n_s32(0);
-    #define I2S_MT8_POS(S, XOFF) do {                               \
+    #define I2S_MT8A(S, XOFF) do {                                  \
         const int8x16_t _w = (S);                                   \
-        a0 = vdotq_s32(a0, _w, vld1q_s8(xb[0] + (XOFF)));           \
-        a1 = vdotq_s32(a1, _w, vld1q_s8(xb[1] + (XOFF)));           \
-        a2 = vdotq_s32(a2, _w, vld1q_s8(xb[2] + (XOFF)));           \
-        a3 = vdotq_s32(a3, _w, vld1q_s8(xb[3] + (XOFF)));           \
-        a4 = vdotq_s32(a4, _w, vld1q_s8(xb[4] + (XOFF)));           \
-        a5 = vdotq_s32(a5, _w, vld1q_s8(xb[5] + (XOFF)));           \
-        a6 = vdotq_s32(a6, _w, vld1q_s8(xb[6] + (XOFF)));           \
-        a7 = vdotq_s32(a7, _w, vld1q_s8(xb[7] + (XOFF)));           \
+        acc[0] = vdotq_s32(acc[0], _w, vld1q_s8(xb[0] + (XOFF)));   \
+        acc[1] = vdotq_s32(acc[1], _w, vld1q_s8(xb[1] + (XOFF)));   \
+        acc[2] = vdotq_s32(acc[2], _w, vld1q_s8(xb[2] + (XOFF)));   \
+        acc[3] = vdotq_s32(acc[3], _w, vld1q_s8(xb[3] + (XOFF)));   \
+        acc[4] = vdotq_s32(acc[4], _w, vld1q_s8(xb[4] + (XOFF)));   \
+        acc[5] = vdotq_s32(acc[5], _w, vld1q_s8(xb[5] + (XOFF)));   \
+        acc[6] = vdotq_s32(acc[6], _w, vld1q_s8(xb[6] + (XOFF)));   \
+        acc[7] = vdotq_s32(acc[7], _w, vld1q_s8(xb[7] + (XOFF)));   \
     } while (0)
     for (int h = 0; h < 2; h++) {
         const uint8x16_t pa = vld1q_u8(qs + h * 32 +  0);
         const uint8x16_t pb = vld1q_u8(qs + h * 32 + 16);
         const size_t xo = (size_t) h * 128;
-        I2S_MT8_POS(vreinterpretq_s8_u8(vshrq_n_u8(pa, 6)),                 xo +  0);
-        I2S_MT8_POS(vreinterpretq_s8_u8(vshrq_n_u8(pb, 6)),                 xo + 16);
-        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 4), three)), xo + 32);
-        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 4), three)), xo + 48);
-        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 2), three)), xo + 64);
-        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 2), three)), xo + 80);
-        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(pa, three)),               xo + 96);
-        I2S_MT8_POS(vreinterpretq_s8_u8(vandq_u8(pb, three)),               xo + 112);
+        I2S_MT8A(vreinterpretq_s8_u8(vshrq_n_u8(pa, 6)),                 xo +  0);
+        I2S_MT8A(vreinterpretq_s8_u8(vshrq_n_u8(pb, 6)),                 xo + 16);
+        I2S_MT8A(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 4), three)), xo + 32);
+        I2S_MT8A(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 4), three)), xo + 48);
+        I2S_MT8A(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pa, 2), three)), xo + 64);
+        I2S_MT8A(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(pb, 2), three)), xo + 80);
+        I2S_MT8A(vreinterpretq_s8_u8(vandq_u8(pa, three)),               xo + 96);
+        I2S_MT8A(vreinterpretq_s8_u8(vandq_u8(pb, three)),               xo + 112);
     }
-    #undef I2S_MT8_POS
-    out[0] = vaddvq_s32(a0); out[1] = vaddvq_s32(a1);
-    out[2] = vaddvq_s32(a2); out[3] = vaddvq_s32(a3);
-    out[4] = vaddvq_s32(a4); out[5] = vaddvq_s32(a5);
-    out[6] = vaddvq_s32(a6); out[7] = vaddvq_s32(a7);
+    #undef I2S_MT8A
 }
 #endif
 
@@ -1051,25 +1046,28 @@ static void i2s_mN_row_body(size_t r, void *vctx) {
     const float sc = c->scale;
     size_t i = 0;
 #if defined(__ARM_NEON)
+    /* mt8 is the sweet spot: mt16 (16 accumulators) spills NEON registers on
+     * the A76 and regresses (measured 31 vs 48 tps). The unpack overhead is
+     * instruction-count-bound (~2 IPC) but can't be amortized wider here. */
     for (; i + 8 <= c->m; i += 8) {
         const int8_t *xb[8];
         const int32_t *bs[8];
+        int32_t bsum_tot[8] = {0, 0, 0, 0, 0, 0, 0, 0};
         for (int j = 0; j < 8; j++) {
             xb[j] = c->xq + (i + (size_t) j) * c->n_in;
             bs[j] = c->bsum_cache + (i + (size_t) j) * bpr;
         }
-        int32_t acc[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        int32x4_t acc[8];
+        for (int j = 0; j < 8; j++) acc[j] = vdupq_n_s32(0);
         for (size_t b = 0; b < bpr; b++) {
             const uint8_t *qs = Wr + b * 64;
             const int8_t *xbb[8];
-            for (int j = 0; j < 8; j++) xbb[j] = xb[j] + b * 256;
-            int32_t dots[8];
-            i2_s_block_dot_q8a_neon_unbiased_mt8(qs, xbb, dots);
-            for (int j = 0; j < 8; j++) acc[j] += dots[j] - bs[j][b];
+            for (int j = 0; j < 8; j++) { xbb[j] = xb[j] + b * 256; bsum_tot[j] += bs[j][b]; }
+            i2_s_block_dot_q8a_mt8_accum(qs, xbb, acc);
         }
         for (int j = 0; j < 8; j++)
             c->y[(i + (size_t) j) * c->n_out + r] =
-                (float) acc[j] * sc * c->inv_scales[i + (size_t) j];
+                (float) (vaddvq_s32(acc[j]) - bsum_tot[j]) * sc * c->inv_scales[i + (size_t) j];
     }
     for (; i + 4 <= c->m; i += 4) {
         const int8_t *x0 = c->xq + (i + 0) * c->n_in, *x1 = c->xq + (i + 1) * c->n_in;
