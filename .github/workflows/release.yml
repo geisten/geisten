@@ -32,7 +32,8 @@ jobs:
             set -e
             apk add --no-cache build-base linux-headers
             make TARGET=linux CC=gcc GEIST_BLAS_FREE=1 \
-                 EXTRA_LDFLAGS="-static -s" bin/linux/release/tools/geist
+                 EXTRA_CFLAGS=-D_GNU_SOURCE EXTRA_LDFLAGS="-static -s" \
+                 bin/linux/release/tools/geist
           '
       - name: Verify self-contained + runs
         run: |
