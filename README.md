@@ -36,6 +36,9 @@ That is the bet, and it is a different one from the universal engines:
 > `EXPERIMENTAL` surfaces until 1.0. Issues and PRs welcome — see
 > [CONTRIBUTING.md](CONTRIBUTING.md).
 
+> 🚀 **Get started in two minutes:** [`docs/QUICKSTART.md`](docs/QUICKSTART.md) —
+> run the CLI and embed the library (with a complete copy-paste C program).
+
 ---
 
 ## ✨ Demo
