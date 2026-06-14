@@ -119,7 +119,40 @@ Unlike generic engines that use complex layer-dispatch loops, `geist` uses **Ker
 The `geist_gemm` abstraction (and the same per-platform pattern for the audio FFT) lets each platform pick the fastest path *and* the leanest dependency set: ARM ships fully self-contained (native NEON fp32 + a vendored radix-2 FFT, no OpenBLAS/FFTW), while macOS keeps Accelerate/AMX and vDSP because the framework is always present. This is what makes the "copy one file" deployment above possible without giving up the platform's matrix accelerator.
 
 ### Ternary (1.58-bit) as a First-Class Citizen
-We don't treat low-bit formats as an afterthought. Our backend is built for a **multiplication-free future**. `geist` includes native paths for BitNet b1.58, where the CPU only performs additions and subtractions, maximizing performance on hardware without powerful NPUs.
+We don't treat low-bit formats as an afterthought. Our backend is built for a **multiplication-free future**. `geist` includes native paths for BitNet b1.58 — both `TQ2_0` and Microsoft's canonical `I2_S` — using ARM **SDOT** (`vdotq_s32`) so the matmuls are integer add/subtract only, no multiplies, maximizing performance on hardware without powerful NPUs.
+
+#### BitNet b1.58 2B-4T on a Raspberry Pi 5
+
+Microsoft's `bitnet-b1.58-2B-4T` (`ggml-model-i2_s.gguf`), measured with
+`tests/bench_perf_sweep` on a Pi 5 (Cortex-A76, **no `i8mm`**), 2 threads,
+2.4 GHz, mean-of-5 after a discarded warm-up:
+
+| context | prefill t/s | **decode t/s** | end-to-end t/s |
+| --: | --: | --: | --: |
+| 32  | 46.4 | **17.4** | 22.0 |
+| 128 | 48.5 | **16.4** | 29.3 |
+| 256 | 47.0 | **15.0** | 33.0 |
+
+Reference points on the **same machine + model**: bitnet.cpp decode **8.2–8.7 t/s**
+(geist is ~2× faster), and the Rust engine [**Cougar**](https://github.com/petlukk/Cougar)
+reports **16.1 t/s** decode / 16.3 prefill on a Pi 5 — geist's 17.4 decode edges
+it, and prefill is ~3× higher.
+
+The decode win comes from a **speculative output head** (`GEIST_SPEC_HEAD=1`):
+on this model the lm_head is a tied **F16** embedding (656 MB read *per token*,
+~50 % of decode). geist keeps a stride-subsampled int8 "sketch" of the table
+(~82 MB), rough-ranks the whole 128 K vocabulary with one SDOT pass, then
+computes **exact** f16 logits for only the top-512 candidates. Greedy output is
+byte-identical to the dense head. Full method, caveats (clock-matched numbers,
+what *didn't* work) and Cougar's algorithm: [`benchmark/TERNARY_BITNET.md`](benchmark/TERNARY_BITNET.md).
+
+The same head also works on **Gemma 4 E2B** (tied Q6_K lm_head over a 256 K
+vocab, ~32 % of decode). There phase 3 reuses the dense **W6A8** kernel on a
+one-row view, so finalist logits are bit-exact; the only knob is how many
+finalists the sketch must keep for the argmax to be among them — 4096 on the
+256 K vocab (vs 512 for BitNet), which makes greedy **byte-identical** to the
+dense head for **+5 %** decode (or +14 % if you trade exactness back via a
+smaller `GEIST_SPEC_TOPK`).
 
 ### Native Multimodal Audio
 `geist` features a built-in Conformer-based audio tower. Instead of a slow "Whisper → Text → LLM" cascade, we support direct audio-embedding prefixes. The LLM "hears" the audio directly, reducing latency and preserving prosody.
@@ -226,7 +259,10 @@ recompiles the CLI with the model baked in.)
 - [x] **Flatten Pi 5 prefill:** FFN-streaming, lm-head argmax, and a multi-threaded
   O(n²) attention core — the Pi prefill curve is now flat (pp1024 +35 %), though
   llama.cpp's OpenBLAS still edges raw prefill on the A76.
-- [ ] **BitNet Optimization:** Reach 1.0x reference parity for 2B-4T ternary models on Pi 5.
+- [x] **BitNet Optimization:** 2B-4T `I2_S` on the Pi 5 now decodes at **17.4 t/s**
+  — past bitnet.cpp (~2×) and Cougar's published 16.1 — via a speculative int8
+  output head. (Clock-matched to a throttled stock-cooler board the layer matmuls
+  still trail Cougar's `ea`-compiled kernels; see `benchmark/TERNARY_BITNET.md`.)
 - [ ] **Dynamic Quantization:** Release the first mixed-low-bit recipe for Gemma 4.
 - [ ] **Dynamic runtime threading:** choose the thread count per phase, and back off
   under thermal/load pressure, at runtime — instead of the fixed prefill=4 / decode=3.

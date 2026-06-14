@@ -307,6 +307,26 @@ struct transformer_arch_state {
     struct geist_weight embed_table_w;     /* P1.1.d lm_head kernels */
     struct geist_weight model_proj_w;      /* P1.1.e F32 dense kernels */
 
+    /* Speculative output head (GEIST_SPEC_HEAD=1): for a large tied F16
+     * lm_head, a stride-subsampled i8 "sketch" of the embedding table lets
+     * decode rough-rank the whole vocab cheaply, pick top-K, then compute
+     * EXACT f16 logits for only those K. Cuts the lm_head from ~656 MB to
+     * ~82 MB read per token (the decode bottleneck on the BitNet-2B-4T
+     * i2_s model). Lazily built on first use; nullptr/0 until then.
+     * spec_state: 0 = unbuilt, 1 = built+active, -1 = ineligible/disabled. */
+    int8_t  *spec_sketch;       /* [VOCAB * spec_sketch_dim] i8 */
+    float   *spec_row_scale;    /* [VOCAB] sketch dequant scale per row */
+    int8_t  *spec_x_i8;         /* [HIDDEN] quantized activation scratch */
+    int8_t  *spec_act_sketch;   /* [spec_sketch_dim] subsampled activation */
+    float   *spec_rough;        /* [VOCAB] rough scores scratch */
+    float   *spec_row_f32;      /* [HIDDEN] dequant scratch for the exact pass
+                                 * (quantized embeddings, e.g. Gemma's Q6_K) */
+    void    *spec_heap;         /* [spec_topk] (score,idx) top-K min-heap */
+    size_t   spec_sketch_dim;
+    size_t   spec_stride;       /* sketch subsample stride (GEIST_SPEC_STRIDE) */
+    size_t   spec_topk;         /* exact-finalist count (GEIST_SPEC_TOPK) */
+    int      spec_state;
+
     /* Owning buffer handles for the globals (mirrors layer .bufs[] pattern). */
     struct geist_buffer *global_bufs[8];
     size_t               n_global_bufs;

@@ -30,7 +30,8 @@
  *
  * Output: one JSON object per line on stdout, e.g.
  *   {"seq_len":256,"decode_n":64,"prefill_ms":1234.5,"decode_ms":890.1,
- *    "prefill_tps":207.4,"decode_tps":71.9,"rss_mb":4321.2,"threads":4}
+ *    "total_ms":2124.6,"prefill_tps":207.4,"decode_tps":71.9,
+ *    "total_tps":150.6,"rss_mb":4321.2,"threads":4}
  *
  * Bench-only; not a correctness test. Exits 77 (SKIP) if no GGUF found.
  */
@@ -240,9 +241,11 @@ int main(int argc, char** argv) {
         const int n_p = seq_lens[idx];
         double* prefill_ms = (double*) malloc((size_t) repeats * sizeof(*prefill_ms));
         double* decode_ms = (double*) malloc((size_t) repeats * sizeof(*decode_ms));
-        if (prefill_ms == nullptr || decode_ms == nullptr) {
+        double* total_ms_repeats = (double*) malloc((size_t) repeats * sizeof(*total_ms_repeats));
+        if (prefill_ms == nullptr || decode_ms == nullptr || total_ms_repeats == nullptr) {
             free(prefill_ms);
             free(decode_ms);
+            free(total_ms_repeats);
             fprintf(stderr, "alloc failed for repeats=%d\n", repeats);
             break;
         }
@@ -272,12 +275,14 @@ int main(int argc, char** argv) {
 
             prefill_ms[measured] = t_prefill;
             decode_ms[measured] = t_decode;
+            total_ms_repeats[measured] = t_prefill + t_decode;
             measured++;
         }
 
         if (measured == 0) {
             free(prefill_ms);
             free(decode_ms);
+            free(total_ms_repeats);
             continue;
         }
 
@@ -287,31 +292,49 @@ int main(int argc, char** argv) {
         const double t_decode = mean_of(decode_ms, measured);
         qsort(prefill_ms, (size_t) measured, sizeof(*prefill_ms), cmp_double);
         qsort(decode_ms, (size_t) measured, sizeof(*decode_ms), cmp_double);
+        qsort(total_ms_repeats, (size_t) measured, sizeof(*total_ms_repeats), cmp_double);
 
         const double pre_tps = (double) n_p * 1000.0 / t_prefill;
         const double dec_tps = (double) decode_n * 1000.0 / t_decode;
+        const double total_ms = t_prefill + t_decode;
+        const double total_tps =
+            (double) (n_p + decode_n) * 1000.0 / total_ms;
         const double pre_best = prefill_ms[0];
         const double pre_worst = prefill_ms[measured - 1];
         const double dec_best = decode_ms[0];
         const double dec_worst = decode_ms[measured - 1];
+        const double total_best = total_ms_repeats[0];
+        const double total_worst = total_ms_repeats[measured - 1];
+        const double total_tps_best =
+            (double) (n_p + decode_n) * 1000.0 / total_best;
+        const double total_tps_worst =
+            (double) (n_p + decode_n) * 1000.0 / total_worst;
 
         printf("{\"seq_len\":%d,\"decode_n\":%d,"
-               "\"prefill_ms\":%.2f,\"decode_ms\":%.2f,"
-               "\"prefill_tps\":%.3f,\"decode_tps\":%.3f,"
+               "\"prefill_ms\":%.2f,\"decode_ms\":%.2f,\"total_ms\":%.2f,"
+               "\"prefill_tps\":%.3f,\"decode_tps\":%.3f,\"total_tps\":%.3f,"
                "\"prefill_ms_best\":%.2f,\"prefill_ms_worst\":%.2f,"
                "\"decode_ms_best\":%.2f,\"decode_ms_worst\":%.2f,"
+               "\"total_ms_best\":%.2f,\"total_ms_worst\":%.2f,"
+               "\"total_tps_best\":%.3f,\"total_tps_worst\":%.3f,"
                "\"agg\":\"mean\",\"repeats\":%d,\"warmup\":%d,"
                "\"rss_mb\":%.2f,\"threads\":%d}\n",
                n_p,
                decode_n,
                t_prefill,
                t_decode,
+               total_ms,
                pre_tps,
                dec_tps,
+               total_tps,
                pre_best,
                pre_worst,
                dec_best,
                dec_worst,
+               total_best,
+               total_worst,
+               total_tps_best,
+               total_tps_worst,
                measured,
                warmup_n,
                process_rss_mb(),
@@ -319,6 +342,7 @@ int main(int argc, char** argv) {
         fflush(stdout);
         free(prefill_ms);
         free(decode_ms);
+        free(total_ms_repeats);
     }
 
     free(ids);

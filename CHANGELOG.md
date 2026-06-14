@@ -8,6 +8,32 @@ minor release.
 
 ## [Unreleased]
 
+### Added — speculative int8 output head for BitNet 2B-4T decode (Pi 5)
+
+- `GEIST_SPEC_HEAD=1` enables a speculative lm_head for large **tied F16**
+  embeddings (`src/archs/transformer/forward/spec_head.c`). On Microsoft's
+  BitNet-b1.58-2B-4T `I2_S` model the F16 lm_head is ~656 MB read per token —
+  ~50 % of decode. The spec head keeps a stride-4 int8 **sketch** of the
+  embedding (`[vocab, hidden/4]`, ~82 MB), rough-ranks the whole 128 K vocab with
+  one SDOT pass, takes the top-512, and computes **exact f16 logits** for only
+  those. Greedy output is byte-identical to the dense head (the deciding logits
+  are unquantized); opt-in, non-greedy sampling falls back automatically.
+- Result on a Raspberry Pi 5 (A76, `tests/bench_perf_sweep`, 2 t, 2.4 GHz):
+  BitNet 2B-4T `I2_S` **decode 9.83 → 17.4 tok/s** — past bitnet.cpp on the same
+  box (~2×) and past Cougar's published 16.1. See `benchmark/TERNARY_BITNET.md`
+  for method, the same-box bitnet.cpp/Cougar comparison, the clock-matched caveat,
+  and the layer-matmul kernel shapes (4-row, fused gate+up) that were tried and
+  reverted as A76 regressions.
+- The spec head also covers **block-quantized** tied lm_heads (Q3_K/Q4_K/Q5_K/
+  Q6_K/Q8_0). Phase 3 builds a one-row view of the embedding and calls the *same*
+  `linear_m1` the dense head uses (W6A8 for Q6_K), so finalist logits are
+  **bit-exact** — no f32-dequant approximation. The only approximation is sketch
+  recall (which rows become finalists), so `GEIST_SPEC_TOPK` is now vocab-aware
+  (512 for ≤200 K, 4096 above) and tunable along with `GEIST_SPEC_STRIDE`. On
+  **Gemma 4 E2B** (tied Q6_K, 256 K vocab) greedy is byte-identical to the dense
+  head at TOP_K 4096 for **+5 % decode** (6.94 → 7.29 t/s, 4 t; or +14 % if a
+  smaller TOP_K is allowed to diverge). Opt-in, greedy only.
+
 ## [0.2.1]
 
 ### Added — embed a model into the binary (single-file deploy)

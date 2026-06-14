@@ -80,6 +80,15 @@ static struct transformer_forward_profile g_head_profile = {
     transformer_profile_add(&g_head_profile, HEAD_PROFILE_NORM, t0);
     if (s != GEIST_OK) { return s; }
 
+    /* Speculative i8-sketch fast path (GEIST_SPEC_HEAD=1). Handles the whole
+     * projection + greedy argmax when eligible; otherwise falls through to the
+     * exact dense lm_head below. Reads the normalized hidden from scratch_h_a. */
+    t0 = profile ? transformer_profile_now_ns() : 0;
+    if (transformer_spec_head_try(st, out_token)) {
+        transformer_profile_add(&g_head_profile, HEAD_PROFILE_LM_HEAD, t0);
+        return GEIST_OK;
+    }
+
     struct geist_tensor t_h_2d = view_2d(st->sess->scratch_h_a, 1, st->d_model);
     struct geist_tensor t_logits_2d = view_2d(st->sess->scratch_logits, 1, st->vocab_size);
     t0 = profile ? transformer_profile_now_ns() : 0;

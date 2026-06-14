@@ -700,6 +700,13 @@ void transformer_state_destroy(struct transformer_arch_state *st) {
         }
         release_weight_aux(&st->embed_table_w);
         release_weight_aux(&st->model_proj_w);
+        safe_free((void **) &st->spec_sketch);
+        safe_free((void **) &st->spec_row_scale);
+        safe_free((void **) &st->spec_x_i8);
+        safe_free((void **) &st->spec_act_sketch);
+        safe_free((void **) &st->spec_rough);
+        safe_free((void **) &st->spec_row_f32);
+        safe_free((void **) &st->spec_heap);
         for (size_t b = 0; b < st->n_global_bufs; b++) {
             if (st->global_bufs[b] != nullptr) {
                 be->desc->vtbl->buffer_destroy(be, st->global_bufs[b]);

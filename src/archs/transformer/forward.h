@@ -51,6 +51,16 @@ compute_per_layer_inputs_batch(struct transformer_arch_state *st,
 finalize_logits_one_row(struct transformer_arch_state *st,
                          size_t row_idx, geist_token_t *out_token);
 
+/* Speculative i8-sketch output head (GEIST_SPEC_HEAD=1). On a large tied F16
+ * lm_head it rough-ranks the vocab via an int8 sketch, then computes exact
+ * f16 logits for the top-K candidates only — writing scratch_logits and the
+ * greedy argmax into *out_token. Returns true if it handled the projection
+ * (caller skips the dense lm_head); false to fall back to the exact path
+ * (disabled, ineligible weight, non-greedy sampling, or first-build OOM).
+ * Reads the normalized hidden from scratch_h_a. */
+bool transformer_spec_head_try(struct transformer_arch_state *st,
+                               geist_token_t *out_token);
+
 /* Batched variant for verify_forward — runs lm_head on k rows in one
  * batched call, writes k per-position argmaxes into out_tokens. */
 [[nodiscard]] enum geist_status

@@ -199,8 +199,6 @@ void transformer_kivi_drain_full(struct transformer_arch_state *st) {
     struct transformer_arch_state *st, geist_token_t ple_token_id,
     geist_token_t *out_token) {
 
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
     enum geist_status s;
 
     /* 1. PLE precompute for this token using the seeded h. P1.5.b:
@@ -225,64 +223,11 @@ void transformer_kivi_drain_full(struct transformer_arch_state *st) {
                                        st->sess->scratch_h_b);
     if (s != GEIST_OK) { return s; }
 
-    /* 3. Output norm. */
-    struct geist_tensor t_h_1d = view_1d(st->sess->scratch_h_b, st->d_model);
-    struct geist_tensor t_w_out_norm = view_1d(st->output_norm.buffer, st->d_model);
-    s = v->rmsnorm(be, &t_h_1d, &t_w_out_norm, st->config.rms_eps, &t_h_1d);
-    if (s != GEIST_OK) { return s; }
-
-    /* 4. lm_head linear: tied to embed_table. */
-    struct geist_tensor t_h_2d = view_2d(st->sess->scratch_h_b, 1, st->d_model);
-    struct geist_tensor t_logits_2d = view_2d(st->sess->scratch_logits, 1, st->vocab_size);
-    s = linear_w_or_legacy(be, v, st->sess->scratch_h_b, st->sess->scratch_logits,
-                            &st->embed_table_w, /* seq = */ 1,
-                            &t_h_2d, &st->embed_table, &t_logits_2d);
-    if (s != GEIST_OK) { return s; }
-
-    /* 5. Softcap: logits = tanh(logits / c) * c. Applied unconditionally when
-     * configured: greedy argmax is unaffected (tanh is monotonic), but the
-     * cached logits are also exposed via geist_session_peek_logits for
-     * scoring/eval, which must see the model-faithful (capped) distribution
-     * regardless of sampler mode. The pass is O(vocab) and ~1% of a decode
-     * step. */
-    if (st->config.logit_softcap > 0.0f) {
-        float *p = (float *) v->buffer_map(st->sess->scratch_logits);
-        const float c = st->config.logit_softcap;
-        for (size_t i = 0; i < (size_t) st->vocab_size; i++) {
-            p[i] = tanhf(p[i] / c) * c;
-        }
-        v->buffer_unmap(st->sess->scratch_logits);
-    }
-
-    /* 6. Sample. Dispatches to argmax / top-k / top-p / temperature
-     *    based on opts captured at state_create time. Greedy is the
-     *    default (temperature == 0).
-     *
-     * scratch_logits is already populated by the softcap pass above. On
-     * CPU backends buffer_map returns the host pointer directly so the
-     * sampler can read it without a download/copy. P0.1 (2026-05-15): the
-     * previous heap_alloc_aligned(VOCAB*4) + buffer_download here ran
-     * once per decode_step — a 1 MB heap alloc + free + memcpy. */
     geist_token_t best_id;
-    {
-        const float *logits = (const float *) v->buffer_map(st->sess->scratch_logits);
-        if (logits == nullptr) { return GEIST_E_BACKEND; }
-        if (st->sess->temperature == 0.0f) {
-            best_id = geist_sampler_argmax((size_t) st->vocab_size, logits);
-        } else if (st->sess->top_k > 1) {
-            best_id = geist_sampler_top_k_ws(&st->sess->sampler_ws, logits,
-                                              st->sess->top_k, st->sess->temperature, &st->sess->rng);
-        } else if (st->sess->top_p > 0.0f && st->sess->top_p < 1.0f) {
-            best_id = geist_sampler_top_p_ws(&st->sess->sampler_ws, logits,
-                                              st->sess->top_p, st->sess->temperature, &st->sess->rng);
-        } else {
-            best_id = geist_sampler_temperature((size_t) st->vocab_size,
-                                                 logits, st->sess->temperature, &st->sess->rng);
-        }
-        v->buffer_unmap(st->sess->scratch_logits);
-    }
+    s = finalize_logits_one_row(st, 0, &best_id);
+    if (s != GEIST_OK) { return s; }
 
-    /* 7. Advance KV, stash prediction. */
+    /* 3. Advance KV, stash prediction. */
     st->sess->kv_len = q_position + 1;
     if (st->sess->kv_kivi_enabled) {
         st->sess->kivi_residual_count += 1;
