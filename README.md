@@ -157,6 +157,23 @@ Versus **bitnet.cpp** (Microsoft's reference, the same `i2_s` model on the same
 Pi): geist decode **17.4 t/s vs 8.2–8.7** — roughly **2× faster**. Both peak at
 2 threads.
 
+**Run it on your own Pi 5** — from nothing to a chatting BitNet in three steps
+(Raspberry Pi OS / Debian; needs a C23 compiler, `gcc ≥ 14`):
+
+```bash
+# 1. Build geist (auto-detects the Pi 5 target; drops a ./geist symlink)
+sudo apt install -y git build-essential libopenblas-dev
+git clone https://github.com/geisten/geist && cd geist && make
+
+# 2. Download Microsoft's BitNet b1.58 2B-4T ternary model (~1.1 GB, fits in 4 GB RAM)
+curl -L -o bitnet-2b4t.i2_s.gguf \
+  https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf/resolve/main/ggml-model-i2_s.gguf
+
+# 3. Generate — GEIST_SPEC_HEAD=1 enables the speculative head (the 17.4 tok/s path)
+GEIST_SPEC_HEAD=1 OMP_WAIT_POLICY=active OMP_NUM_THREADS=2 \
+  ./geist bitnet-2b4t.i2_s.gguf "The capital of France is" -n 64
+```
+
 The decode win comes from a **speculative output head** (`GEIST_SPEC_HEAD=1`):
 on this model the lm_head is a tied **F16** embedding (656 MB read *per token*,
 ~50 % of decode). geist keeps a stride-subsampled int8 "sketch" of the table
