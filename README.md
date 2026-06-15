@@ -329,4 +329,6 @@ microkernels** and **low-bit quantization research**. Start with
 
 ---
 
+📄 [Impressum](IMPRESSUM.md) · © 2026 geisten Holding UG (haftungsbeschränkt)
+
 *“The future of AI is local, private, and embedded.”* 👻
