@@ -3,8 +3,8 @@
 Angaben gemäß § 5 DDG (Digitale-Dienste-Gesetz)
 
 **geisten Holding UG (haftungsbeschränkt)**
-[Straße Hausnummer]
-[PLZ Ort]
+Wilhelm-Haas-Str. 1
+41564 Kaarst
 Deutschland
 
 ## Vertreten durch den Geschäftsführer
@@ -20,23 +20,19 @@ E-Mail: g.schlegel@geisten.net
 ## Registereintrag
 
 Eintragung im Handelsregister.
-Registergericht: Amtsgericht [Ort]
-Registernummer: HRB [.....]
+Registergericht: Amtsgericht Neuss
+Registernummer: HRB 25349
 
+<!-- Falls vorhanden — sonst diesen Abschnitt entfernen:
 ## Umsatzsteuer-ID
 
-<!-- Falls vorhanden — sonst diesen Abschnitt entfernen: -->
 Umsatzsteuer-Identifikationsnummer gemäß § 27 a Umsatzsteuergesetz:
 DE [.........]
-
-<!--
-Nur falls journalistisch-redaktionelle Inhalte angeboten werden
-(für ein reines Software-Repository i. d. R. nicht nötig):
+-->
 
 ## Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV
 
 Germar Schlegel, Anschrift wie oben
--->
 
 ---
 
