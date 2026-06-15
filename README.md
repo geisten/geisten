@@ -4,7 +4,7 @@
 
 # geist 👻
 
-[![CI](https://github.com/geisten/geist/actions/workflows/ci.yml/badge.svg)](https://github.com/geisten/geist/actions/workflows/ci.yml)
+[![CI](https://github.com/geisten/geistlib/actions/workflows/ci.yml/badge.svg)](https://github.com/geisten/geistlib/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C Standard](https://img.shields.io/badge/C-C23-orange.svg)](https://en.wikipedia.org/wiki/C23_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20(ARM64)-lightgrey.svg)](#-build--usage)
@@ -163,7 +163,7 @@ Pi): geist decode **17.4 t/s vs 8.2–8.7** — roughly **2× faster**. Both pea
 ```bash
 # 1. Build geist (auto-detects the Pi 5 target; drops a ./geist symlink)
 sudo apt install -y git build-essential libopenblas-dev
-git clone https://github.com/geisten/geist && cd geist && make
+git clone https://github.com/geisten/geistlib && cd geistlib && make
 
 # 2. Download Microsoft's BitNet b1.58 2B-4T ternary model (~1.1 GB, fits in 4 GB RAM)
 curl -L -o bitnet-2b4t.i2_s.gguf \
