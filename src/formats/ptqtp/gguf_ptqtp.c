@@ -250,13 +250,33 @@ struct ptqtp_ctx* ptqtp_open(const char* path, const char** err) {
 
     /* Pre-convert all alpha values from fp16 to fp32 once. The kernel hot
      * path otherwise calls a software fp16_to_fp32 ~15M times per token. */
+    /* total_alpha_elems is summed from tensor dims read out of the (possibly
+     * corrupt/hostile) GGUF file. Every step — the per-tensor product, the
+     * running sum, and the final byte-size multiply — is checked for size_t
+     * overflow. A wrapped size would under-allocate and let the convert loop
+     * below overflow the heap (AGENT.md: correctness first, no silent
+     * truncation). */
     size_t total_alpha_elems = 0;
+    bool   size_overflow     = false;
     for (uint32_t i = 0; i < ctx->n_tensors; i++) {
-        total_alpha_elems += (size_t)ctx->tensors[i].n_out
-                              * ctx->tensors[i].n_groups
-                              * ctx->tensors[i].n_planes;
+        const size_t b     = (size_t)ctx->tensors[i].n_groups;
+        const size_t c     = (size_t)ctx->tensors[i].n_planes;
+        size_t       elems = (size_t)ctx->tensors[i].n_out;
+        if ((b != 0 && elems > SIZE_MAX / b)) { size_overflow = true; break; }
+        elems *= b;
+        if ((c != 0 && elems > SIZE_MAX / c)) { size_overflow = true; break; }
+        elems *= c;
+        if (elems > SIZE_MAX - total_alpha_elems) { size_overflow = true; break; }
+        total_alpha_elems += elems;
     }
-    ctx->alpha_fp32_arena = (float*)aligned_alloc(64, ((total_alpha_elems * sizeof(float)) + 63) & ~(size_t)63);
+    if (size_overflow || total_alpha_elems > SIZE_MAX / sizeof(float)) {
+        if (err) *err = ERR_NOMEM;
+        ptqtp_close(ctx);
+        return nullptr;
+    }
+    /* Route through heap.h (per AGENT.md) instead of a raw aligned_alloc; it
+     * applies its own overflow-checked rounding and >=64-byte alignment. */
+    ctx->alpha_fp32_arena = heap_alloc_array_aligned(float, total_alpha_elems);
     if (!ctx->alpha_fp32_arena) {
         if (err) *err = ERR_NOMEM;
         ptqtp_close(ctx);

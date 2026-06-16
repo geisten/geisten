@@ -31,9 +31,10 @@ static void *libc_alloc(void *ctx, size_t bytes, size_t alignment) {
 
 static void libc_free(void *ctx, void *ptr) {
     (void) ctx;
-    if (ptr == nullptr) {
-        return;
-    }
+    /* Route through heap.h's safe_free (the project's free interface, per
+     * AGENT.md); it already tolerates null. Note safe_free nulls only our
+     * local `ptr` copy — that has no effect on the caller's pointer, which
+     * is theirs to clear. We don't pretend otherwise here. */
     safe_free(&ptr);
 }
 

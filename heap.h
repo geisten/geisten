@@ -46,9 +46,12 @@ size_t calculate_aligned_size(size_t original_size);
  *
  * Example:
  *   struct memory_arena arena = create_memory_arena(1024 * 1024); // 1MB arena
+ *   if (!arena.memory) { ... handle failure ... }
  *
  * Limitations:
- *   - If memory allocation fails, the function will print an error and exit
+ *   - On allocation failure the returned arena has memory == nullptr (and
+ *     size/used == 0); the caller MUST check before use. This function does
+ *     not exit() — prefer try_create_memory_arena() to handle failure inline.
  *   - The arena is not thread-safe, should only be used by one thread
  */
 [[nodiscard]] struct memory_arena create_memory_arena(size_t size);

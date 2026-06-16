@@ -1732,7 +1732,8 @@ size_t audio_encoder_run(const struct AudioEncoder* a, const float* mel_in,
 /* === Phase 8b chunk-streaming scaffolding (impl in subsequent commit). === */
 
 static struct audio_stream_state* audio_stream_state_create(void) {
-    struct audio_stream_state* s = calloc(1, sizeof(*s));
+    struct audio_stream_state* s =
+        heap_calloc_array_aligned(struct audio_stream_state, 1);
     if (s == nullptr) return nullptr;
     for (int li = 0; li < N_LAYERS; li++) {
         s->attn[li].k = heap_calloc_array_aligned(float, MAX_SUB_TOKENS * AUDIO_HIDDEN);
@@ -1771,7 +1772,7 @@ static void audio_stream_state_destroy(struct audio_stream_state* s) {
     safe_free((void **) &s->soft);
     safe_free((void **) &s->subs.l0);
     safe_free((void **) &s->subs.l1);
-    free(s);
+    safe_free((void **) &s);
 }
 
 static void audio_stream_state_reset(struct audio_stream_state* s) {
