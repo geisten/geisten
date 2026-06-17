@@ -138,6 +138,21 @@ int main(void) {
            t_decode / (double) decode_n,
            (double) decode_n / (t_decode / 1e3));
 
+    /* Total (prefill+decode) end-to-end throughput — the user-facing number:
+     * how fast a request of (PP prompt + TG generated) tokens completes.
+     * total tok/s = (PP + TG) / (prefill_time + decode_time). This combines
+     * the fast prefill and slow decode by the actual workload mix, so it is
+     * directly comparable to `llama-bench -pg PP,TG`. */
+    const double t_total = t_prefill + t_decode;
+    const size_t n_total = prefill_n + (size_t) decode_n;
+    printf("  total   (%zu tok):  %8.1f ms  =  %5.2f ms/tok  =  %6.1f tok/s  (pp%zu+tg%d, user-facing)\n",
+           n_total,
+           t_total,
+           t_total / (double) n_total,
+           (double) n_total / (t_total / 1e3),
+           prefill_n,
+           decode_n);
+
     /* Sampler-state sanity check via stats. */
     struct geist_session_stats stats;
     geist_session_get_stats(sess, &stats);
