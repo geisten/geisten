@@ -4,7 +4,7 @@
  * the on-disk 3-plane format (1 byte per weight, idx = (T1+1)*9 + (T2+1)*3 +
  * (T3+1)), runs the kernel, and compares to a hand-rolled scalar dot product.
  */
-#include "gguf_quant.h"
+#include "quant.h"
 #include "ptqtp_kernel.h"
 
 #include <math.h>

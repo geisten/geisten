@@ -17,7 +17,8 @@
  *   embedding        — token + PLE table lookups
  */
 #include "gguf_reader.h"
-#include "gguf_quant.h"
+#include "quant.h"
+#include "gguf_dequant.h"
 #include "gemma4_kernels.h"
 
 #include <math.h>

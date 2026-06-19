@@ -11,9 +11,9 @@
  * src/backends/cpu_neon/kernels/iq2_s.c. The shared helper
  * iq2s_subblock_to_int8 is `static inline` here AND there.
  */
-#include "internal.h"
-#include "gguf_quant.h"
-#include "gguf_iq_grids.h"
+#include "quant_blocks.h"
+#include "quant.h"
+#include "iq_grids.h"
 
 #include <stddef.h>
 #include <stdint.h>

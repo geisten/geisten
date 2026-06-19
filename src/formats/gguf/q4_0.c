@@ -4,8 +4,8 @@
  * Layer: BACKEND. Extracted from gguf_quant.c during the per-quant
  * format split.
  */
-#include "internal.h"
-#include "gguf_quant.h"
+#include "quant_blocks.h"
+#include "quant.h"
 
 #include <math.h>
 #include <stdint.h>

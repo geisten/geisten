@@ -36,7 +36,7 @@
 #include <geist_backend.h>
 #include <geist_weight.h>
 
-#include "gguf_quant.h"
+#include "quant.h"
 #include "heap.h"
 
 #include <stddef.h>

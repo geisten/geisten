@@ -1,14 +1,14 @@
 /*
  * src/backends/cpu_neon/kernels/q3_K.c — Q3_K W3A8 NEON kernels.
  *
- * Block layout from src/formats/gguf/internal.h. Two helpers are
+ * Block layout from src/quant/quant_blocks.h. Two helpers are
  * shared with the format-side dequant in src/formats/gguf/q3_K.c
  * (unpack_q3k_scales, q3k_reconstruct_q32); both are `static inline`
  * and duplicated here rather than promoted to a cross-layer header.
  */
-#include "internal.h"
+#include "quant_blocks.h"
 #include "heap.h"
-#include "gguf_quant.h"
+#include "quant.h"
 
 #include <stddef.h>
 #include <stdint.h>

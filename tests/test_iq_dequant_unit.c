@@ -9,7 +9,8 @@
  * with our impl, prints first 32 floats + sum/sum-of-squares for visual diff.
  */
 #include "gguf_reader.h"
-#include "gguf_quant.h"
+#include "quant.h"
+#include "gguf_dequant.h"
 #include "test_helpers.h"
 
 #include <math.h>

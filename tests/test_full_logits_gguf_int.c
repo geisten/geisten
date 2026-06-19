@@ -9,7 +9,8 @@
  * Validates against `dumps[T*]['logits']` (1, seq, 262144).
  */
 #include "gguf_reader.h"
-#include "gguf_quant.h"
+#include "quant.h"
+#include "gguf_dequant.h"
 #include "gemma4_kernels.h"
 #include "test_helpers.h"
 

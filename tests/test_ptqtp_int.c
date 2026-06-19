@@ -10,7 +10,7 @@
  * order rounding noise.)
  */
 #include "gguf_ptqtp.h"
-#include "gguf_quant.h"
+#include "quant.h"
 #include "ptqtp_kernel.h"
 #include "test_helpers.h"
 

@@ -1,11 +1,11 @@
 /*
  * src/backends/cpu_neon/kernels/q8_0.c — Q8_0 W8A8 NEON kernels.
  *
- * Pure compute. Block layout from src/formats/gguf/internal.h.
+ * Pure compute. Block layout from src/quant/quant_blocks.h.
  */
-#include "internal.h"
+#include "quant_blocks.h"
 #include "heap.h"
-#include "gguf_quant.h"
+#include "quant.h"
 
 #include <stdint.h>
 #include <stdlib.h>

@@ -15,7 +15,7 @@
 #include "internal.h"
 
 #include "gemma4_kernels.h"
-#include "gguf_quant.h"
+#include "quant.h"
 #include "heap.h"
 
 #include <geist.h>

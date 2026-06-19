@@ -4,8 +4,8 @@
  * Pure file-format decoder. W8A8 NEON kernels live in
  * src/backends/cpu_neon/kernels/q8_0.c.
  */
-#include "internal.h"
-#include "gguf_quant.h"
+#include "quant_blocks.h"
+#include "quant.h"
 
 #include <stddef.h>
 #include <stdint.h>

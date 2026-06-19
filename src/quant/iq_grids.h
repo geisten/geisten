@@ -1,11 +1,12 @@
 /*
- * gguf_iq_grids — codebook lookup tables for IQ2_S and IQ3_S dequant.
+ * iq_grids — codebook lookup tables for IQ2_S and IQ3_S dequant.
  * Ported verbatim from llama.cpp ggml/src/ggml-common.h.
- * Used only by gguf_quant.c; placed in a separate header to keep the
- * 10 KB of constant data out of the main translation unit listing.
+ * Shared by the formats/gguf dequant path and the cpu_neon IQ kernels;
+ * kept in a separate header so the ~10 KB of constant data stays out of
+ * the main translation-unit listings.
  */
-#ifndef GGUF_IQ_GRIDS_H
-#define GGUF_IQ_GRIDS_H
+#ifndef IQ_GRIDS_H
+#define IQ_GRIDS_H
 
 #include <stdint.h>
 
@@ -348,4 +349,4 @@ static const uint32_t iq3s_grid[512] = {
         0x0f0f0101,
 };
 
-#endif /* GGUF_IQ_GRIDS_H */
+#endif /* IQ_GRIDS_H */

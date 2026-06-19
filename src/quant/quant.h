@@ -1,16 +1,22 @@
 /*
- * GGUF quantization-format dequant kernels — Q8_0 and Q4_K (k-quants 4-bit).
+ * quant — quantization subsystem contract shared by formats/ and backends/.
  *
- * Both produce row-major FP32 output. They mirror the reference algorithms
- * in llama.cpp/ggml-quants.c — see comments per function for exact line refs.
+ * Defines the block layouts (element/byte sizes) for every supported quant
+ * dtype, the fp16->fp32 helper, the dequant-to-fp32 row codecs, and the
+ * quantized linear-kernel API. Deliberately format-agnostic: it operates on
+ * raw block memory (const void *) and scalars, with no GGUF (or any
+ * file-format) types. formats/gguf and the CPU backends provide the
+ * implementations; archs and backends consume this contract. The GGUF
+ * tensor-aware dispatch (gguf_dequant_to_fp32) lives in formats/gguf/gguf_dequant.h.
+ *
+ * Block dequant kernels mirror the reference algorithms in
+ * llama.cpp/ggml-quants.c — see comments per function for exact line refs.
  */
-#ifndef GGUF_QUANT_H
-#define GGUF_QUANT_H
+#ifndef QUANT_H
+#define QUANT_H
 
 #include <stddef.h>
 #include <stdint.h>
-
-#include "gguf_reader.h"
 
 /* FP16 -> FP32. On ARM64 (and Apple Silicon) where __fp16 is hardware-
  * native, this is a single `fcvt` instruction and inlines to zero call
@@ -227,19 +233,9 @@ void linear_iq3s_flat_w3a8_prefill_pre(const int8_t *x_q8,
                                        size_t        n_out,
                                        float        *y);
 
-/* Generic dispatch: dequantize a GGUF tensor of any supported dtype to a
- * freshly malloc'd FP32 array. Caller frees. Returns nullptr on error
- * (unsupported dtype or alloc failure). */
-float *gguf_dequant_to_fp32(const struct gguf_tensor_t *t);
-
-/* Dequant a single row of a 2D tensor into the caller-provided buffer.
- * row_elems must equal the row length (= columns); must be a multiple of
- * the block size for Q-formats. Used by callers that can't afford to
- * dequant the whole tensor (e.g. PLE table on memory-constrained Pi 5). */
-bool gguf_dequant_row_to_fp32(const struct gguf_tensor_t *t,
-                              size_t                      row_idx,
-                              size_t                      row_elems,
-                              float                      *out);
+/* GGUF tensor-aware dequant dispatch (gguf_dequant_to_fp32 /
+ * gguf_dequant_row_to_fp32) lives in formats/gguf/gguf_dequant.h — it
+ * depends on struct gguf_tensor_t and so is kept out of this neutral header. */
 
 /* Fused Q4_K vec-matmul (decode case, M=1) — FP32 reference path.
  *

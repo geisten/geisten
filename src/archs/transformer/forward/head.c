@@ -18,7 +18,7 @@
 #include "../arch_state.h"
 #include "../forward.h"
 
-#include "gguf_quant.h"
+#include "quant.h"
 #include "gemma4_kernels.h"
 
 #include <geist.h>

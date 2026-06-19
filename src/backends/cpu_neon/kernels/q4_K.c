@@ -13,9 +13,9 @@
  * too — it uses the format struct + helpers but the cblas trampoline
  * in cpu_neon's weight_resolve sees it as a competitor kernel.
  */
-#include "internal.h"
+#include "quant_blocks.h"
 #include "heap.h"
-#include "gguf_quant.h"
+#include "quant.h"
 #include "gemma4_kernels.h"
 
 #include <math.h>

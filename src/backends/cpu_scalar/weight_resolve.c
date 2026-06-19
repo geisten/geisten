@@ -24,7 +24,7 @@
 
 #include "internal.h"
 
-#include "gguf_quant.h"
+#include "quant.h"
 #include "heap.h"
 
 #include <geist.h>

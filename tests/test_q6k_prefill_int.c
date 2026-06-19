@@ -14,7 +14,7 @@
  *
  * SKIPs cleanly if no GGUF model is reachable.
  */
-#include "gguf_quant.h"
+#include "quant.h"
 #include "gguf_reader.h"
 #include "test_helpers.h"
 

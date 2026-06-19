@@ -5,8 +5,8 @@
  * src/backends/cpu_neon/kernels/q5_K.c. struct block_q5_K_t lives in
  * internal.h so both can share it.
  */
-#include "internal.h"
-#include "gguf_quant.h"
+#include "quant_blocks.h"
+#include "quant.h"
 
 #include <stddef.h>
 #include <stdint.h>

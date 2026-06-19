@@ -14,7 +14,7 @@
 #include "heap.h"
 
 #include "internal.h"
-#include "gguf_quant.h"
+#include "quant.h"
 
 #include <geist_weight.h>
 

@@ -52,7 +52,7 @@
 #include <geist_backend.h>
 
 #include "../../../engine/sampler.h"
-#include "gguf_quant.h"
+#include "quant.h"
 #include "heap.h"
 
 #include <math.h>

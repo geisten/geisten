@@ -1,13 +1,18 @@
 /*
- * src/formats/gguf/internal.h — shared helpers for the
- * per-quant-format gguf_quant/ TUs.
+ * quant_blocks — packed memory layouts of every quantized block type, plus
+ * the small inline helpers shared by the dequant codecs (formats/gguf) and
+ * the W*A8 compute kernels (backends/cpu_neon).
  *
- * Layer: BACKEND (private). Not part of the public ABI.
+ * These `__attribute__((packed))` structs ARE the block-layout contract:
+ * each is _Static_assert'd against its byte size from quant.h. They carry no
+ * file-format types, so this header sits in the neutral quant/ module rather
+ * than inside formats/gguf, where the NEON kernels used to reach it across a
+ * layer boundary.
  *
- * Hosts the genuinely cross-format helpers — currently:
+ * Helpers here:
  *   - get_scale_min_k4: 6-bit scale/min unpack shared by Q4_K and Q5_K
  *   - quantize_x_int8_sym: per-vector symmetric INT8 quant, used by all
- *     W*A8 kernels.
+ *     W*A8 kernels (also declared in quant.h).
  *
  * Per-format-only helpers (unpack_q3k_scales, q4k_subpair_dots,
  * iq2s/iq3s subblock decoders, q3k NEON inlines, etc.) live inside the
@@ -15,7 +20,7 @@
  */
 #pragma once
 
-#include "gguf_quant.h"
+#include "quant.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -32,7 +37,7 @@
  * file format dictates (no compiler-inserted padding). _Static_assert
  * on each definition verifies the size against the published constant.
  *
- * Block constants live in gguf_quant.h (public format header). */
+ * Block constants live in quant.h (the neutral quant contract). */
 
 struct block_q3_K_t {
     uint8_t  hmask[32];

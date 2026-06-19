@@ -9,8 +9,8 @@
  * The struct block_q4_K_t lives in internal.h so the NEON kernels
  * can also see the layout.
  */
-#include "internal.h"
-#include "gguf_quant.h"
+#include "quant_blocks.h"
+#include "quant.h"
 
 #include <stddef.h>
 #include <stdint.h>

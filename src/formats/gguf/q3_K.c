@@ -10,8 +10,8 @@
  * unpack_q3k_scales + q3k_reconstruct_q32 as static inline for the same
  * reason — DRY would mean a third header neither file fully owns.
  */
-#include "internal.h"
-#include "gguf_quant.h"
+#include "quant_blocks.h"
+#include "quant.h"
 
 #include <stddef.h>
 #include <stdint.h>

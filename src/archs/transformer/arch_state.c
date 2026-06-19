@@ -23,7 +23,7 @@
 #include "scratch_plan.h"
 #include "weight_load.h"
 
-#include "gguf_quant.h"
+#include "quant.h"
 #include "gguf_reader.h"
 #include "gemma4_kernels.h"
 #include "heap.h"

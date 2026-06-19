@@ -17,7 +17,7 @@
  *     default tensor: blk.0.ffn_gate.weight
  */
 #include "gguf_ptqtp.h"
-#include "gguf_quant.h"
+#include "quant.h"
 #include "ptqtp_kernel.h"
 
 #include <alloca.h>

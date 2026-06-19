@@ -3,7 +3,7 @@
  * Measures GB/s for the scalar (current) implementation against synthetic
  * tensor data sized like Gemma 4 E2B FFN weights.
  */
-#include "gguf_quant.h"
+#include "quant.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

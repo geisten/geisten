@@ -49,12 +49,16 @@ WARNINGS_STRICT := $(WARNINGS_BASE) -Wshadow -Wundef
 #   -Isrc/base  foundation layer — heap.h (project-wide allocation policy per
 #               AGENT.md), arena.h, error.h, hw_probe.h. Depends on nothing
 #               internal; every other layer may include it by basename.
+#   -Isrc/quant quantization contract — quant.h (block layouts, dequant row
+#               codecs, quantized linear kernels) + iq_grids.h. Format-agnostic;
+#               shared by formats/gguf and the CPU backends.
 #   -I.         project root — internal tests reaching across the engine/arch
 #               boundary via path-relative includes
 #               (e.g. `#include "src/archs/transformer/arch_state_v2.h"`)
 CFLAGS_BASE := -std=c23 $(WARNINGS) -fno-strict-aliasing \
                -Iinclude -I. \
                -Isrc/base \
+               -Isrc/quant \
                -Isrc/backends/common \
                -Isrc/formats/gguf \
                -Isrc/formats/ptqtp \
@@ -76,6 +80,7 @@ CFLAGS        := $(CFLAGS_BASE) $(BACKEND_DEFINES) $(CFLAGS_MODE) $(CFLAGS_TARGE
 CFLAGS_STRICT := -std=c23 $(WARNINGS_STRICT) -fno-strict-aliasing \
                  -Iinclude -I. \
                  -Isrc/base \
+                 -Isrc/quant \
                  -Isrc/backends/common \
                  -Isrc/formats/gguf \
                  -Isrc/formats/ptqtp \

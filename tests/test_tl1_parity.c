@@ -12,7 +12,7 @@
 #include <geist.h>
 #include <geist_weight.h>
 
-#include "gguf_quant.h"
+#include "quant.h"
 
 #include <math.h>
 #include <stdint.h>

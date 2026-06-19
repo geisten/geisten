@@ -2,14 +2,14 @@
  * src/backends/cpu_neon/kernels/iq3_s.c — IQ3_S W3A8 NEON kernels
  * (standard + flat-cache variant).
  *
- * Block layout from src/formats/gguf/internal.h. iq3s_subblock_to_int8
+ * Block layout from src/quant/quant_blocks.h. iq3s_subblock_to_int8
  * is duplicated as static inline (same in formats/gguf/iq3_s.c) — the
  * helper is shared between dequant + W3A8 inner loop.
  */
-#include "internal.h"
+#include "quant_blocks.h"
 #include "heap.h"
-#include "gguf_quant.h"
-#include "gguf_iq_grids.h"
+#include "quant.h"
+#include "iq_grids.h"
 
 #include <stddef.h>
 #include <stdint.h>

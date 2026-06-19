@@ -1,15 +1,15 @@
 /*
  * src/backends/cpu_neon/kernels/q6_K.c — Q6_K W6A8 NEON kernels.
  *
- * Pure compute. Block layout from src/formats/gguf/internal.h; the
+ * Pure compute. Block layout from src/quant/quant_blocks.h; the
  * file-format decoder dequant_q6_K_row stays in src/formats/gguf/q6_K.c.
  *
  * Owns the M=1 decode (with deferred -32 bias correction), the M>1
  * prefill (per-row workspace allocation), and the FP32 reference.
  */
-#include "internal.h"
+#include "quant_blocks.h"
 #include "heap.h"
-#include "gguf_quant.h"
+#include "quant.h"
 
 #include <stddef.h>
 #include <stdint.h>

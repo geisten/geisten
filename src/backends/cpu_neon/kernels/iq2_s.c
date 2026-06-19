@@ -2,16 +2,16 @@
  * src/backends/cpu_neon/kernels/iq2_s.c — IQ2_S W2A8 NEON kernels
  * (standard + flat-cache variant).
  *
- * Block layout from src/formats/gguf/internal.h; iq2s_subblock_to_int8
+ * Block layout from src/quant/quant_blocks.h; iq2s_subblock_to_int8
  * is duplicated as static inline (also lives in formats/gguf/iq2_s.c)
  * because it is shared between dequant and the W2A8 inner loop.
  * Promoting it to a cross-layer header would require another shared
  * file that neither layer fully owns; the duplication is ~20 lines.
  */
-#include "internal.h"
+#include "quant_blocks.h"
 #include "heap.h"
-#include "gguf_quant.h"
-#include "gguf_iq_grids.h"
+#include "quant.h"
+#include "iq_grids.h"
 
 #include <stddef.h>
 #include <stdint.h>

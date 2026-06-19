@@ -9,9 +9,9 @@
  * src/backends/cpu_neon/kernels/iq3_s.c. The shared
  * iq3s_subblock_to_int8 helper is `static inline` in both files.
  */
-#include "internal.h"
-#include "gguf_quant.h"
-#include "gguf_iq_grids.h"
+#include "quant_blocks.h"
+#include "quant.h"
+#include "iq_grids.h"
 
 #include <stddef.h>
 #include <stdint.h>

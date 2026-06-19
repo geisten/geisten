@@ -13,7 +13,7 @@
  *
  * SKIPs cleanly if the IQ2_M model is not available.
  */
-#include "gguf_quant.h"
+#include "quant.h"
 #include "gguf_reader.h"
 #include "test_helpers.h"
 

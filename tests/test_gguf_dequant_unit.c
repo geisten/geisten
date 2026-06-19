@@ -4,7 +4,7 @@
  * dequantization for bit-close parity.
  */
 #include "gguf_reader.h"
-#include "gguf_quant.h"
+#include "quant.h"
 #include "test_helpers.h"
 
 #include <stdio.h>

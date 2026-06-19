@@ -32,7 +32,7 @@
 
 #include "src/archs/transformer/arch_state.h"
 
-#include "gguf_quant.h"
+#include "quant.h"
 #include "gguf_reader.h"
 #include "gemma4_kernels.h"
 
