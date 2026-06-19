@@ -31,6 +31,50 @@ self-register into runtime registries (`src/engine/*_registry.c`), so the set
 compiled in is a build-time choice (`make BACKENDS="..."`) and the one used is a
 runtime choice (`geist_backend_create("auto" | "cpu_neon" | ...)`).
 
+## Processing pipeline
+
+End-to-end flow of a request, from loading a model to emitting tokens. Load-time
+work (parse, kernel binding) happens once; the decode loop is the per-token hot
+path. The dense-fp32 `geist_sgemm` node is where the build-time `GEMM_PROVIDER`
+(accelerate / openblas / native) plugs in; quantized weights bypass it entirely
+via the kernel bound at load time.
+
+```mermaid
+flowchart TD
+    subgraph LOAD["Load time — decide everything expensive once"]
+        A["geist_model_load(path)<br/>GGUF parse · io/"] --> B["arch_registry_lookup<br/>match general.architecture"]
+        B --> C["decoder_ops.state_create<br/>load weights · KV layout"]
+        C --> D["resolve_weight per tensor<br/>bind (op,dtype,layout) → kernel ptr<br/>backends/*/weight_resolve.c"]
+    end
+
+    D --> E["geist_backend_create<br/>auto | cpu_neon | cpu_scalar"]
+    E --> F["geist_session_create<br/>KV cache · sampler · scratch"]
+
+    F --> G{"input modality"}
+    G -->|text| H["geist_session_set_prompt<br/>tokenize"]
+    G -->|audio / image / video| I["geist_session_attach_*<br/>tower: mel/patch → encoder → projector<br/>archs/audio_conformer · vision_siglip"]
+    I --> J["soft tokens (embeddings)"]
+    H --> K["prefill: append tokens to KV cache"]
+    J --> K
+
+    K --> L{{"decode step (loop)"}}
+    L --> M["per layer: RMSNorm → attention<br/>RoPE · GQA · KV append · fused QK^T·softmax·V"]
+    M --> N["residual → RMSNorm → FFN<br/>gate/up linear · SiLU/GELU · down linear"]
+    N --> O{"linear weight dtype"}
+    O -->|quantized| P["NEON W*A8 kernel<br/>cpu_neon/kernels/*"]
+    O -->|dense fp32| Q["geist_sgemm<br/>GEMM_PROVIDER: accelerate | openblas | native"]
+    P --> R["head → logits"]
+    Q --> R
+    R --> S["sampler: greedy / top-k / top-p"]
+    S --> T["geist_session_token_to_str → emit"]
+    T -->|"not EOS and under limit"| L
+    T -->|"EOS or limit"| U(["done"])
+```
+
+Speculative decode (`geist_session_decode_speculative`) replaces the single
+`decode step` with an n-gram draft + one batched `verify_forward`; on a miss it
+falls back to the sequential path shown above.
+
 ## Zero-dispatch kernel binding
 
 Generic engines walk a layer-dispatch loop every token, switching on dtype and
