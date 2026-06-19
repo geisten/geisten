@@ -39,14 +39,14 @@ linux-arm64: build + unit tests + clang-format gate). Tagging a `v*` tag
 
 1. ✅ **`geist_gemm` / `geist_gemv` abstraction** — all dense-fp32 cblas call
    sites route through one interface; backend selectable at build time
-   (`cblas` default | `native` via `GEIST_BLAS_FREE=1`). The future AVX backend
-   slots in here as a third backend.
+   (`GEMM_PROVIDER=accelerate|openblas|native`, via `mk/gemm-<provider>.mk`).
+   A future MKL/BLIS/ARMPL provider slots in as another fragment.
 2. ✅ **Measured** — dense fp32 is **~2.6 %** of text inference (Pi 5), and
    native int8 beats the OpenBLAS dequant→sgemm path **2.3×** for the quant
    matmuls. Well under the 10 % gate → linux-arm64 goes BLAS-free.
 3. ✅ **Native NEON fp32 GEMM/GEMV (4×4 register-blocked) + vendored radix-2
-   FFT** — the BLAS-free, FFTW-free build (`GEIST_BLAS_FREE=1`) depends only on
-   libc/libm/libgomp; quality gate unchanged (28/28). Audio keeps vDSP on macOS.
+   FFT** — the BLAS-free, FFTW-free build (`GEMM_PROVIDER=native`) depends only
+   on libc/libm/libgomp; quality gate unchanged (28/28). Audio keeps vDSP on macOS.
 4. ✅ **CI matrix v0.1 = ARM only** — `release.yml` builds `linux-arm64` (fully
    static ELF, no deps) + `macos-arm64` (static libomp + Accelerate, system
    frameworks only). Both validated; a `geist` CLI is the entry point.

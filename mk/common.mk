@@ -75,7 +75,21 @@ CFLAGS_BASE := -std=c23 $(WARNINGS) -fno-strict-aliasing \
 BACKENDS ?= cpu_scalar
 BACKEND_DEFINES := $(foreach b,$(BACKENDS),-DGEIST_BACKEND_$(shell echo $(b) | tr '[:lower:]' '[:upper:]')=1)
 
-CFLAGS        := $(CFLAGS_BASE) $(BACKEND_DEFINES) $(CFLAGS_MODE) $(CFLAGS_TARGET) $(EXTRA_CFLAGS)
+# ---- Dense fp32 GEMM provider --------------------------------------------
+# Selects who implements geist_sgemm / geist_sgemv (the dense fp32 matmul used
+# by the prefill path and the audio/vision encoders):
+#   native     — hand-written NEON/scalar, no external lib (self-contained)
+#   openblas   — cblas via OpenBLAS (Linux / Pi default)
+#   accelerate — cblas via Apple Accelerate (macOS default)
+# The target-*.mk files set the per-target default; `native` is the fallback.
+# Orthogonal to the quantized decode kernels, which never use BLAS. Each
+# provider fragment sets GEMM_CFLAGS / GEMM_LDLIBS.
+GEMM_PROVIDER ?= native
+GEMM_CFLAGS :=
+GEMM_LDLIBS :=
+include mk/gemm-$(GEMM_PROVIDER).mk
+
+CFLAGS        := $(CFLAGS_BASE) $(BACKEND_DEFINES) $(GEMM_CFLAGS) $(CFLAGS_MODE) $(CFLAGS_TARGET) $(EXTRA_CFLAGS)
 # Strict CFLAGS for the src/ tree — adds -Wshadow -Wundef on top of CFLAGS.
 CFLAGS_STRICT := -std=c23 $(WARNINGS_STRICT) -fno-strict-aliasing \
                  -Iinclude -I. \
@@ -89,9 +103,9 @@ CFLAGS_STRICT := -std=c23 $(WARNINGS_STRICT) -fno-strict-aliasing \
                  -Isrc/archs/audio_conformer \
                  -Isrc/archs/vision_siglip \
                  -Ithird_party/stb \
-                 $(BACKEND_DEFINES) $(CFLAGS_MODE) $(CFLAGS_TARGET) $(EXTRA_CFLAGS)
+                 $(BACKEND_DEFINES) $(GEMM_CFLAGS) $(CFLAGS_MODE) $(CFLAGS_TARGET) $(EXTRA_CFLAGS)
 LDFLAGS := $(LDFLAGS_MODE) $(LDFLAGS_TARGET) $(EXTRA_LDFLAGS)
-LDLIBS  := $(LDLIBS_TARGET) $(EXTRA_LDLIBS)
+LDLIBS  := $(LDLIBS_TARGET) $(GEMM_LDLIBS) $(EXTRA_LDLIBS)
 
 # ---- Sources -------------------------------------------------------------
 # Library sources: files without main(). Phase B moves these into src/.
@@ -194,16 +208,16 @@ TEST_SOURCES := $(wildcard tests/test_*.c tests/bench_*.c)
 DEMO_SOURCES := tools/geist.c tools/eval_geist.c tools/profile_decode.c
 
 # These tests call cblas_* directly as an independent reference to validate
-# geist's own kernels. They can't link in a BLAS-free build (GEIST_BLAS_FREE=1)
-# and aren't meaningful there (no cblas to compare against) — the BLAS-free
-# build is the ship artifact (lib + CLI), validated end-to-end by the quality
-# benchmarks. Drop them from that build; they still run in the default build.
+# geist's own kernels. They can't link under GEMM_PROVIDER=native (no cblas to
+# compare against) — that provider is the ship artifact (lib + CLI), validated
+# end-to-end by the quality benchmarks. Drop them there; they still run under
+# the cblas providers (accelerate / openblas).
 CBLAS_REF_TESTS := \
     tests/test_backend_cross_ref_unit.c tests/bench_q4k_kernel.c \
     tests/bench_sgemv.c tests/test_state_decode_int.c tests/test_iq_kernel_int.c \
     tests/test_transformer_block_via_vtable_int.c tests/test_q4k_kernel_int.c \
     tests/test_prefill_q3k_int.c tests/test_q6k_prefill_int.c
-ifeq ($(GEIST_BLAS_FREE),1)
+ifeq ($(GEMM_PROVIDER),native)
     TEST_SOURCES := $(filter-out $(CBLAS_REF_TESTS),$(TEST_SOURCES))
 endif
 

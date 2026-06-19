@@ -34,3 +34,7 @@ CFLAGS_TARGET  := -DHAVE_ACCELERATE=1 -ffast-math -fno-finite-math-only
 # Accelerate framework provides BLAS + vDSP (FFT).
 LDFLAGS_TARGET := -framework Accelerate
 LDLIBS_TARGET  := -lm
+
+# Dense fp32 GEMM via Accelerate's cblas (linked above for vDSP anyway).
+# GEMM_PROVIDER=native opts out to the dependency-free path.
+GEMM_PROVIDER ?= accelerate

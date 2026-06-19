@@ -31,20 +31,11 @@ BACKENDS ?= cpu_neon cpu_scalar
 # out via `#pragma STDC FENV_ACCESS ON` if exact rounding ever matters.
 CFLAGS_TARGET := -DGEIST_TARGET_PI5=1 -mcpu=cortex-a76 -fopenmp -ffast-math -Wno-nonnull-compare -Wno-vla-parameter
 
-# OpenBLAS via pkg-config, fallback to plain -lopenblas.
-OPENBLAS_LIBS  ?= $(shell pkg-config --libs   openblas 2>/dev/null || echo '-lopenblas')
-OPENBLAS_CFLAGS ?= $(shell pkg-config --cflags openblas 2>/dev/null)
-
 LDFLAGS_TARGET := -fopenmp
+LDLIBS_TARGET  := -lm
 
-# Dense fp32 backend. Default: cblas/OpenBLAS. GEIST_BLAS_FREE=1 routes dense
-# fp32 through the native NEON path (geist_gemm) and links NO external math
-# libs — a fully dependency-free binary (libc/libm/libgomp only), for the
-# musl-static CI artifact. Audio FFT is vendored either way (no FFTW3).
-ifeq ($(GEIST_BLAS_FREE),1)
-  CFLAGS_TARGET += -DGEIST_GEMM_NATIVE
-  LDLIBS_TARGET := -lm
-else
-  CFLAGS_TARGET += $(OPENBLAS_CFLAGS)
-  LDLIBS_TARGET := $(OPENBLAS_LIBS) -lm
-endif
+# Dense fp32 GEMM provider. Default OpenBLAS (cblas); the openblas fragment
+# resolves and links it. Use GEMM_PROVIDER=native for a dependency-free binary
+# (libc/libm/libgomp only) — the musl-static CI artifact. Audio FFT is vendored
+# either way (no FFTW3).
+GEMM_PROVIDER ?= openblas

@@ -284,4 +284,4 @@ help:
 	"" \
 	"Targets: mac, mac-omp (Accelerate), pi5 (OpenBLAS+OpenMP), linux" \
 	"  cross-compile:   make TARGET=pi5 CC=aarch64-linux-gnu-gcc-14" \
-	"  dependency-free static ARM build:   make TARGET=pi5 GEIST_BLAS_FREE=1 EXTRA_LDFLAGS=-static"
+	"  dependency-free static ARM build:   make TARGET=pi5 GEMM_PROVIDER=native EXTRA_LDFLAGS=-static"

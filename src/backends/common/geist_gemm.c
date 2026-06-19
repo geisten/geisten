@@ -1,10 +1,12 @@
 /*
  * src/backends/common/geist_gemm.c — geist_sgemm / geist_sgemv backends.
  *
- * Default: forward to a CBLAS library (Accelerate / OpenBLAS). Define
- * GEIST_GEMM_NATIVE to use the dependency-free native path instead (the
- * BLAS-free build, e.g. linux-arm64). HAVE_ACCELERATE is the codebase's
- * existing "CBLAS is expected" signal (see gemma4_kernels.c).
+ * The dense fp32 GEMM provider is chosen at build time by GEMM_PROVIDER
+ * (mk/gemm-<provider>.mk). The `native` provider defines GEIST_GEMM_NATIVE and
+ * uses the dependency-free path below; `openblas` / `accelerate` leave it
+ * undefined and forward to the CBLAS symbols their library exports. This is
+ * orthogonal to HAVE_ACCELERATE, which signals Accelerate's vDSP (FFT,
+ * elementwise) is available regardless of the GEMM provider.
  */
 #include "geist_gemm.h"
 #include <geist_types.h>
@@ -54,14 +56,10 @@ static unsigned long long geist_now_ns(void) {
     return (unsigned long long) ts.tv_sec * 1000000000ull + (unsigned long long) ts.tv_nsec;
 }
 
-/* CBLAS is the default backend on every current target (Accelerate on macOS,
- * OpenBLAS on Linux/Pi) — matching the existing cblas-by-default convention.
- * The BLAS-free build opts out with -DGEIST_GEMM_NATIVE (or -DDISABLE_CBLAS). */
-#if !defined(GEIST_GEMM_NATIVE) && !defined(DISABLE_CBLAS)
-#define GEIST_GEMM_USE_CBLAS 1
-#endif
-
-#if defined(GEIST_GEMM_USE_CBLAS)
+/* CBLAS path: used unless the `native` GEMM provider defined GEIST_GEMM_NATIVE.
+ * The cblas symbols come from whichever library the provider linked (Accelerate
+ * on macOS, OpenBLAS on Linux/Pi). */
+#if !defined(GEIST_GEMM_NATIVE)
 
 /* Declare the two CBLAS entry points directly. We deliberately avoid Apple's
  * <Accelerate/Accelerate.h> umbrella (it drags in vImage and slows the build)

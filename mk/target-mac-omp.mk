@@ -35,6 +35,10 @@ CC ?= clang
 
 BACKENDS ?= cpu_neon cpu_scalar
 
+# Dense fp32 GEMM via Accelerate's cblas (linked below for vDSP anyway).
+# GEMM_PROVIDER=native opts out to the dependency-free path.
+GEMM_PROVIDER ?= accelerate
+
 LIBOMP_PREFIX ?= /opt/homebrew/opt/libomp
 
 # Use -isystem (not -I) for the libomp header to suppress -Wundef
