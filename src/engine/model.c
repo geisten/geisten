@@ -14,11 +14,7 @@
 #include "arch_registry.h"
 #include "error.h"
 
-#define GEIST_INTERNAL_ARCH_LAYER
-#include "../archs/audio_conformer/arch.h"
-#include "../archs/transformer/arch.h"
-#include "../archs/vision_siglip/arch.h"
-#undef GEIST_INTERNAL_ARCH_LAYER
+#include <geist_arch.h> /* arch_ops vtables the engine dispatches through */
 
 #include "heap.h"
 #include "sp_bpe_tokenizer.h"

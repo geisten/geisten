@@ -27,7 +27,7 @@
 
 #include "src/engine/model.h"
 #include "src/engine/sp_bpe_tokenizer.h"
-#include "src/archs/transformer/arch.h"
+#include "src/archs/transformer/arch.h" /* geist_arch_transformer descriptor */
 
 #include <geist.h>
 #include <geist_backend.h>

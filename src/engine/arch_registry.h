@@ -14,11 +14,7 @@
 #endif
 
 #include <geist.h>
-
-/* Forward decls: definitions live in src/archs/<name>/arch.h. */
-struct geist_arch_ops_decoder;
-struct geist_arch_ops_encoder;
-struct geist_arch_ops_vision;
+#include <geist_arch.h> /* geist_arch_ops_{decoder,encoder,vision} vtables */
 
 struct geist_arch_descriptor {
     const char                          *name;
