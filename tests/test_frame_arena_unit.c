@@ -17,7 +17,7 @@
 
 #include "test_helpers.h"
 
-#include "src/engine/arena.h"
+#include "arena.h"
 
 #include <stdint.h>
 #include <stdio.h>

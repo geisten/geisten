@@ -7,7 +7,8 @@
 # Consumes from target-$(TARGET).mk:
 #   CC, CFLAGS_TARGET, LDFLAGS_TARGET, LDLIBS_TARGET
 #
-# Source layout: 3-layer split under src/ (engine/, archs/, backends/, io/).
+# Source layout under src/: base/ (foundation: heap, arena, error, hw_probe),
+# then io/, formats/, backends/, archs/, engine/.
 
 # ---- Layout --------------------------------------------------------------
 
@@ -45,12 +46,15 @@ WARNINGS_STRICT := $(WARNINGS_BASE) -Wshadow -Wundef
 
 # Include paths:
 #   -Iinclude   public headers (geist.h, geist_backend.h, geist_weight.h)
-#   -I.         project root — heap.h (project-wide allocation policy per
-#               AGENT.md) and internal tests reaching across the engine/arch
+#   -Isrc/base  foundation layer — heap.h (project-wide allocation policy per
+#               AGENT.md), arena.h, error.h, hw_probe.h. Depends on nothing
+#               internal; every other layer may include it by basename.
+#   -I.         project root — internal tests reaching across the engine/arch
 #               boundary via path-relative includes
 #               (e.g. `#include "src/archs/transformer/arch_state_v2.h"`)
 CFLAGS_BASE := -std=c23 $(WARNINGS) -fno-strict-aliasing \
                -Iinclude -I. \
+               -Isrc/base \
                -Isrc/backends/common \
                -Isrc/formats/gguf \
                -Isrc/formats/ptqtp \
@@ -71,6 +75,7 @@ CFLAGS        := $(CFLAGS_BASE) $(BACKEND_DEFINES) $(CFLAGS_MODE) $(CFLAGS_TARGE
 # Strict CFLAGS for the src/ tree — adds -Wshadow -Wundef on top of CFLAGS.
 CFLAGS_STRICT := -std=c23 $(WARNINGS_STRICT) -fno-strict-aliasing \
                  -Iinclude -I. \
+                 -Isrc/base \
                  -Isrc/backends/common \
                  -Isrc/formats/gguf \
                  -Isrc/formats/ptqtp \
@@ -87,11 +92,12 @@ LDLIBS  := $(LDLIBS_TARGET) $(EXTRA_LDLIBS)
 # Library sources: files without main(). Phase B moves these into src/.
 
 LIB_SOURCES := \
-    src/engine/error.c \
+    src/base/heap.c \
+    src/base/error.c \
+    src/base/hw_probe.c \
     src/engine/allocator.c \
     src/engine/backend.c \
     src/engine/backend_registry.c \
-    src/engine/hw_probe.c \
     src/engine/arch_registry.c \
     src/engine/model.c \
     src/engine/sampler.c \
@@ -173,12 +179,6 @@ LIB_SOURCES := \
 # omitted from refactor/v2 to keep the CPU-first development trajectory
 # focused. To work on the GPU path, check out that branch directly.
 
-# Project-wide allocation policy via heap.h — lives at the workspace root,
-# alongside the engine tree. Explicit per-file rule below routes the .o
-# through build/<target>/<mode>/ext/ to keep src/ object layout clean.
-EXT_SOURCES := heap.c
-EXT_OBJS := $(patsubst %.c,$(BUILD_DIR)/ext/%.o,$(EXT_SOURCES))
-
 # Third-party single-header libraries (stb_image, stb_image_resize2). One
 # implementation TU per project — compiled with -w to silence the dozens of
 # pedantic warnings inside stb.
@@ -210,7 +210,7 @@ BIN_SOURCES  := $(TEST_SOURCES) $(DEMO_SOURCES)
 
 # ---- Derived paths -------------------------------------------------------
 
-LIB_OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_SOURCES)) $(EXT_OBJS) $(STB_OBJ)
+LIB_OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_SOURCES)) $(STB_OBJ)
 BIN_OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(BIN_SOURCES))
 
 LIB_FILE := $(LIB_DIR)/libgeist.a
@@ -229,12 +229,6 @@ $(BUILD_DIR)/src/%.o: src/%.c
 	$(CC) $(CFLAGS_STRICT) -MMD -MP -c $< -o $@
 
 $(BUILD_DIR)/%.o: %.c
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
-
-# Root-level external sources. Explicit per-file rule keeps the .o under
-# build/<target>/<mode>/ext/ instead of mixing with src/ objects.
-$(BUILD_DIR)/ext/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
