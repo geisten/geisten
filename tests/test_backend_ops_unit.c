@@ -164,6 +164,14 @@ int main(void) {
     int          fails = 0;
     const size_t N     = 256;
 
+    /* This is a cpu_scalar-vs-cpu_neon differential test; it only means
+     * anything when both backends are compiled in. In a cpu_neon-less build
+     * (BACKENDS without cpu_neon) skip rather than report bogus mismatches. */
+    struct geist_backend *neon_probe = nullptr;
+    GEIST_SKIP_IF(geist_backend_create("cpu_neon", nullptr, nullptr, &neon_probe) != GEIST_OK,
+                  "cpu_neon backend not compiled in (scalar-only build)");
+    geist_backend_destroy(neon_probe);
+
     /* Deterministic input. */
     float a[N], b[N], x[N], w[N];
     for (size_t i = 0; i < N; i++) {

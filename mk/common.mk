@@ -207,6 +207,20 @@ ifeq ($(GEIST_BLAS_FREE),1)
     TEST_SOURCES := $(filter-out $(CBLAS_REF_TESTS),$(TEST_SOURCES))
 endif
 
+# These tests call the cpu_neon kernels (linear_q4k_*, linear_iq*_, ...)
+# directly rather than through the backend vtable, so they only link in a
+# build that compiles cpu_neon. When cpu_neon is not in BACKENDS, drop them —
+# otherwise they fail at link with undefined references. The library and CLI
+# still build (and the vtable-routed tests still run) without cpu_neon.
+NEON_KERNEL_TESTS := \
+    tests/test_q4k_kernel_int.c tests/test_q6k_prefill_int.c \
+    tests/test_prefill_q3k_int.c tests/test_iq_kernel_int.c \
+    tests/test_backend_vs_direct_int.c tests/bench_q4k_kernel.c \
+    tests/test_i2_s_parity.c tests/test_tl1_parity.c
+ifeq ($(filter cpu_neon,$(BACKENDS)),)
+    TEST_SOURCES := $(filter-out $(NEON_KERNEL_TESTS),$(TEST_SOURCES))
+endif
+
 BIN_SOURCES  := $(TEST_SOURCES) $(DEMO_SOURCES)
 
 # ---- Derived paths -------------------------------------------------------
