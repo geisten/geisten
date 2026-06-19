@@ -157,28 +157,24 @@ LIB_SOURCES := \
     src/formats/ptqtp/ptqtp_kernel.c \
     src/formats/ptqtp/ptqtp_awq.c \
     src/io/gguf_reader.c \
-    src/io/safetensors_reader.c \
-    src/backends/cpu_scalar/backend.c \
-    src/backends/cpu_scalar/elementwise.c \
-    src/backends/cpu_scalar/transformer_ops.c \
-    src/backends/cpu_scalar/weight_resolve.c \
-    src/backends/cpu_neon/backend.c \
-    src/backends/cpu_neon/elementwise.c \
-    src/backends/cpu_neon/kernel_catalog.c \
-    src/backends/cpu_neon/kernels/iq2_s.c \
-    src/backends/cpu_neon/kernels/iq3_s.c \
-    src/backends/cpu_neon/kernels/q3_K.c \
-    src/backends/cpu_neon/kernels/q4_K.c \
-    src/backends/cpu_neon/kernels/q5_K.c \
-    src/backends/cpu_neon/kernels/q6_K.c \
-    src/backends/cpu_neon/kernels/q8_0.c \
-    src/backends/cpu_neon/kernels/tq2_0.c \
-    src/backends/cpu_neon/parallel.c \
-    src/backends/cpu_neon/tl1.c \
-    src/backends/cpu_neon/transformer_ops.c \
-    src/backends/cpu_neon/weight_resolve.c \
-    src/backends/cpu_neon/workspace.c \
-    src/backends/cpu_x86/kernel_catalog.c
+    src/io/safetensors_reader.c
+
+# src/backends/common/ above is the shared compute library (GEMM, gemma4
+# kernels, KIVI) — used by every backend AND by the arch layer, so it is
+# always compiled. The per-backend implementation TUs are NOT listed here;
+# they come from BACKEND_SOURCES below, gated by BACKENDS.
+
+# ---- Backend sources (selected by BACKENDS) ------------------------------
+# Each enabled backend contributes its implementation TUs via a per-backend
+# fragment mk/backend-<name>.mk that appends to BACKEND_SOURCES. Only the
+# backends named in BACKENDS are compiled — this is what lets a GPU backend
+# (vulkan/cuda) ship without compiling on targets that lack its toolchain.
+# The registration side (which compiled-in backends are visible at runtime)
+# lives in src/engine/backend_registry.c, gated by the matching
+# GEIST_BACKEND_<NAME> define from BACKEND_DEFINES above.
+BACKEND_SOURCES :=
+include $(foreach b,$(BACKENDS),mk/backend-$(b).mk)
+LIB_SOURCES += $(BACKEND_SOURCES)
 
 # Vulkan backend lives on the `vulkan-backend` branch and is intentionally
 # omitted from refactor/v2 to keep the CPU-first development trajectory
