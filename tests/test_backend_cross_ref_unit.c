@@ -31,17 +31,17 @@ typedef enum CBLAS_TRANSPOSE { CblasNoTrans = 111, CblasTrans = 112 } CBLAS_TRAN
 extern void cblas_sgemm(CBLAS_ORDER,
                         CBLAS_TRANSPOSE TransA,
                         CBLAS_TRANSPOSE TransB,
-                        int M,
-                        int N,
-                        int K,
-                        float alpha,
-                        const float* A,
-                        int lda,
-                        const float* B,
-                        int ldb,
-                        float beta,
-                        float* C,
-                        int ldc);
+                        int             M,
+                        int             N,
+                        int             K,
+                        float           alpha,
+                        const float    *A,
+                        int             lda,
+                        const float    *B,
+                        int             ldb,
+                        float           beta,
+                        float          *C,
+                        int             ldc);
 
 static double monotonic_ms(void) {
     struct timespec ts;
@@ -49,7 +49,7 @@ static double monotonic_ms(void) {
     return (double) ts.tv_sec * 1e3 + (double) ts.tv_nsec / 1e6;
 }
 
-static void fill_random_f32(float* p, size_t n, uint32_t seed) {
+static void fill_random_f32(float *p, size_t n, uint32_t seed) {
     /* Deterministic xorshift32 — same input across runs and backends. */
     uint32_t s = seed;
     for (size_t i = 0; i < n; i++) {
@@ -62,16 +62,16 @@ static void fill_random_f32(float* p, size_t n, uint32_t seed) {
 }
 
 /* Run linear() via the given backend and time the matmul portion. */
-[[nodiscard]] static enum geist_status run_via_backend(struct geist_backend* be,
-                                                       size_t M,
-                                                       size_t K,
-                                                       size_t N,
-                                                       const float* xdata,
-                                                       const float* wdata,
-                                                       float* yout,
-                                                       double* out_ms) {
+[[nodiscard]] static enum geist_status run_via_backend(struct geist_backend *be,
+                                                       size_t                M,
+                                                       size_t                K,
+                                                       size_t                N,
+                                                       const float          *xdata,
+                                                       const float          *wdata,
+                                                       float                *yout,
+                                                       double               *out_ms) {
     struct geist_buffer *bx = nullptr, *bw = nullptr, *by = nullptr;
-    enum geist_status s;
+    enum geist_status    s;
 
     s = be->desc->vtbl->buffer_create(
             be, M * K * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &bx);
@@ -86,23 +86,23 @@ static void fill_random_f32(float* p, size_t n, uint32_t seed) {
     if (s != GEIST_OK)
         goto cleanup;
 
-    s = be->desc->vtbl->buffer_upload(bx, M * K * sizeof(float), (const uint8_t*) xdata);
+    s = be->desc->vtbl->buffer_upload(bx, M * K * sizeof(float), (const uint8_t *) xdata);
     if (s != GEIST_OK)
         goto cleanup;
-    s = be->desc->vtbl->buffer_upload(bw, N * K * sizeof(float), (const uint8_t*) wdata);
+    s = be->desc->vtbl->buffer_upload(bw, N * K * sizeof(float), (const uint8_t *) wdata);
     if (s != GEIST_OK)
         goto cleanup;
 
     /* P2.e: resolve once, time the resolver-installed kernel. The
      * legacy v->linear() vtable slot is gone after P2.e. */
-    void* w_host = be->desc->vtbl->buffer_map(bw);
+    void *w_host = be->desc->vtbl->buffer_map(bw);
     if (w_host == nullptr) {
         s = GEIST_E_BACKEND;
         goto cleanup;
     }
     struct geist_weight wkr = {
-            .raw = w_host,
-            .n_in = (int32_t) K,
+            .raw   = w_host,
+            .n_in  = (int32_t) K,
             .n_out = (int32_t) N,
             .dtype = (uint16_t) GEIST_DTYPE_F32,
     };
@@ -111,21 +111,21 @@ static void fill_random_f32(float* p, size_t n, uint32_t seed) {
     if (s != GEIST_OK || wkr.linear_mN == nullptr)
         goto cleanup;
 
-    void* x_host = be->desc->vtbl->buffer_map(bx);
-    void* y_host = be->desc->vtbl->buffer_map(by);
+    void *x_host = be->desc->vtbl->buffer_map(bx);
+    void *y_host = be->desc->vtbl->buffer_map(by);
     if (x_host == nullptr || y_host == nullptr) {
         s = GEIST_E_BACKEND;
         goto cleanup;
     }
 
     /* Warm-up call (BLAS often does first-call lazy init). */
-    wkr.linear_mN((const float*) x_host, &wkr, M, be, (float*) y_host);
+    wkr.linear_mN((const float *) x_host, &wkr, M, be, (float *) y_host);
 
     /* Timed runs: take min over 5 iterations. */
     double best = 1e30;
     for (int rep = 0; rep < 5; rep++) {
         double t0 = monotonic_ms();
-        wkr.linear_mN((const float*) x_host, &wkr, M, be, (float*) y_host);
+        wkr.linear_mN((const float *) x_host, &wkr, M, be, (float *) y_host);
         double dt = monotonic_ms() - t0;
         if (dt < best)
             best = dt;
@@ -134,7 +134,7 @@ static void fill_random_f32(float* p, size_t n, uint32_t seed) {
     be->desc->vtbl->buffer_unmap(bx);
     be->desc->vtbl->buffer_unmap(by);
     *out_ms = best;
-    s = be->desc->vtbl->buffer_download(M * N * sizeof(float), (uint8_t*) yout, by);
+    s       = be->desc->vtbl->buffer_download(M * N * sizeof(float), (uint8_t *) yout, by);
 
 cleanup:
     if (bx)
@@ -153,11 +153,11 @@ int main(void) {
     const size_t M = 8, K = 2048, N = 2048;
     const double mflops = 2.0 * (double) M * (double) K * (double) N / 1e6;
 
-    float* xdata = aligned_alloc(64, M * K * sizeof(float));
-    float* wdata = aligned_alloc(64, N * K * sizeof(float));
-    float* y_scalar = aligned_alloc(64, M * N * sizeof(float));
-    float* y_neon = aligned_alloc(64, M * N * sizeof(float));
-    float* y_direct = aligned_alloc(64, M * N * sizeof(float));
+    float *xdata    = aligned_alloc(64, M * K * sizeof(float));
+    float *wdata    = aligned_alloc(64, N * K * sizeof(float));
+    float *y_scalar = aligned_alloc(64, M * N * sizeof(float));
+    float *y_neon   = aligned_alloc(64, M * N * sizeof(float));
+    float *y_direct = aligned_alloc(64, M * N * sizeof(float));
 
     if (!xdata || !wdata || !y_scalar || !y_neon || !y_direct) {
         fprintf(stderr, "alloc failed\n");
@@ -167,7 +167,7 @@ int main(void) {
     fill_random_f32(xdata, M * K, 0xCAFEBABE);
     fill_random_f32(wdata, N * K, 0xDEADBEEF);
 
-    int fails = 0;
+    int               fails = 0;
     enum geist_status s;
 
     /* ---- Direct cblas_sgemm baseline (no vtable) ---- */
@@ -208,14 +208,14 @@ int main(void) {
     }
 
     /* ---- cpu_scalar via vtable ---- */
-    struct geist_backend* be_scalar = nullptr;
+    struct geist_backend *be_scalar = nullptr;
     s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be_scalar);
     if (s != GEIST_OK) {
         fprintf(stderr, "cpu_scalar create failed: %s\n", geist_last_create_error());
         return GEIST_TEST_ERROR;
     }
     double scalar_ms = 0;
-    s = run_via_backend(be_scalar, M, K, N, xdata, wdata, y_scalar, &scalar_ms);
+    s                = run_via_backend(be_scalar, M, K, N, xdata, wdata, y_scalar, &scalar_ms);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "scalar run: %s — %s\n",
@@ -226,8 +226,8 @@ int main(void) {
     geist_backend_destroy(be_scalar);
 
     /* ---- cpu_neon via vtable (skip if not linked) ---- */
-    struct geist_backend* be_neon = nullptr;
-    s = geist_backend_create("cpu_neon", nullptr, nullptr, &be_neon);
+    struct geist_backend *be_neon = nullptr;
+    s                             = geist_backend_create("cpu_neon", nullptr, nullptr, &be_neon);
     if (s == GEIST_E_NOT_FOUND) {
         printf("SKIP partial: cpu_neon not compiled in; only cpu_scalar measured\n");
         printf("  cpu_scalar (M=%zu K=%zu N=%zu): %.3f ms = %.2f GFLOP/s\n",
@@ -243,7 +243,7 @@ int main(void) {
     }
 
     double neon_ms = 0;
-    s = run_via_backend(be_neon, M, K, N, xdata, wdata, y_neon, &neon_ms);
+    s              = run_via_backend(be_neon, M, K, N, xdata, wdata, y_neon, &neon_ms);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "neon run: %s — %s\n",

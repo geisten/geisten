@@ -31,7 +31,7 @@ static_assert(OPTIMAL_ALIGNMENT >= 8, "OPTIMAL_ALIGNMENT must be at least 8 byte
 
 /* Memory arena for allocating temporary structures */
 struct memory_arena {
-    void* memory;
+    void  *memory;
     size_t size;
     size_t used;
 };
@@ -55,7 +55,7 @@ size_t calculate_aligned_size(size_t original_size);
  *   - The arena is not thread-safe, should only be used by one thread
  */
 [[nodiscard]] struct memory_arena create_memory_arena(size_t size);
-[[nodiscard]] bool try_create_memory_arena(struct memory_arena* arena, size_t size);
+[[nodiscard]] bool                try_create_memory_arena(struct memory_arena *arena, size_t size);
 
 /**
  * Allocates memory from the arena with specified alignment.
@@ -73,23 +73,23 @@ size_t calculate_aligned_size(size_t original_size);
  *   - Does not support freeing individual allocations, only the entire arena
  *   - May return nullptr if there's not enough space in the arena
  */
-void* arena_allocate_aligned(struct memory_arena* arena, size_t size, size_t alignment);
-void* heap_alloc_aligned(size_t size, size_t alignment);
-void* heap_calloc_aligned(size_t count, size_t size, size_t alignment);
+void *arena_allocate_aligned(struct memory_arena *arena, size_t size, size_t alignment);
+void *heap_alloc_aligned(size_t size, size_t alignment);
+void *heap_calloc_aligned(size_t count, size_t size, size_t alignment);
 
 uintptr_t optimal_aligned_size(size_t size);
 uintptr_t aligned_size(size_t size, size_t alignment);
 
 #define arena_allocate_array_aligned(_arena, _type, _num) \
-    ((_type*) arena_allocate_aligned((_arena), (_num) * sizeof(_type), alignof(_type)))
+    ((_type *) arena_allocate_aligned((_arena), (_num) * sizeof(_type), alignof(_type)))
 
 #define heap_alloc_array_aligned(_type, _num) \
-    ((_type*) heap_alloc_aligned((_num) * sizeof(_type), alignof(_type)))
+    ((_type *) heap_alloc_aligned((_num) * sizeof(_type), alignof(_type)))
 
 #define heap_calloc_array_aligned(_type, _num) \
-    ((_type*) heap_calloc_aligned((_num), sizeof(_type), alignof(_type)))
+    ((_type *) heap_calloc_aligned((_num), sizeof(_type), alignof(_type)))
 
-void safe_free(void** ptr);
+void safe_free(void **ptr);
 
 /**
  * Frees the entire memory arena.
@@ -99,4 +99,4 @@ void safe_free(void** ptr);
  * Example:
  *   free_memory_arena(&arena);
  */
-void free_memory_arena(struct memory_arena* arena);
+void free_memory_arena(struct memory_arena *arena);

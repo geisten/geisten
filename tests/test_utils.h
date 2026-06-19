@@ -22,8 +22,8 @@
 /* Read a binary file as int32_t array. Returns nullptr on any I/O error
  * (file missing, ftell fail, malloc fail, short read). On success
  * *n_out = number of int32_t elements. Caller frees with free(). */
-[[nodiscard]] static inline int32_t* read_int32_bin(const char* path, size_t* n_out) {
-    FILE* f = fopen(path, "rb");
+[[nodiscard]] static inline int32_t *read_int32_bin(const char *path, size_t *n_out) {
+    FILE *f = fopen(path, "rb");
     if (!f)
         return nullptr;
     if (fseek(f, 0, SEEK_END) != 0) {
@@ -36,7 +36,7 @@
         return nullptr;
     }
     rewind(f);
-    int32_t* p = (int32_t*) malloc((size_t) sz);
+    int32_t *p = (int32_t *) malloc((size_t) sz);
     if (!p) {
         fclose(f);
         return nullptr;
@@ -51,8 +51,8 @@
     return p;
 }
 
-static inline void write_bin(const char* path, const void* data, size_t n_bytes) {
-    FILE* f = fopen(path, "wb");
+static inline void write_bin(const char *path, const void *data, size_t n_bytes) {
+    FILE *f = fopen(path, "wb");
     if (!f)
         return;
     if (fwrite(data, 1, n_bytes, f) != n_bytes)

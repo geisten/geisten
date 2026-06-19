@@ -63,17 +63,17 @@ typedef enum CBLAS_TRANSPOSE { CblasNoTrans = 111, CblasTrans = 112 } CBLAS_TRAN
 extern void cblas_sgemm(CBLAS_ORDER,
                         CBLAS_TRANSPOSE TransA,
                         CBLAS_TRANSPOSE TransB,
-                        int M,
-                        int N,
-                        int K,
-                        float alpha,
-                        const float* A,
-                        int lda,
-                        const float* B,
-                        int ldb,
-                        float beta,
-                        float* C,
-                        int ldc);
+                        int             M,
+                        int             N,
+                        int             K,
+                        float           alpha,
+                        const float    *A,
+                        int             lda,
+                        const float    *B,
+                        int             ldb,
+                        float           beta,
+                        float          *C,
+                        int             ldc);
 
 /* Simplified Gemma-style transformer block dims (small for fast test).
  * Matches Gemma 4's MQA pattern: more Q heads than KV heads. */
@@ -84,7 +84,7 @@ extern void cblas_sgemm(CBLAS_ORDER,
 #define D_FF 128
 
 /* Deterministic-seeded uniform random in [-0.5, 0.5]. */
-static void fill_random(float* p, size_t n, uint32_t seed) {
+static void fill_random(float *p, size_t n, uint32_t seed) {
     uint32_t s = seed;
     for (size_t i = 0; i < n; i++) {
         s ^= s << 13;
@@ -95,18 +95,18 @@ static void fill_random(float* p, size_t n, uint32_t seed) {
 }
 
 /* ---- Reference path: same kernels, no vtable ---- */
-static void reference_block(const float* x_in,
-                            const float* w_q,
-                            const float* w_k,
-                            const float* w_v,
-                            const float* w_o,
-                            const float* w_gate,
-                            const float* w_up,
-                            const float* w_down,
-                            const float* w_attn_norm,
-                            const float* w_ffn_norm,
-                            float eps,
-                            float* y_out) {
+static void reference_block(const float *x_in,
+                            const float *w_q,
+                            const float *w_k,
+                            const float *w_v,
+                            const float *w_o,
+                            const float *w_gate,
+                            const float *w_up,
+                            const float *w_down,
+                            const float *w_attn_norm,
+                            const float *w_ffn_norm,
+                            float        eps,
+                            float       *y_out) {
     float x_norm[D_MODEL];
     rmsnorm_fp32(x_in, w_attn_norm, 1, D_MODEL, eps, x_norm);
 
@@ -246,25 +246,25 @@ static void reference_block(const float* x_in,
 }
 
 /* Helper to (re-)allocate + upload a tensor's contents. */
-static struct geist_buffer*
-alloc_and_upload(struct geist_backend* be, const float* data, size_t n) {
-    struct geist_buffer* buf = nullptr;
+static struct geist_buffer *
+alloc_and_upload(struct geist_backend *be, const float *data, size_t n) {
+    struct geist_buffer *buf = nullptr;
     (void) be->desc->vtbl->buffer_create(
             be, n * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &buf);
     if (buf == nullptr)
         return nullptr;
-    (void) be->desc->vtbl->buffer_upload(buf, n * sizeof(float), (const uint8_t*) data);
+    (void) be->desc->vtbl->buffer_upload(buf, n * sizeof(float), (const uint8_t *) data);
     return buf;
 }
 
 /* P2-final helper: resolve a F32 DENSE weight once. n_in/n_out follow the
  * row-major (n_out, n_in) layout the resolvers expect. */
 static struct geist_weight
-resolve_w_f32(struct geist_backend* be, struct geist_buffer* bw, int32_t n_in, int32_t n_out) {
-    void* w_host = be->desc->vtbl->buffer_map(bw);
-    struct geist_weight wkr = {
-            .raw = w_host,
-            .n_in = n_in,
+resolve_w_f32(struct geist_backend *be, struct geist_buffer *bw, int32_t n_in, int32_t n_out) {
+    void               *w_host = be->desc->vtbl->buffer_map(bw);
+    struct geist_weight wkr    = {
+            .raw   = w_host,
+            .n_in  = n_in,
             .n_out = n_out,
             .dtype = (uint16_t) GEIST_DTYPE_F32,
     };
@@ -274,28 +274,28 @@ resolve_w_f32(struct geist_backend* be, struct geist_buffer* bw, int32_t n_in, i
 }
 
 /* Dispatch a single-token linear via the resolver-installed kernel. */
-static enum geist_status linear1_via_resolver(struct geist_backend* be,
-                                              struct geist_buffer* bx,
-                                              const struct geist_weight* wkr,
-                                              struct geist_buffer* by) {
+static enum geist_status linear1_via_resolver(struct geist_backend      *be,
+                                              struct geist_buffer       *bx,
+                                              const struct geist_weight *wkr,
+                                              struct geist_buffer       *by) {
     if (wkr->linear_m1 == nullptr)
         return GEIST_E_UNSUPPORTED;
-    void* xh = be->desc->vtbl->buffer_map(bx);
-    void* yh = be->desc->vtbl->buffer_map(by);
-    wkr->linear_m1((const float*) xh, wkr, be, (float*) yh);
+    void *xh = be->desc->vtbl->buffer_map(bx);
+    void *yh = be->desc->vtbl->buffer_map(by);
+    wkr->linear_m1((const float *) xh, wkr, be, (float *) yh);
     be->desc->vtbl->buffer_unmap(bx);
     be->desc->vtbl->buffer_unmap(by);
     return GEIST_OK;
 }
 
 static struct geist_tensor
-make_tensor(struct geist_buffer* buf, int ndim, int64_t s0, int64_t s1, int64_t s2) {
+make_tensor(struct geist_buffer *buf, int ndim, int64_t s0, int64_t s1, int64_t s2) {
     struct geist_tensor t = {
             .buffer = buf,
             .offset = 0,
-            .dtype = GEIST_DTYPE_F32,
+            .dtype  = GEIST_DTYPE_F32,
             .layout = GEIST_LAYOUT_DENSE,
-            .ndim = ndim,
+            .ndim   = ndim,
     };
     t.shape[0] = s0;
     if (ndim >= 2)
@@ -318,36 +318,36 @@ make_tensor(struct geist_buffer* buf, int ndim, int64_t s0, int64_t s1, int64_t 
 }
 
 /* ---- Vtable path: same math, via backend ops only ---- */
-static int vtable_block_via_backend(const char* backend_name,
-                                    const float* x_in,
-                                    const float* w_q,
-                                    const float* w_k,
-                                    const float* w_v,
-                                    const float* w_o,
-                                    const float* w_gate,
-                                    const float* w_up,
-                                    const float* w_down,
-                                    const float* w_attn_norm,
-                                    const float* w_ffn_norm,
-                                    float eps,
-                                    float* y_out) {
-    struct geist_backend* be = nullptr;
+static int vtable_block_via_backend(const char  *backend_name,
+                                    const float *x_in,
+                                    const float *w_q,
+                                    const float *w_k,
+                                    const float *w_v,
+                                    const float *w_o,
+                                    const float *w_gate,
+                                    const float *w_up,
+                                    const float *w_down,
+                                    const float *w_attn_norm,
+                                    const float *w_ffn_norm,
+                                    float        eps,
+                                    float       *y_out) {
+    struct geist_backend *be = nullptr;
     if (geist_backend_create(backend_name, nullptr, nullptr, &be) != GEIST_OK) {
         return -1;
     }
-    const struct geist_backend_vtbl* v = be->desc->vtbl;
+    const struct geist_backend_vtbl *v = be->desc->vtbl;
 
     /* Upload all inputs + weights. */
-    struct geist_buffer* bx = alloc_and_upload(be, x_in, D_MODEL);
-    struct geist_buffer* bwq = alloc_and_upload(be, w_q, N_Q_HEADS * HEAD_DIM * D_MODEL);
-    struct geist_buffer* bwk = alloc_and_upload(be, w_k, N_KV_HEADS * HEAD_DIM * D_MODEL);
-    struct geist_buffer* bwv = alloc_and_upload(be, w_v, N_KV_HEADS * HEAD_DIM * D_MODEL);
-    struct geist_buffer* bwo = alloc_and_upload(be, w_o, D_MODEL * N_Q_HEADS * HEAD_DIM);
-    struct geist_buffer* bw_gate = alloc_and_upload(be, w_gate, D_FF * D_MODEL);
-    struct geist_buffer* bw_up = alloc_and_upload(be, w_up, D_FF * D_MODEL);
-    struct geist_buffer* bw_down = alloc_and_upload(be, w_down, D_MODEL * D_FF);
-    struct geist_buffer* bw_an = alloc_and_upload(be, w_attn_norm, D_MODEL);
-    struct geist_buffer* bw_fn = alloc_and_upload(be, w_ffn_norm, D_MODEL);
+    struct geist_buffer *bx      = alloc_and_upload(be, x_in, D_MODEL);
+    struct geist_buffer *bwq     = alloc_and_upload(be, w_q, N_Q_HEADS * HEAD_DIM * D_MODEL);
+    struct geist_buffer *bwk     = alloc_and_upload(be, w_k, N_KV_HEADS * HEAD_DIM * D_MODEL);
+    struct geist_buffer *bwv     = alloc_and_upload(be, w_v, N_KV_HEADS * HEAD_DIM * D_MODEL);
+    struct geist_buffer *bwo     = alloc_and_upload(be, w_o, D_MODEL * N_Q_HEADS * HEAD_DIM);
+    struct geist_buffer *bw_gate = alloc_and_upload(be, w_gate, D_FF * D_MODEL);
+    struct geist_buffer *bw_up   = alloc_and_upload(be, w_up, D_FF * D_MODEL);
+    struct geist_buffer *bw_down = alloc_and_upload(be, w_down, D_MODEL * D_FF);
+    struct geist_buffer *bw_an   = alloc_and_upload(be, w_attn_norm, D_MODEL);
+    struct geist_buffer *bw_fn   = alloc_and_upload(be, w_ffn_norm, D_MODEL);
 
     /* Pre-allocate scratch buffers. */
     struct geist_buffer *b_xnorm = nullptr, *b_q = nullptr, *b_k = nullptr, *b_v = nullptr;
@@ -374,15 +374,15 @@ static int vtable_block_via_backend(const char* backend_name,
     /* RoPE cos/sin tables — precomputed externally and uploaded. */
     float cos[HEAD_DIM], sin_[HEAD_DIM];
     rope_compute_at(0, 1, HEAD_DIM, HEAD_DIM, 10000.0f, cos, sin_);
-    struct geist_buffer* b_cos = alloc_and_upload(be, cos, HEAD_DIM);
-    struct geist_buffer* b_sin = alloc_and_upload(be, sin_, HEAD_DIM);
+    struct geist_buffer *b_cos = alloc_and_upload(be, cos, HEAD_DIM);
+    struct geist_buffer *b_sin = alloc_and_upload(be, sin_, HEAD_DIM);
 
     /* Tensor descriptors for non-linear ops. P2-final: linear is no longer
      * a vtbl op — resolved weights below. */
-    struct geist_tensor t_x = make_tensor(bx, 1, D_MODEL, 0, 0);
+    struct geist_tensor t_x     = make_tensor(bx, 1, D_MODEL, 0, 0);
     struct geist_tensor t_xnorm = make_tensor(b_xnorm, 1, D_MODEL, 0, 0);
-    struct geist_tensor t_w_an = make_tensor(bw_an, 1, D_MODEL, 0, 0);
-    struct geist_tensor t_w_fn = make_tensor(bw_fn, 1, D_MODEL, 0, 0);
+    struct geist_tensor t_w_an  = make_tensor(bw_an, 1, D_MODEL, 0, 0);
+    struct geist_tensor t_w_fn  = make_tensor(bw_fn, 1, D_MODEL, 0, 0);
 
     /* The rope op wants 3D [seq_len, n_heads, head_dim] views. We need an alias
      * onto the same buffer with reshaped descriptor. */
@@ -392,24 +392,24 @@ static int vtable_block_via_backend(const char* backend_name,
     struct geist_tensor t_cos = make_tensor(b_cos, 2, 1, HEAD_DIM, 0);
     struct geist_tensor t_sin = make_tensor(b_sin, 2, 1, HEAD_DIM, 0);
 
-    struct geist_tensor t_v_3d = make_tensor(b_v, 3, 1, N_KV_HEADS, HEAD_DIM);
+    struct geist_tensor t_v_3d    = make_tensor(b_v, 3, 1, N_KV_HEADS, HEAD_DIM);
     struct geist_tensor t_attn_3d = make_tensor(b_attn, 3, 1, N_Q_HEADS, HEAD_DIM);
 
-    struct geist_tensor t_o_1d = make_tensor(b_o, 1, D_MODEL, 0, 0);
-    struct geist_tensor t_post_attn = make_tensor(b_post_attn, 1, D_MODEL, 0, 0);
-    struct geist_tensor t_ffn_norm = make_tensor(b_ffn_norm, 1, D_MODEL, 0, 0);
-    struct geist_tensor t_gate_1d = make_tensor(b_gate, 1, D_FF, 0, 0);
-    struct geist_tensor t_up_1d = make_tensor(b_up, 1, D_FF, 0, 0);
+    struct geist_tensor t_o_1d       = make_tensor(b_o, 1, D_MODEL, 0, 0);
+    struct geist_tensor t_post_attn  = make_tensor(b_post_attn, 1, D_MODEL, 0, 0);
+    struct geist_tensor t_ffn_norm   = make_tensor(b_ffn_norm, 1, D_MODEL, 0, 0);
+    struct geist_tensor t_gate_1d    = make_tensor(b_gate, 1, D_FF, 0, 0);
+    struct geist_tensor t_up_1d      = make_tensor(b_up, 1, D_FF, 0, 0);
     struct geist_tensor t_ffn_out_1d = make_tensor(b_ffn_out, 1, D_MODEL, 0, 0);
-    struct geist_tensor t_y_1d = make_tensor(b_y, 1, D_MODEL, 0, 0);
+    struct geist_tensor t_y_1d       = make_tensor(b_y, 1, D_MODEL, 0, 0);
 
     /* Resolve every weight once. */
-    struct geist_weight wkr_q = resolve_w_f32(be, bwq, D_MODEL, N_Q_HEADS * HEAD_DIM);
-    struct geist_weight wkr_k = resolve_w_f32(be, bwk, D_MODEL, N_KV_HEADS * HEAD_DIM);
-    struct geist_weight wkr_v = resolve_w_f32(be, bwv, D_MODEL, N_KV_HEADS * HEAD_DIM);
-    struct geist_weight wkr_o = resolve_w_f32(be, bwo, N_Q_HEADS * HEAD_DIM, D_MODEL);
+    struct geist_weight wkr_q    = resolve_w_f32(be, bwq, D_MODEL, N_Q_HEADS * HEAD_DIM);
+    struct geist_weight wkr_k    = resolve_w_f32(be, bwk, D_MODEL, N_KV_HEADS * HEAD_DIM);
+    struct geist_weight wkr_v    = resolve_w_f32(be, bwv, D_MODEL, N_KV_HEADS * HEAD_DIM);
+    struct geist_weight wkr_o    = resolve_w_f32(be, bwo, N_Q_HEADS * HEAD_DIM, D_MODEL);
     struct geist_weight wkr_gate = resolve_w_f32(be, bw_gate, D_MODEL, D_FF);
-    struct geist_weight wkr_up = resolve_w_f32(be, bw_up, D_MODEL, D_FF);
+    struct geist_weight wkr_up   = resolve_w_f32(be, bw_up, D_MODEL, D_FF);
     struct geist_weight wkr_down = resolve_w_f32(be, bw_down, D_FF, D_MODEL);
 
     enum geist_status s;
@@ -467,11 +467,11 @@ static int vtable_block_via_backend(const char* backend_name,
         goto cleanup;
 
     /* Download result. */
-    s = v->buffer_download(D_MODEL * sizeof(float), (uint8_t*) y_out, b_y);
+    s = v->buffer_download(D_MODEL * sizeof(float), (uint8_t *) y_out, b_y);
 
 cleanup:
     /* Free all buffers. */
-    struct geist_buffer* all[] = {
+    struct geist_buffer *all[] = {
             bx,          bwq,        bwk,     bwv,  bwo,       bw_gate, bw_up,  bw_down,
             bw_an,       bw_fn,      b_xnorm, b_q,  b_k,       b_v,     b_attn, b_o,
             b_post_attn, b_ffn_norm, b_gate,  b_up, b_ffn_out, b_y,     b_cos,  b_sin,
@@ -508,7 +508,7 @@ int main(void) {
     /* Norm weights near 1.0 to avoid degenerate cases. */
     for (size_t i = 0; i < D_MODEL; i++) {
         w_attn_norm[i] = 1.0f + 0.05f * (float) i / D_MODEL;
-        w_ffn_norm[i] = 1.0f - 0.05f * (float) i / D_MODEL;
+        w_ffn_norm[i]  = 1.0f - 0.05f * (float) i / D_MODEL;
     }
 
     const float eps = 1e-6f;
@@ -520,8 +520,8 @@ int main(void) {
 
     /* Vtable path — both backends. */
     int fails = 0;
-    for (const char* backend = "cpu_neon"; backend != nullptr;
-         backend = (strcmp(backend, "cpu_neon") == 0) ? "cpu_scalar" : nullptr) {
+    for (const char *backend = "cpu_neon"; backend != nullptr;
+         backend             = (strcmp(backend, "cpu_neon") == 0) ? "cpu_scalar" : nullptr) {
         float y_vtable[D_MODEL];
         if (vtable_block_via_backend(backend,
                                      x_in,

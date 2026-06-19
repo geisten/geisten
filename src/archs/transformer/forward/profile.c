@@ -12,27 +12,34 @@
 enum { TRANSFORMER_PROFILE_MAX_SINKS = 16 };
 
 static struct transformer_forward_profile *g_profiles[TRANSFORMER_PROFILE_MAX_SINKS];
-static size_t g_profile_count;
-static int g_profile_enabled = -1;
-static bool g_profile_atexit_registered;
+static size_t                              g_profile_count;
+static int                                 g_profile_enabled = -1;
+static bool                                g_profile_atexit_registered;
 
 static void transformer_profile_print_all(void) {
     for (size_t p = 0; p < g_profile_count; p++) {
         struct transformer_forward_profile *profile = g_profiles[p];
-        if (profile == nullptr) { continue; }
+        if (profile == nullptr) {
+            continue;
+        }
 
         uint64_t total = 0;
         for (size_t i = 0; i < profile->stage_count; i++) {
             total += profile->ns[i];
         }
-        if (total == 0) { continue; }
+        if (total == 0) {
+            continue;
+        }
 
         fprintf(stderr, "%s profile:\n", profile->title);
         for (size_t i = 0; i < profile->stage_count; i++) {
-            const double ms = (double) profile->ns[i] / 1000000.0;
+            const double ms  = (double) profile->ns[i] / 1000000.0;
             const double pct = 100.0 * (double) profile->ns[i] / (double) total;
-            fprintf(stderr, "  %-10s %10.2f ms  %5.1f%%  (%llu calls)\n",
-                    profile->stage_names[i], ms, pct,
+            fprintf(stderr,
+                    "  %-10s %10.2f ms  %5.1f%%  (%llu calls)\n",
+                    profile->stage_names[i],
+                    ms,
+                    pct,
                     (unsigned long long) profile->calls[i]);
         }
     }
@@ -54,15 +61,19 @@ static bool transformer_profile_env_enabled(void) {
 }
 
 static void transformer_profile_register(struct transformer_forward_profile *profile) {
-    if (profile == nullptr || profile->registered) { return; }
+    if (profile == nullptr || profile->registered) {
+        return;
+    }
     if (g_profile_count < TRANSFORMER_PROFILE_MAX_SINKS) {
         g_profiles[g_profile_count++] = profile;
-        profile->registered = true;
+        profile->registered           = true;
     }
 }
 
 bool transformer_profile_enabled(struct transformer_forward_profile *profile) {
-    if (!transformer_profile_env_enabled()) { return false; }
+    if (!transformer_profile_env_enabled()) {
+        return false;
+    }
     transformer_profile_register(profile);
     return true;
 }
@@ -74,8 +85,11 @@ uint64_t transformer_profile_now_ns(void) {
 }
 
 void transformer_profile_add(struct transformer_forward_profile *profile,
-                             size_t stage, uint64_t t0) {
-    if (profile == nullptr || t0 == 0 || stage >= profile->stage_count) { return; }
+                             size_t                              stage,
+                             uint64_t                            t0) {
+    if (profile == nullptr || t0 == 0 || stage >= profile->stage_count) {
+        return;
+    }
     profile->ns[stage] += transformer_profile_now_ns() - t0;
     profile->calls[stage]++;
 }

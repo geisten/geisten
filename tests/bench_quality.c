@@ -31,7 +31,7 @@
  * Gemma chat template before sending. The tokenizer treats <|turn>
  * and <turn|> as structural tokens; <start_of_turn>/<end_of_turn>
  * are plain text for this model family. */
-static const char* const PROMPTS[] = {
+static const char *const PROMPTS[] = {
         "What is the capital of France?",
         "What is 1 + 1?",
         "Complete this poem: 'Roses are red, violets are'",
@@ -44,8 +44,8 @@ static const char* const PROMPTS[] = {
 #define N_PROMPTS (sizeof PROMPTS / sizeof PROMPTS[0])
 
 #define MAX_PROMPT_BYTES 1024
-static int env_int_or_default(const char* name, int fallback, int min, int max) {
-    const char* raw = getenv(name);
+static int env_int_or_default(const char *name, int fallback, int min, int max) {
+    const char *raw = getenv(name);
     if (raw == nullptr || raw[0] == '\0')
         return fallback;
     int value = atoi(raw);
@@ -59,7 +59,7 @@ static int env_int_or_default(const char* name, int fallback, int min, int max) 
 /* Per-architecture chat template. Gemma 4 uses its turn markers; Llama-family
  * (BitNet 2B-4T, …) uses the <|user|> … <|end|> <|assistant|> format (the GGUF
  * ships no chat_template, so we hardcode per general.architecture). */
-static void format_chat(char* buf, size_t buf_size, const char* user_prompt, const char* arch) {
+static void format_chat(char *buf, size_t buf_size, const char *user_prompt, const char *arch) {
     if (arch != nullptr && strcmp(arch, "gemma4") != 0) {
         snprintf(buf, buf_size, "<|user|>\n%s<|end|>\n<|assistant|>\n", user_prompt);
     } else {
@@ -67,17 +67,17 @@ static void format_chat(char* buf, size_t buf_size, const char* user_prompt, con
     }
 }
 
-static int run_one(struct geist_model* model,
-                   struct geist_backend* be,
-                   const struct geist_session_opts* opts,
-                   const char* user_prompt,
-                   const char* label,
-                   int max_decode) {
+static int run_one(struct geist_model              *model,
+                   struct geist_backend            *be,
+                   const struct geist_session_opts *opts,
+                   const char                      *user_prompt,
+                   const char                      *label,
+                   int                              max_decode) {
     char chat_buf[MAX_PROMPT_BYTES];
     format_chat(chat_buf, sizeof chat_buf, user_prompt, geist_model_arch(model));
 
-    struct geist_session* sess = nullptr;
-    enum geist_status s = geist_session_create(model, be, opts, &sess);
+    struct geist_session *sess = nullptr;
+    enum geist_status     s    = geist_session_create(model, be, opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "  [%s] session_create: %s\n", label, geist_status_to_string(s));
         return 1;
@@ -101,7 +101,7 @@ static int run_one(struct geist_model* model,
             printf(" [error %s]", geist_status_to_string(s));
             break;
         }
-        const char* txt = geist_session_token_to_str(sess, tok);
+        const char *txt = geist_session_token_to_str(sess, tok);
         if (txt == nullptr) {
             printf("<%d>", (int) tok);
             continue;
@@ -119,7 +119,7 @@ static int run_one(struct geist_model* model,
         }
         /* The SentencePiece marker '▁' (U+2581) represents a space.
          * Convert for readability in the bench output. */
-        for (const char* p = txt; *p;) {
+        for (const char *p = txt; *p;) {
             if ((unsigned char) p[0] == 0xE2 && (unsigned char) p[1] == 0x96 &&
                 (unsigned char) p[2] == 0x81) {
                 putchar(' ');
@@ -135,16 +135,16 @@ static int run_one(struct geist_model* model,
     return 0;
 }
 
-int main(int argc, char** argv) {
-    const char* model_path = argc > 1 ? argv[1] : geist_test_find_gguf();
+int main(int argc, char **argv) {
+    const char *model_path = argc > 1 ? argv[1] : geist_test_find_gguf();
     GEIST_SKIP_IF(model_path == nullptr, "no GGUF model found — pass path or set GEIST_GGUF_PATH");
 
-    const char* backend_name = getenv("GEIST_BENCH_BACKEND");
+    const char *backend_name = getenv("GEIST_BENCH_BACKEND");
     if (backend_name == nullptr || backend_name[0] == '\0') {
         backend_name = "cpu_neon";
     }
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create(backend_name, nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create(backend_name, nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -153,8 +153,8 @@ int main(int argc, char** argv) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "model_load(%s): %s — %s\n",
@@ -187,8 +187,8 @@ int main(int argc, char** argv) {
         printf("\n=== Sampled (temp=0.7, top_k=40, seed=0xC0FFEE) ===\n");
         struct geist_session_opts sampled = {
                 .temperature = 0.7f,
-                .top_k = 40,
-                .top_p = 0.95f,
+                .top_k       = 40,
+                .top_p       = 0.95f,
                 .random_seed = 0xC0FFEEULL,
         };
         for (int i = 0; i < max_prompts; i++) {

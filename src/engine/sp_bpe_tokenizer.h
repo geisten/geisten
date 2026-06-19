@@ -25,27 +25,27 @@
 
 struct sp_bpe_tokenizer;
 
-[[nodiscard]] bool sp_bpe_tokenizer_load(struct sp_bpe_tokenizer** out, const char* bin_path);
+[[nodiscard]] bool sp_bpe_tokenizer_load(struct sp_bpe_tokenizer **out, const char *bin_path);
 
-void sp_bpe_tokenizer_free(struct sp_bpe_tokenizer* tok);
+void sp_bpe_tokenizer_free(struct sp_bpe_tokenizer *tok);
 
-uint32_t sp_bpe_tokenizer_vocab_size(const struct sp_bpe_tokenizer* tok);
-uint32_t sp_bpe_tokenizer_bos_id(const struct sp_bpe_tokenizer* tok);
-uint32_t sp_bpe_tokenizer_eos_id(const struct sp_bpe_tokenizer* tok);
-uint32_t sp_bpe_tokenizer_pad_id(const struct sp_bpe_tokenizer* tok);
-uint32_t sp_bpe_tokenizer_unk_id(const struct sp_bpe_tokenizer* tok);
-uint32_t sp_bpe_tokenizer_specials_count(const struct sp_bpe_tokenizer* tok);
+uint32_t sp_bpe_tokenizer_vocab_size(const struct sp_bpe_tokenizer *tok);
+uint32_t sp_bpe_tokenizer_bos_id(const struct sp_bpe_tokenizer *tok);
+uint32_t sp_bpe_tokenizer_eos_id(const struct sp_bpe_tokenizer *tok);
+uint32_t sp_bpe_tokenizer_pad_id(const struct sp_bpe_tokenizer *tok);
+uint32_t sp_bpe_tokenizer_unk_id(const struct sp_bpe_tokenizer *tok);
+uint32_t sp_bpe_tokenizer_specials_count(const struct sp_bpe_tokenizer *tok);
 
 /* Encode a NUL-terminated UTF-8 string into token IDs.
  * Caller frees *tokens_out via safe_free((void **) &tokens_out). */
-[[nodiscard]] bool sp_bpe_tokenizer_encode(const struct sp_bpe_tokenizer* tok,
-                                            const char* text,
-                                            uint32_t** tokens_out,
-                                            size_t* count_out);
+[[nodiscard]] bool sp_bpe_tokenizer_encode(const struct sp_bpe_tokenizer *tok,
+                                           const char                    *text,
+                                           uint32_t                     **tokens_out,
+                                           size_t                        *count_out);
 
 /* Look up token text by ID. Returns text+len pair or (nullptr, 0) on error.
  * Text points into the mmap region — do not free. */
-const char* sp_bpe_tokenizer_id_to_text(const struct sp_bpe_tokenizer* tok,
-                                         uint32_t id, size_t* len_out);
+const char *
+sp_bpe_tokenizer_id_to_text(const struct sp_bpe_tokenizer *tok, uint32_t id, size_t *len_out);
 
 #endif

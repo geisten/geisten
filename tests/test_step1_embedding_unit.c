@@ -32,14 +32,14 @@
 /* Convert one BF16 value (uint16 storage) to FP32. */
 static inline float bf16_to_fp32(uint16_t bf) {
     uint32_t bits = (uint32_t) bf << 16; /* upper half of fp32 mantissa */
-    float f;
+    float    f;
     memcpy(&f, &bits, 4);
     return f;
 }
 
 /* Read a contiguous run of int32 token IDs from a flat binary file. */
-static int32_t* read_input_ids(const char* path, size_t* n_out) {
-    FILE* f = fopen(path, "rb");
+static int32_t *read_input_ids(const char *path, size_t *n_out) {
+    FILE *f = fopen(path, "rb");
     if (!f) {
         perror("fopen input_ids");
         return nullptr;
@@ -52,7 +52,7 @@ static int32_t* read_input_ids(const char* path, size_t* n_out) {
         fprintf(stderr, "bad input_ids size %ld\n", sz);
         return nullptr;
     }
-    int32_t* ids = (int32_t*) malloc((size_t) sz);
+    int32_t *ids = (int32_t *) malloc((size_t) sz);
     if (!ids) {
         fclose(f);
         return nullptr;
@@ -67,17 +67,17 @@ static int32_t* read_input_ids(const char* path, size_t* n_out) {
     return ids;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 4, "<model.safetensors> <input_ids.bin> <out.bin>");
 
-    const char* errmsg = nullptr;
-    struct st_ctx* ctx = st_open(argv[1], &errmsg);
+    const char    *errmsg = nullptr;
+    struct st_ctx *ctx    = st_open(argv[1], &errmsg);
     if (!ctx) {
         fprintf(stderr, "st_open failed: %s\n", errmsg ? errmsg : "?");
         return 1;
     }
 
-    const struct st_tensor_t* embed = st_get(ctx, "model.language_model.embed_tokens.weight");
+    const struct st_tensor_t *embed = st_get(ctx, "model.language_model.embed_tokens.weight");
     if (!embed) {
         fprintf(stderr, "embed_tokens.weight not found\n");
         st_close(ctx);
@@ -94,12 +94,12 @@ int main(int argc, char** argv) {
         st_close(ctx);
         return 1;
     }
-    const size_t hidden = embed->shape[1];
-    const float embed_scale = sqrtf((float) hidden);
+    const size_t hidden      = embed->shape[1];
+    const float  embed_scale = sqrtf((float) hidden);
     fprintf(stderr, "embed_scale = sqrt(%zu) = %.6f\n", hidden, embed_scale);
 
-    size_t n_ids = 0;
-    int32_t* ids = read_input_ids(argv[2], &n_ids);
+    size_t   n_ids = 0;
+    int32_t *ids   = read_input_ids(argv[2], &n_ids);
     if (!ids) {
         st_close(ctx);
         return 1;
@@ -107,14 +107,14 @@ int main(int argc, char** argv) {
     fprintf(stderr, "n_ids = %zu\n", n_ids);
 
     /* Output: [n_ids, hidden] FP32, contiguous row-major. */
-    float* out = (float*) malloc(n_ids * hidden * sizeof(float));
+    float *out = (float *) malloc(n_ids * hidden * sizeof(float));
     if (!out) {
         free(ids);
         st_close(ctx);
         return 1;
     }
 
-    const uint16_t* table = (const uint16_t*) embed->data;
+    const uint16_t *table = (const uint16_t *) embed->data;
     for (size_t t = 0; t < n_ids; t++) {
         int32_t id = ids[t];
         if (id < 0 || (size_t) id >= embed->shape[0]) {
@@ -124,14 +124,14 @@ int main(int argc, char** argv) {
             st_close(ctx);
             return 1;
         }
-        const uint16_t* row = table + (size_t) id * hidden;
-        float* dst = out + t * hidden;
+        const uint16_t *row = table + (size_t) id * hidden;
+        float          *dst = out + t * hidden;
         for (size_t i = 0; i < hidden; i++) {
             dst[i] = bf16_to_fp32(row[i]) * embed_scale;
         }
     }
 
-    FILE* fo = fopen(argv[3], "wb");
+    FILE *fo = fopen(argv[3], "wb");
     if (!fo) {
         perror("fopen out");
         free(ids);

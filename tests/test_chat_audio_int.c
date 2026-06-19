@@ -29,8 +29,8 @@
 
 #define PROMPT_CAP 1024
 
-static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sample_rate_out) {
-    FILE* f = fopen(path, "rb");
+static int16_t *read_wav_pcm(const char *path, size_t *n_samples_out, int *sample_rate_out) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     unsigned char hdr[44];
@@ -49,8 +49,8 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
     fseek(f, 0, SEEK_END);
     long file_bytes = ftell(f);
     fseek(f, 44, SEEK_SET);
-    size_t n = (size_t) (file_bytes - 44) / 2;
-    int16_t* pcm = malloc(n * sizeof(int16_t));
+    size_t   n   = (size_t) (file_bytes - 44) / 2;
+    int16_t *pcm = malloc(n * sizeof(int16_t));
     if (pcm == nullptr) {
         fclose(f);
         return nullptr;
@@ -61,19 +61,19 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
         free(pcm);
         return nullptr;
     }
-    *n_samples_out = n;
+    *n_samples_out   = n;
     *sample_rate_out = (int) sr;
     return pcm;
 }
 
-static enum geist_status tokenize_drop_bos(struct geist_session* s,
-                                           const char* text,
-                                           bool drop_bos,
-                                           geist_token_t* out,
-                                           size_t cap,
-                                           size_t* n_out) {
-    geist_token_t scratch[PROMPT_CAP];
-    size_t n = 0;
+static enum geist_status tokenize_drop_bos(struct geist_session *s,
+                                           const char           *text,
+                                           bool                  drop_bos,
+                                           geist_token_t        *out,
+                                           size_t                cap,
+                                           size_t               *n_out) {
+    geist_token_t     scratch[PROMPT_CAP];
+    size_t            n  = 0;
     enum geist_status rc = geist_session_tokenize(s, text, PROMPT_CAP, scratch, &n);
     if (rc != GEIST_OK)
         return rc;
@@ -86,15 +86,15 @@ static enum geist_status tokenize_drop_bos(struct geist_session* s,
     return GEIST_OK;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_GGUF(model_path);
-    const char* wav_path = argc > 1 ? argv[1] : "audio_test_data/de_hello.wav";
-    const char* question = argc > 2 ? argv[2] : "Transcribe what you heard.";
-    size_t max_tokens = argc > 3 ? (size_t) atoi(argv[3]) : 80;
+    const char *wav_path   = argc > 1 ? argv[1] : "audio_test_data/de_hello.wav";
+    const char *question   = argc > 2 ? argv[2] : "Transcribe what you heard.";
+    size_t      max_tokens = argc > 3 ? (size_t) atoi(argv[3]) : 80;
 
-    size_t n_samples;
-    int sample_rate;
-    int16_t* pcm = read_wav_pcm(wav_path, &n_samples, &sample_rate);
+    size_t   n_samples;
+    int      sample_rate;
+    int16_t *pcm = read_wav_pcm(wav_path, &n_samples, &sample_rate);
     if (pcm == nullptr) {
         GEIST_SKIP("could not read WAV (use first arg; default audio_test_data/de_hello.wav)");
     }
@@ -105,8 +105,8 @@ int main(int argc, char** argv) {
     printf("audio: %s (%.2f s @ 16kHz)\n", wav_path, (double) n_samples / 16000.0);
     printf("question: %s\n", question);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
@@ -114,8 +114,8 @@ int main(int argc, char** argv) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         geist_backend_destroy(be);
         free(pcm);
@@ -123,8 +123,8 @@ int main(int argc, char** argv) {
     }
 
     struct geist_session_opts opts = {.max_seq_len = 2048};
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         geist_model_destroy(model);
         geist_backend_destroy(be);
@@ -134,8 +134,8 @@ int main(int argc, char** argv) {
 
     {
         geist_token_t probe[4];
-        size_t pn = 0;
-        s = geist_session_tokenize(sess, "x", 4, probe, &pn);
+        size_t        pn = 0;
+        s                = geist_session_tokenize(sess, "x", 4, probe, &pn);
         if (s == GEIST_E_NOT_FOUND) {
             printf("SKIP: tokenizer not found (set GEIST_TOKENIZER_PATH)\n");
             free(pcm);
@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
 
     /* Prefix: <bos><|turn>user\n<|audio> */
     geist_token_t prefix[PROMPT_CAP];
-    size_t prefix_n = 0;
+    size_t        prefix_n = 0;
     s = tokenize_drop_bos(sess, "<bos><|turn>user\n<|audio>", false, prefix, PROMPT_CAP, &prefix_n);
     if (s != GEIST_OK) {
         fprintf(stderr, "tokenize prefix\n");
@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
     char suffix_text[PROMPT_CAP];
     snprintf(suffix_text, sizeof suffix_text, "<audio|>\n%s<turn|>\n<|turn>model\n", question);
     geist_token_t suffix[PROMPT_CAP];
-    size_t suffix_n = 0;
+    size_t        suffix_n = 0;
     s = tokenize_drop_bos(sess, suffix_text, true, suffix, PROMPT_CAP, &suffix_n);
     if (s != GEIST_OK) {
         fprintf(stderr, "tokenize suffix\n");
@@ -208,7 +208,7 @@ int main(int argc, char** argv) {
             break;
         if (tok == 1 /* <eos> */ || tok == 106 /* <turn|> */)
             break;
-        const char* t = geist_session_token_to_str(sess, tok);
+        const char *t = geist_session_token_to_str(sess, tok);
         if (t) {
             fputs(t, stdout);
             fflush(stdout);

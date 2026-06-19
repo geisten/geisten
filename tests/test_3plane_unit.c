@@ -14,25 +14,25 @@
 #include <string.h>
 
 int main(void) {
-    const size_t n_in = 256;
-    const size_t n_out = 8;
+    const size_t n_in       = 256;
+    const size_t n_out      = 8;
     const size_t group_size = 128;
-    const size_t n_groups = n_in / group_size;
+    const size_t n_groups   = n_in / group_size;
 
     /* Build random trits and alpha. */
-    uint8_t* trits = (uint8_t*) aligned_alloc(64, n_out * n_in);
-    float* alpha = (float*) aligned_alloc(64, n_out * n_groups * 3 * sizeof(float));
-    int8_t* x_q8 = (int8_t*) aligned_alloc(64, n_in);
+    uint8_t *trits = (uint8_t *) aligned_alloc(64, n_out * n_in);
+    float   *alpha = (float *) aligned_alloc(64, n_out * n_groups * 3 * sizeof(float));
+    int8_t  *x_q8  = (int8_t *) aligned_alloc(64, n_in);
 
     /* Reference T1/T2/T3 in {-1, 0, +1}. */
-    int8_t* T1 = (int8_t*) malloc(n_out * n_in);
-    int8_t* T2 = (int8_t*) malloc(n_out * n_in);
-    int8_t* T3 = (int8_t*) malloc(n_out * n_in);
+    int8_t *T1 = (int8_t *) malloc(n_out * n_in);
+    int8_t *T2 = (int8_t *) malloc(n_out * n_in);
+    int8_t *T3 = (int8_t *) malloc(n_out * n_in);
     srand(42);
     for (size_t i = 0; i < n_out * n_in; i++) {
-        T1[i] = (int8_t) ((rand() % 3) - 1);
-        T2[i] = (int8_t) ((rand() % 3) - 1);
-        T3[i] = (int8_t) ((rand() % 3) - 1);
+        T1[i]    = (int8_t) ((rand() % 3) - 1);
+        T2[i]    = (int8_t) ((rand() % 3) - 1);
+        T3[i]    = (int8_t) ((rand() % 3) - 1);
         trits[i] = (uint8_t) ((T1[i] + 1) * 9 + (T2[i] + 1) * 3 + (T3[i] + 1));
     }
     for (size_t i = 0; i < n_out * n_groups * 3; i++) {
@@ -43,7 +43,7 @@ int main(void) {
     const float scale_x = 0.005f;
 
     /* Reference: scalar y[n] = scale_x * sum_g (a1 sum_k T1*x + a2 sum T2*x + a3 sum T3*x). */
-    float* y_ref = (float*) malloc(n_out * sizeof(float));
+    float *y_ref = (float *) malloc(n_out * sizeof(float));
     for (size_t n = 0; n < n_out; n++) {
         float acc = 0.0f;
         for (size_t g = 0; g < n_groups; g++) {
@@ -62,14 +62,14 @@ int main(void) {
     }
 
     /* Kernel. */
-    float* y_kernel = (float*) malloc(n_out * sizeof(float));
+    float *y_kernel = (float *) malloc(n_out * sizeof(float));
     ptqtp_gemv_3plane_fp32alpha(n_in, n_out, group_size, x_q8, scale_x, trits, alpha, y_kernel);
 
     /* Compare. */
     int fails = 0;
     for (size_t n = 0; n < n_out; n++) {
         const float diff = y_kernel[n] - y_ref[n];
-        const float rel = fabsf(diff) / (fabsf(y_ref[n]) + 1e-6f);
+        const float rel  = fabsf(diff) / (fabsf(y_ref[n]) + 1e-6f);
         if (rel > 1e-4f) {
             printf("  row %zu: kernel %+.6f  ref %+.6f  diff %+.6f  rel %.4e\n",
                    n,

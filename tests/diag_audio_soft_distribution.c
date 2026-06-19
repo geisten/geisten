@@ -23,7 +23,7 @@
 #define SOFT_DIM 1536
 #define MAX_SOFT 256
 
-static const char* CLIPS[] = {
+static const char *CLIPS[] = {
         "audio_test_data/lampe_an.wav",
         "audio_test_data/de_hello.wav",
         "audio_test_data/hello_world.wav",
@@ -33,8 +33,8 @@ static const char* CLIPS[] = {
         nullptr,
 };
 
-static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sample_rate_out) {
-    FILE* f = fopen(path, "rb");
+static int16_t *read_wav_pcm(const char *path, size_t *n_samples_out, int *sample_rate_out) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     unsigned char hdr[44];
@@ -46,17 +46,17 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
     long sz = ftell(f);
     fseek(f, 44, SEEK_SET);
     *sample_rate_out = hdr[24] | (hdr[25] << 8) | (hdr[26] << 16) | (hdr[27] << 24);
-    size_t n = (size_t) (sz - 44) / 2;
-    int16_t* pcm = malloc(n * sizeof(int16_t));
+    size_t   n       = (size_t) (sz - 44) / 2;
+    int16_t *pcm     = malloc(n * sizeof(int16_t));
     xfread(pcm, sizeof(int16_t), n, f);
     fclose(f);
     *n_samples_out = n;
     return pcm;
 }
 
-static const char* find_tower(void) {
-    static const char* c[] = {"audio_bench/audio_tower.safetensors", nullptr};
-    FILE* f = fopen(c[0], "rb");
+static const char *find_tower(void) {
+    static const char *c[] = {"audio_bench/audio_tower.safetensors", nullptr};
+    FILE              *f   = fopen(c[0], "rb");
     if (f) {
         fclose(f);
         return c[0];
@@ -64,7 +64,7 @@ static const char* find_tower(void) {
     return nullptr;
 }
 
-static double cos_sim(const float* a, const float* b, size_t n) {
+static double cos_sim(const float *a, const float *b, size_t n) {
     double ab = 0, aa = 0, bb = 0;
     for (size_t i = 0; i < n; i++) {
         ab += (double) a[i] * (double) b[i];
@@ -75,11 +75,11 @@ static double cos_sim(const float* a, const float* b, size_t n) {
 }
 
 int main(void) {
-    const char* tower = find_tower();
+    const char *tower = find_tower();
     if (!tower)
         GEIST_SKIP("audio_tower missing");
 
-    struct AudioEncoder* enc = audio_encoder_create(tower);
+    struct AudioEncoder *enc = audio_encoder_create(tower);
     if (!enc)
         GEIST_SKIP("encoder create failed");
 
@@ -88,14 +88,14 @@ int main(void) {
     while (CLIPS[n_clips] != nullptr)
         n_clips++;
 
-    float** softs = calloc(n_clips, sizeof(float*));
-    size_t* n_soft = calloc(n_clips, sizeof(size_t));
-    double* durs = calloc(n_clips, sizeof(double));
+    float **softs  = calloc(n_clips, sizeof(float *));
+    size_t *n_soft = calloc(n_clips, sizeof(size_t));
+    double *durs   = calloc(n_clips, sizeof(double));
 
     for (size_t k = 0; k < n_clips; k++) {
-        size_t n_samples;
-        int sr;
-        int16_t* pcm = read_wav_pcm(CLIPS[k], &n_samples, &sr);
+        size_t   n_samples;
+        int      sr;
+        int16_t *pcm = read_wav_pcm(CLIPS[k], &n_samples, &sr);
         if (!pcm)
             continue;
         audio_encoder_reset(enc);
@@ -120,8 +120,8 @@ int main(void) {
     printf("Identical (cos=1.0) means boundary/zero-pad noise.\n\n");
     printf("%-3s", "pos");
     for (size_t a = 0; a < n_clips; a++) {
-        const char* name = strrchr(CLIPS[a], '/');
-        name = name ? name + 1 : CLIPS[a];
+        const char *name   = strrchr(CLIPS[a], '/');
+        name               = name ? name + 1 : CLIPS[a];
         char short_name[8] = {0};
         strncpy(short_name, name, 6);
         printf(" %7s", short_name);
@@ -136,7 +136,7 @@ int main(void) {
             }
             /* Average sim to other clips at this position. */
             double sum = 0;
-            int cnt = 0;
+            int    cnt = 0;
             for (size_t b = 0; b < n_clips; b++) {
                 if (a == b || n_soft[b] <= (size_t) pos)
                     continue;
@@ -151,12 +151,12 @@ int main(void) {
     printf("\n=== boundary-token threshold ===\n");
     printf("First position where avg cross-clip cos_sim drops below 0.99:\n");
     for (size_t a = 0; a < n_clips; a++) {
-        const char* name = strrchr(CLIPS[a], '/');
-        name = name ? name + 1 : CLIPS[a];
+        const char *name = strrchr(CLIPS[a], '/');
+        name             = name ? name + 1 : CLIPS[a];
         int first_unique = -1;
         for (size_t pos = 0; pos < n_soft[a]; pos++) {
             double sum = 0;
-            int cnt = 0;
+            int    cnt = 0;
             for (size_t b = 0; b < n_clips; b++) {
                 if (a == b || n_soft[b] <= pos)
                     continue;

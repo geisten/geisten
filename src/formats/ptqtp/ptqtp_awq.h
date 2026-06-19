@@ -35,18 +35,16 @@ extern "C" {
 
 struct ptqtp_awq_ctx;
 
-[[nodiscard]] struct ptqtp_awq_ctx* ptqtp_awq_open(const char* path, const char** err);
+[[nodiscard]] struct ptqtp_awq_ctx *ptqtp_awq_open(const char *path, const char **err);
 
-void ptqtp_awq_close(struct ptqtp_awq_ctx* ctx);
+void ptqtp_awq_close(struct ptqtp_awq_ctx *ctx);
 
 /* Lookup. Returns nullptr if not found. *n_out receives the channel count
  * on success. */
-[[nodiscard]] const float* ptqtp_awq_get(
-    const struct ptqtp_awq_ctx* ctx,
-    const char* name,
-    size_t* n_out);
+[[nodiscard]] const float *
+ptqtp_awq_get(const struct ptqtp_awq_ctx *ctx, const char *name, size_t *n_out);
 
-size_t ptqtp_awq_n_norms(const struct ptqtp_awq_ctx* ctx);
+size_t ptqtp_awq_n_norms(const struct ptqtp_awq_ctx *ctx);
 
 #ifdef __cplusplus
 }

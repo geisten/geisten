@@ -27,14 +27,15 @@
 #include <stdint.h>
 #include <string.h>
 
-[[nodiscard]] enum geist_status compute_weight_arena_capacity(
-    struct gguf_ctx *gguf, size_t *out_bytes) {
+[[nodiscard]] enum geist_status compute_weight_arena_capacity(struct gguf_ctx *gguf,
+                                                              size_t          *out_bytes) {
 
-    size_t total = 0;
-    const size_t n = gguf_tensor_count(gguf);
+    size_t       total = 0;
+    const size_t n     = gguf_tensor_count(gguf);
     for (size_t i = 0; i < n; i++) {
         const struct gguf_tensor_t *t = gguf_tensor_at(gguf, i);
-        if (t == nullptr) continue;
+        if (t == nullptr)
+            continue;
         const size_t aligned = (t->nbytes + 63u) & ~((size_t) 63u);
         total += aligned;
     }
@@ -46,10 +47,12 @@
     return GEIST_OK;
 }
 
-[[nodiscard]] enum geist_status load_tensor_to_buffer(
-    struct transformer_arch_state *st, struct gguf_ctx *gguf, const char *name,
-    size_t expected_elems, const struct gguf_tensor_t **out_t,
-    struct geist_buffer **out_buf) {
+[[nodiscard]] enum geist_status load_tensor_to_buffer(struct transformer_arch_state *st,
+                                                      struct gguf_ctx               *gguf,
+                                                      const char                    *name,
+                                                      size_t                         expected_elems,
+                                                      const struct gguf_tensor_t   **out_t,
+                                                      struct geist_buffer          **out_buf) {
 
     struct geist_backend *be = st->backend;
 
@@ -58,15 +61,18 @@
 
     const struct gguf_tensor_t *t = gguf_get_tensor(gguf, name);
     if (t == nullptr) {
-        geist_backend_set_error(be, GEIST_E_NOT_FOUND,
-                                "transformer: tensor '%s' not found in GGUF", name);
+        geist_backend_set_error(
+                be, GEIST_E_NOT_FOUND, "transformer: tensor '%s' not found in GGUF", name);
         return GEIST_E_NOT_FOUND;
     }
     size_t actual = gguf_tensor_elem_count(t);
     if (actual != expected_elems) {
-        geist_backend_set_error(be, GEIST_E_FORMAT,
+        geist_backend_set_error(be,
+                                GEIST_E_FORMAT,
                                 "transformer: '%s' has %zu elements, expected %zu",
-                                name, actual, expected_elems);
+                                name,
+                                actual,
+                                expected_elems);
         return GEIST_E_FORMAT;
     }
 
@@ -86,19 +92,22 @@
      * The two modes share the same hot path because both expose a
      * GEIST_MEMORY_ALIASED buffer to the kernel layer. Only the
      * underlying ownership differs. */
-    struct geist_buffer *buf = nullptr;
-    enum geist_status    s;
+    struct geist_buffer             *buf = nullptr;
+    enum geist_status                s;
     const struct geist_backend_vtbl *v = be->desc->vtbl;
-    void *raw_ptr;
+    void                            *raw_ptr;
     if (st->weight_arena != nullptr) {
         /* β: bump-allocate + memcpy. */
         raw_ptr = arena_alloc(st, t->nbytes, 64);
         if (raw_ptr == nullptr) {
-            geist_backend_set_error(be, GEIST_E_OOM,
+            geist_backend_set_error(be,
+                                    GEIST_E_OOM,
                                     "transformer: weight arena exhausted at '%s' "
                                     "(used %zu, capacity %zu, need %zu)",
-                                    name, st->weight_arena_used,
-                                    st->weight_arena_capacity, t->nbytes);
+                                    name,
+                                    st->weight_arena_used,
+                                    st->weight_arena_capacity,
+                                    t->nbytes);
             return GEIST_E_OOM;
         }
         memcpy(raw_ptr, t->data, t->nbytes);
@@ -106,8 +115,7 @@
         /* mmap-alias: zero-copy; gguf mmap retained by caller. */
         raw_ptr = (void *) t->data;
     }
-    s = v->buffer_create_aliased(be, raw_ptr, t->nbytes,
-                                   GEIST_BUFFER_WEIGHT, &buf);
+    s = v->buffer_create_aliased(be, raw_ptr, t->nbytes, GEIST_BUFFER_WEIGHT, &buf);
     if (s != GEIST_OK) {
         return s;
     }

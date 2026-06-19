@@ -57,7 +57,7 @@
 static double process_rss_mb(void) {
 #if defined(__APPLE__)
     struct mach_task_basic_info info;
-    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    mach_msg_type_number_t      count = MACH_TASK_BASIC_INFO_COUNT;
     if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t) &info, &count) !=
         KERN_SUCCESS) {
         return 0.0;
@@ -79,29 +79,29 @@ static double monotonic_ms(void) {
     return (double) ts.tv_sec * 1e3 + (double) ts.tv_nsec / 1e6;
 }
 
-static void parse_csv_ints(const char* csv, int* out, int max, int* n_out) {
-    int n = 0;
-    const char* p = csv;
+static void parse_csv_ints(const char *csv, int *out, int max, int *n_out) {
+    int         n = 0;
+    const char *p = csv;
     while (*p && n < max) {
-        char* end;
-        long v = strtol(p, &end, 10);
+        char *end;
+        long  v = strtol(p, &end, 10);
         if (end == p)
             break;
         out[n++] = (int) v;
-        p = end;
+        p        = end;
         if (*p == ',')
             p++;
     }
     *n_out = n;
 }
 
-static int cmp_double(const void* a, const void* b) {
-    const double da = *(const double*) a;
-    const double db = *(const double*) b;
+static int cmp_double(const void *a, const void *b) {
+    const double da = *(const double *) a;
+    const double db = *(const double *) b;
     return (da > db) - (da < db);
 }
 
-static double mean_of(const double* v, int n) {
+static double mean_of(const double *v, int n) {
     if (n <= 0)
         return 0.0;
     double sum = 0.0;
@@ -110,16 +110,16 @@ static double mean_of(const double* v, int n) {
     return sum / (double) n;
 }
 
-int main(int argc, char** argv) {
-    int seq_lens[16];
-    int n_seq_lens = 0;
-    int decode_n = 64;
-    int warmup = 64;
-    int repeats = 10;
-    int m_max = 0;
-    int vocab_cap = 32000;
-    int threads = 0; /* informational; the runtime reads OMP_NUM_THREADS. */
-    const char* gguf_arg = nullptr;
+int main(int argc, char **argv) {
+    int         seq_lens[16];
+    int         n_seq_lens = 0;
+    int         decode_n   = 64;
+    int         warmup     = 64;
+    int         repeats    = 10;
+    int         m_max      = 0;
+    int         vocab_cap  = 32000;
+    int         threads    = 0; /* informational; the runtime reads OMP_NUM_THREADS. */
+    const char *gguf_arg   = nullptr;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--seq-lens") == 0 && i + 1 < argc) {
             parse_csv_ints(argv[++i], seq_lens, 16, &n_seq_lens);
@@ -153,7 +153,7 @@ int main(int argc, char** argv) {
         repeats = 1;
     }
 
-    const char* model_path = gguf_arg;
+    const char *model_path = gguf_arg;
     if (model_path == nullptr) {
         model_path = geist_test_find_gguf();
         GEIST_SKIP_IF(model_path == nullptr,
@@ -166,12 +166,12 @@ int main(int argc, char** argv) {
      * without affecting the metric being measured. */
     setenv("GEIST_TEXT_ONLY", "1", 0);
 
-    const char* backend_name = getenv("GEIST_BENCH_BACKEND");
+    const char *backend_name = getenv("GEIST_BENCH_BACKEND");
     if (backend_name == nullptr || backend_name[0] == '\0') {
         backend_name = "cpu_neon";
     }
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create(backend_name, nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create(backend_name, nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -180,8 +180,8 @@ int main(int argc, char** argv) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
@@ -194,14 +194,14 @@ int main(int argc, char** argv) {
         if (seq_lens[i] > max_seq)
             max_seq = seq_lens[i];
     }
-    const int session_seq = max_seq + decode_n + warmup + 32;
-    struct geist_session_opts opts = {
+    const int                 session_seq = max_seq + decode_n + warmup + 32;
+    struct geist_session_opts opts        = {
             .max_seq_len = (size_t) session_seq,
             .temperature = 0.0f,
-            .m_max = m_max > 0 ? (size_t) m_max : 0,
+            .m_max       = m_max > 0 ? (size_t) m_max : 0,
     };
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session *sess = nullptr;
+    s                          = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed\n");
         geist_model_destroy(model);
@@ -211,7 +211,7 @@ int main(int argc, char** argv) {
 
     /* Pre-generate token buffer for the largest prefill. Pseudo-random in
      * [1, vocab_cap) — avoid token 0 (often <pad> / <unk>). */
-    geist_token_t* ids = (geist_token_t*) malloc((size_t) max_seq * sizeof(*ids));
+    geist_token_t *ids = (geist_token_t *) malloc((size_t) max_seq * sizeof(*ids));
     for (int i = 0; i < max_seq; i++) {
         ids[i] = 1 + (geist_token_t) ((i * 2654435761u) % (unsigned) (vocab_cap - 1));
     }
@@ -238,10 +238,10 @@ int main(int argc, char** argv) {
             repeats);
 
     for (int idx = 0; idx < n_seq_lens; idx++) {
-        const int n_p = seq_lens[idx];
-        double* prefill_ms = (double*) malloc((size_t) repeats * sizeof(*prefill_ms));
-        double* decode_ms = (double*) malloc((size_t) repeats * sizeof(*decode_ms));
-        double* total_ms_repeats = (double*) malloc((size_t) repeats * sizeof(*total_ms_repeats));
+        const int n_p            = seq_lens[idx];
+        double   *prefill_ms     = (double *) malloc((size_t) repeats * sizeof(*prefill_ms));
+        double   *decode_ms      = (double *) malloc((size_t) repeats * sizeof(*decode_ms));
+        double *total_ms_repeats = (double *) malloc((size_t) repeats * sizeof(*total_ms_repeats));
         if (prefill_ms == nullptr || decode_ms == nullptr || total_ms_repeats == nullptr) {
             free(prefill_ms);
             free(decode_ms);
@@ -258,23 +258,23 @@ int main(int argc, char** argv) {
                 continue;
             }
 
-            const double t0 = monotonic_ms();
-            s = geist_session_prefill_tokens(sess, (size_t) n_p, ids);
+            const double t0        = monotonic_ms();
+            s                      = geist_session_prefill_tokens(sess, (size_t) n_p, ids);
             const double t_prefill = monotonic_ms() - t0;
             if (s != GEIST_OK) {
                 fprintf(stderr, "prefill failed at seq_len=%d repeat=%d\n", n_p, r);
                 continue;
             }
 
-            const double t1 = monotonic_ms();
+            const double  t1  = monotonic_ms();
             geist_token_t out = 0;
             for (int j = 0; j < decode_n; j++) {
                 (void) geist_session_decode_step(sess, &out);
             }
             const double t_decode = monotonic_ms() - t1;
 
-            prefill_ms[measured] = t_prefill;
-            decode_ms[measured] = t_decode;
+            prefill_ms[measured]       = t_prefill;
+            decode_ms[measured]        = t_decode;
             total_ms_repeats[measured] = t_prefill + t_decode;
             measured++;
         }
@@ -289,26 +289,23 @@ int main(int argc, char** argv) {
         /* Core metric is the MEAN over the measured repeats; sort only to pull
          * best (fastest) / worst (slowest) for the spread. */
         const double t_prefill = mean_of(prefill_ms, measured);
-        const double t_decode = mean_of(decode_ms, measured);
+        const double t_decode  = mean_of(decode_ms, measured);
         qsort(prefill_ms, (size_t) measured, sizeof(*prefill_ms), cmp_double);
         qsort(decode_ms, (size_t) measured, sizeof(*decode_ms), cmp_double);
         qsort(total_ms_repeats, (size_t) measured, sizeof(*total_ms_repeats), cmp_double);
 
-        const double pre_tps = (double) n_p * 1000.0 / t_prefill;
-        const double dec_tps = (double) decode_n * 1000.0 / t_decode;
-        const double total_ms = t_prefill + t_decode;
-        const double total_tps =
-            (double) (n_p + decode_n) * 1000.0 / total_ms;
-        const double pre_best = prefill_ms[0];
-        const double pre_worst = prefill_ms[measured - 1];
-        const double dec_best = decode_ms[0];
-        const double dec_worst = decode_ms[measured - 1];
-        const double total_best = total_ms_repeats[0];
-        const double total_worst = total_ms_repeats[measured - 1];
-        const double total_tps_best =
-            (double) (n_p + decode_n) * 1000.0 / total_best;
-        const double total_tps_worst =
-            (double) (n_p + decode_n) * 1000.0 / total_worst;
+        const double pre_tps         = (double) n_p * 1000.0 / t_prefill;
+        const double dec_tps         = (double) decode_n * 1000.0 / t_decode;
+        const double total_ms        = t_prefill + t_decode;
+        const double total_tps       = (double) (n_p + decode_n) * 1000.0 / total_ms;
+        const double pre_best        = prefill_ms[0];
+        const double pre_worst       = prefill_ms[measured - 1];
+        const double dec_best        = decode_ms[0];
+        const double dec_worst       = decode_ms[measured - 1];
+        const double total_best      = total_ms_repeats[0];
+        const double total_worst     = total_ms_repeats[measured - 1];
+        const double total_tps_best  = (double) (n_p + decode_n) * 1000.0 / total_best;
+        const double total_tps_worst = (double) (n_p + decode_n) * 1000.0 / total_worst;
 
         printf("{\"seq_len\":%d,\"decode_n\":%d,"
                "\"prefill_ms\":%.2f,\"decode_ms\":%.2f,\"total_ms\":%.2f,"

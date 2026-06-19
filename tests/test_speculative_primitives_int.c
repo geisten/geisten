@@ -46,10 +46,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-static struct geist_backend* be;
-static struct geist_model* model;
+static struct geist_backend *be;
+static struct geist_model   *model;
 
-static int load_model(const char* model_path) {
+static int load_model(const char *model_path) {
     enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
@@ -74,9 +74,9 @@ static void teardown(void) {
  * arch_meta is opaque void*; we reach it via the model accessor.
  * Resets state because session_create does NOT reset between sessions
  * that share an arch_meta (one model = one arch state). */
-static struct transformer_arch_state* open_session(struct geist_session** out_sess) {
+static struct transformer_arch_state *open_session(struct geist_session **out_sess) {
     struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
-    enum geist_status s = geist_session_create(model, be, &opts, out_sess);
+    enum geist_status         s    = geist_session_create(model, be, &opts, out_sess);
     if (s != GEIST_OK)
         return nullptr;
     s = geist_session_reset(*out_sess);
@@ -85,7 +85,7 @@ static struct transformer_arch_state* open_session(struct geist_session** out_se
         *out_sess = nullptr;
         return nullptr;
     }
-    return (struct transformer_arch_state*) geist_model_internal_arch_meta(model);
+    return (struct transformer_arch_state *) geist_model_internal_arch_meta(model);
 }
 
 int main(void) {
@@ -96,14 +96,14 @@ int main(void) {
     /* Use a small but realistic prompt. BOS=2 keeps the test deterministic
      * across runs. Q3_K_M and Q4_K_M both produce the same model output. */
     const geist_token_t prompt_ids[] = {2, 9259}; /* <bos> Hello */
-    const size_t prompt_n = sizeof prompt_ids / sizeof prompt_ids[0];
-    const size_t K = 4;
+    const size_t        prompt_n     = sizeof prompt_ids / sizeof prompt_ids[0];
+    const size_t        K            = 4;
 
     /* ---- Reference run: prefill prompt, then K sequential decode steps. */
     geist_token_t ref_tokens[K];
     {
-        struct geist_session* sess = nullptr;
-        struct transformer_arch_state* st = open_session(&sess);
+        struct geist_session          *sess = nullptr;
+        struct transformer_arch_state *st   = open_session(&sess);
         if (st == nullptr) {
             fprintf(stderr, "session create failed (or internal accessor missing)\n");
             teardown();
@@ -135,10 +135,10 @@ int main(void) {
      * proposed[i], which is ref_tokens[i+1]). The last verify output
      * (verify[K-1]) predicts the K-th token (not in our ref). */
     geist_token_t verify_out[K];
-    size_t kv_after_verify = 0;
+    size_t        kv_after_verify = 0;
     {
-        struct geist_session* sess = nullptr;
-        struct transformer_arch_state* st = open_session(&sess);
+        struct geist_session          *sess = nullptr;
+        struct transformer_arch_state *st   = open_session(&sess);
         if (st == nullptr) {
             teardown();
             return GEIST_TEST_FAIL;
@@ -149,7 +149,7 @@ int main(void) {
             return GEIST_TEST_FAIL;
         }
         const size_t kv_before = st->sess->kv_len;
-        s = transformer_verify_forward(st, K, ref_tokens, verify_out);
+        s                      = transformer_verify_forward(st, K, ref_tokens, verify_out);
         if (s != GEIST_OK) {
             fprintf(stderr, "verify_forward failed: %s\n", geist_status_to_string(s));
             teardown();
@@ -195,8 +195,8 @@ int main(void) {
 
     /* ---- Test 3: kv_truncate round-trip. */
     {
-        struct geist_session* sess = nullptr;
-        struct transformer_arch_state* st = open_session(&sess);
+        struct geist_session          *sess = nullptr;
+        struct transformer_arch_state *st   = open_session(&sess);
         if (st == nullptr) {
             teardown();
             return GEIST_TEST_FAIL;

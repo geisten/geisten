@@ -18,16 +18,16 @@
 #include <stddef.h>
 
 #define MEL_FRAME_LENGTH 320
-#define MEL_FFT_LENGTH   512
-#define MEL_N_FFT_BINS   257   /* MEL_FFT_LENGTH / 2 + 1 */
-#define MEL_N_MEL        128
+#define MEL_FFT_LENGTH 512
+#define MEL_N_FFT_BINS 257 /* MEL_FFT_LENGTH / 2 + 1 */
+#define MEL_N_MEL 128
 
 struct MelState;
 
-struct MelState* mel_create(const char* constants_bin_path);
-void      mel_destroy(struct MelState*);
+struct MelState *mel_create(const char *constants_bin_path);
+void             mel_destroy(struct MelState *);
 
 /* Compute one log-mel frame from MEL_FRAME_LENGTH (=320) fp32 PCM samples. */
-void      mel_frame_compute(struct MelState*, const float* pcm_320, float* out_mel_128);
+void mel_frame_compute(struct MelState *, const float *pcm_320, float *out_mel_128);
 
 #endif

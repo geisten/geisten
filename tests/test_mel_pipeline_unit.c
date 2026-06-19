@@ -20,8 +20,8 @@
 
 /* Read 16-bit mono PCM from a WAV file. Returns malloc'd float array in
  * [-1, 1]; *n_out filled with sample count. Caller frees. */
-static float* read_wav_mono16k(const char* path, size_t* n_out) {
-    FILE* f = fopen(path, "rb");
+static float *read_wav_mono16k(const char *path, size_t *n_out) {
+    FILE *f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "open %s\n", path);
         return nullptr;
@@ -34,10 +34,10 @@ static float* read_wav_mono16k(const char* path, size_t* n_out) {
         return nullptr;
     }
     /* Walk chunks until we find 'data'. */
-    int sr = 0, nch = 0, bps = 0;
+    int      sr = 0, nch = 0, bps = 0;
     uint32_t data_bytes = 0;
     while (1) {
-        char id[4];
+        char     id[4];
         uint32_t sz;
         if (fread(id, 1, 4, f) != 4 || fread(&sz, 4, 1, f) != 1)
             break;
@@ -47,7 +47,7 @@ static float* read_wav_mono16k(const char* path, size_t* n_out) {
             if (sz > sizeof(fmt))
                 fseek(f, sz - sizeof(fmt), SEEK_CUR);
             nch = fmt[2] | (fmt[3] << 8);
-            sr = fmt[4] | (fmt[5] << 8) | (fmt[6] << 16) | (fmt[7] << 24);
+            sr  = fmt[4] | (fmt[5] << 8) | (fmt[6] << 16) | (fmt[7] << 24);
             bps = fmt[14] | (fmt[15] << 8);
         } else if (!memcmp(id, "data", 4)) {
             data_bytes = sz;
@@ -61,11 +61,11 @@ static float* read_wav_mono16k(const char* path, size_t* n_out) {
         fclose(f);
         return nullptr;
     }
-    size_t n = data_bytes / 2;
-    int16_t* s16 = (int16_t*) malloc(n * sizeof(int16_t));
+    size_t   n   = data_bytes / 2;
+    int16_t *s16 = (int16_t *) malloc(n * sizeof(int16_t));
     xfread(s16, 2, n, f);
     fclose(f);
-    float* pcm = (float*) malloc(n * sizeof(float));
+    float *pcm = (float *) malloc(n * sizeof(float));
     for (size_t i = 0; i < n; i++)
         pcm[i] = (float) s16[i] / 32768.0f;
     free(s16);
@@ -73,15 +73,15 @@ static float* read_wav_mono16k(const char* path, size_t* n_out) {
     return pcm;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 4, "<wav> <mel_constants.bin> <out_mel.bin>");
     size_t n_pcm = 0;
-    float* pcm = read_wav_mono16k(argv[1], &n_pcm);
+    float *pcm   = read_wav_mono16k(argv[1], &n_pcm);
     if (!pcm)
         return 1;
     fprintf(stderr, "loaded %zu samples (%.2fs)\n", n_pcm, (double) n_pcm / 16000.0);
 
-    struct MelState* mel = mel_create(argv[2]);
+    struct MelState *mel = mel_create(argv[2]);
     if (!mel) {
         free(pcm);
         return 1;
@@ -89,8 +89,8 @@ int main(int argc, char** argv) {
 
     /* Build the padded waveform: prepend 160 zeros to match HF semicausal. */
     const size_t pad_left = MEL_FRAME_LENGTH / 2; /* 160 */
-    size_t n_padded = pad_left + n_pcm;
-    float* padded = (float*) calloc(n_padded, sizeof(float));
+    size_t       n_padded = pad_left + n_pcm;
+    float       *padded   = (float *) calloc(n_padded, sizeof(float));
     memcpy(padded + pad_left, pcm, n_pcm * sizeof(float));
 
     /* HF unfolds with frame_size = frame_length + 1 = 321 (the +1 is consumed
@@ -105,13 +105,13 @@ int main(int argc, char** argv) {
     size_t n_frames = (n_padded - (MEL_FRAME_LENGTH + 1)) / HOP_LENGTH + 1;
     fprintf(stderr, "computing %zu mel frames\n", n_frames);
 
-    float* out = (float*) malloc(n_frames * MEL_N_MEL * sizeof(float));
+    float *out = (float *) malloc(n_frames * MEL_N_MEL * sizeof(float));
     for (size_t i = 0; i < n_frames; i++) {
-        const float* frame_in = padded + i * HOP_LENGTH;
+        const float *frame_in = padded + i * HOP_LENGTH;
         mel_frame_compute(mel, frame_in, out + i * MEL_N_MEL);
     }
 
-    FILE* of = fopen(argv[3], "wb");
+    FILE *of = fopen(argv[3], "wb");
     xfwrite(out, sizeof(float), n_frames * MEL_N_MEL, of);
     fclose(of);
     fprintf(stderr,

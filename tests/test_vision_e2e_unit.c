@@ -47,14 +47,14 @@
 #define VTH 768
 #define V_SOFT 1536
 
-static void* read_full(const char* path, size_t* out_bytes) {
-    FILE* f = fopen(path, "rb");
+static void *read_full(const char *path, size_t *out_bytes) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    void* buf = malloc((size_t) sz);
+    void *buf = malloc((size_t) sz);
     if (buf == nullptr) {
         fclose(f);
         return nullptr;
@@ -69,18 +69,18 @@ static void* read_full(const char* path, size_t* out_bytes) {
     return buf;
 }
 
-static int compare_stage(const char* name,
-                         const char* geist_dir,
-                         const char* hf_basename,
-                         size_t n_floats,
-                         float eps) {
+static int compare_stage(const char *name,
+                         const char *geist_dir,
+                         const char *hf_basename,
+                         size_t      n_floats,
+                         float       eps) {
     char hf_path[512], geist_path[512];
     snprintf(hf_path, sizeof hf_path, "%s.%s.bin", hf_basename, name);
     snprintf(geist_path, sizeof geist_path, "%s/%s.bin", geist_dir, name);
 
     size_t hf_b = 0, gi_b = 0;
-    float* hf = read_full(hf_path, &hf_b);
-    float* gi = read_full(geist_path, &gi_b);
+    float *hf = read_full(hf_path, &hf_b);
+    float *gi = read_full(geist_path, &gi_b);
     if (hf == nullptr) {
         fprintf(stdout, "  %-12s SKIP (missing HF dump %s)\n", name, hf_path);
         if (gi)
@@ -103,7 +103,7 @@ static int compare_stage(const char* name,
         free(gi);
         return 1;
     }
-    float max_abs = 0.0f, max_hf = 0.0f;
+    float  max_abs = 0.0f, max_hf = 0.0f;
     size_t max_idx = 0;
     double sum_abs = 0.0;
     for (size_t i = 0; i < n_floats; i++) {
@@ -120,7 +120,7 @@ static int compare_stage(const char* name,
             max_hf = ah;
     }
     double mean = sum_abs / (double) n_floats;
-    float rel = max_hf > 0 ? max_abs / max_hf : max_abs;
+    float  rel  = max_hf > 0 ? max_abs / max_hf : max_abs;
     fprintf(stdout,
             "  %-12s max|Δ|=%.4f  rel=%.4f  mean=%.4f  "
             "(geist=%.2f hf=%.2f at %zu, |hf|_max=%.1f)\n",
@@ -137,13 +137,13 @@ static int compare_stage(const char* name,
     return rel <= eps ? 0 : 1;
 }
 
-int main(int argc, char** argv) {
-    const char* weights_path = argc > 1 ? argv[1] : "vision_bench/vision_tower.safetensors";
-    const char* hf_basename = argc > 2 ? argv[2] : "dumps/vision/syn_320x224";
-    const char* png_path = argc > 3 ? argv[3] : "vision_bench/syn_320x224.png";
+int main(int argc, char **argv) {
+    const char *weights_path = argc > 1 ? argv[1] : "vision_bench/vision_tower.safetensors";
+    const char *hf_basename  = argc > 2 ? argv[2] : "dumps/vision/syn_320x224";
+    const char *png_path     = argc > 3 ? argv[3] : "vision_bench/syn_320x224.png";
 
     {
-        FILE* f = fopen(weights_path, "rb");
+        FILE *f = fopen(weights_path, "rb");
         if (f == nullptr) {
             fprintf(stdout, "SKIP: %s not found. Run extract_vision_tower.\n", weights_path);
             return GEIST_TEST_SKIP;
@@ -158,8 +158,8 @@ int main(int argc, char** argv) {
     }
 
     /* Decode PNG via stb_image. */
-    int w = 0, h = 0, c = 0;
-    uint8_t* rgb = stbi_load(png_path, &w, &h, &c, 3);
+    int      w = 0, h = 0, c = 0;
+    uint8_t *rgb = stbi_load(png_path, &w, &h, &c, 3);
     if (rgb == nullptr) {
         fprintf(stderr, "stb_image: failed to load %s\n", png_path);
         return GEIST_TEST_ERROR;
@@ -167,21 +167,21 @@ int main(int argc, char** argv) {
     fprintf(stdout, "loaded %s: %dx%d %dch\n", png_path, h, w, c);
 
     /* Scratch dump dir. */
-    const char* dump_dir = "build/test-tmp/vision_e2e";
+    const char *dump_dir = "build/test-tmp/vision_e2e";
     mkdir("build/test-tmp", 0755);
     mkdir(dump_dir, 0755);
     setenv("GEIST_VISION_DUMP_DIR", dump_dir, 1);
 
     /* Load weights. */
     fprintf(stdout, "loading %s...\n", weights_path);
-    struct VisionEncoder* enc = vision_encoder_create(weights_path);
+    struct VisionEncoder *enc = vision_encoder_create(weights_path);
     if (enc == nullptr) {
         stbi_image_free(rgb);
         return GEIST_TEST_FAIL;
     }
 
     /* Run end-to-end. */
-    float* soft = malloc(VISION_SOFT_TOKENS_PER_IMAGE * V_SOFT * sizeof(float));
+    float *soft = malloc(VISION_SOFT_TOKENS_PER_IMAGE * V_SOFT * sizeof(float));
     fprintf(stdout, "running vision_encoder_run_image (h=%d w=%d)...\n", h, w);
     size_t n_soft = vision_encoder_run_image(enc, rgb, (size_t) h, (size_t) w, soft);
     vision_encoder_destroy(enc);

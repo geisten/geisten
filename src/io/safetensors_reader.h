@@ -43,27 +43,27 @@ typedef enum {
 #define ST_MAX_RANK 8
 
 struct st_tensor_t {
-    const char* name;            // owned by ctx, NUL-terminated
-    st_dtype_t dtype;
-    size_t rank;
-    size_t shape[ST_MAX_RANK];
-    size_t nbytes;
-    const void* data;            // points into mmap'd region
+    const char *name; // owned by ctx, NUL-terminated
+    st_dtype_t  dtype;
+    size_t      rank;
+    size_t      shape[ST_MAX_RANK];
+    size_t      nbytes;
+    const void *data; // points into mmap'd region
 };
 
 struct st_ctx;
 
 // Open file (mmap), parse header. Returns NULL on error;
 // errmsg (if non-NULL) is filled with a static or heap string explaining why.
-struct st_ctx* st_open(const char* path, const char** errmsg);
+struct st_ctx *st_open(const char *path, const char **errmsg);
 
-size_t st_count(const struct st_ctx* ctx);
-const struct st_tensor_t* st_at(const struct st_ctx* ctx, size_t idx);
-const struct st_tensor_t* st_get(const struct st_ctx* ctx, const char* name);
+size_t                    st_count(const struct st_ctx *ctx);
+const struct st_tensor_t *st_at(const struct st_ctx *ctx, size_t idx);
+const struct st_tensor_t *st_get(const struct st_ctx *ctx, const char *name);
 
-size_t st_dtype_bytes(st_dtype_t dtype);
-const char* st_dtype_name(st_dtype_t dtype);
+size_t      st_dtype_bytes(st_dtype_t dtype);
+const char *st_dtype_name(st_dtype_t dtype);
 
-void st_close(struct st_ctx* ctx);
+void st_close(struct st_ctx *ctx);
 
 #endif

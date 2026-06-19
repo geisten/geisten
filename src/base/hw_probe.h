@@ -56,7 +56,7 @@ struct geist_hw_probe {
     size_t logical_cores; /* 0 when unknown. */
 };
 
-void geist_hw_probe_fill(struct geist_hw_probe *out);
+void        geist_hw_probe_fill(struct geist_hw_probe *out);
 const char *geist_hw_os_name(enum geist_hw_os os);
 const char *geist_hw_cpu_name(enum geist_hw_cpu cpu);
 

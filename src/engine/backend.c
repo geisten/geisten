@@ -42,22 +42,25 @@ enum geist_status geist_backend_create(const char                      *name,
                                        const struct geist_allocator    *alloc,
                                        struct geist_backend           **out) {
     if (out == nullptr) {
-        geist_error_set_create_time(GEIST_E_INVALID_ARG, "geist_backend_create",
-                                    "out parameter is null");
+        geist_error_set_create_time(
+                GEIST_E_INVALID_ARG, "geist_backend_create", "out parameter is null");
         return GEIST_E_INVALID_ARG;
     }
     *out = nullptr;
 
     const struct geist_backend_descriptor *desc = resolve_descriptor(name);
     if (desc == nullptr) {
-        geist_error_set_create_time(GEIST_E_NOT_FOUND, "geist_backend_create",
+        geist_error_set_create_time(GEIST_E_NOT_FOUND,
+                                    "geist_backend_create",
                                     "no backend named '%s' is compiled in",
                                     name == nullptr ? "(null)" : name);
         return GEIST_E_NOT_FOUND;
     }
     if (desc->vtbl == nullptr || desc->vtbl->destroy == nullptr) {
-        geist_error_set_create_time(GEIST_E_INTERNAL, "geist_backend_create",
-                                    "backend '%s' has incomplete vtable", desc->name);
+        geist_error_set_create_time(GEIST_E_INTERNAL,
+                                    "geist_backend_create",
+                                    "backend '%s' has incomplete vtable",
+                                    desc->name);
         return GEIST_E_INTERNAL;
     }
 
@@ -65,17 +68,18 @@ enum geist_status geist_backend_create(const char                      *name,
 
     struct geist_backend *be = a->alloc(a->ctx, sizeof(*be), alignof(struct geist_backend));
     if (be == nullptr) {
-        geist_error_set_create_time(GEIST_E_OOM, "geist_backend_create",
+        geist_error_set_create_time(GEIST_E_OOM,
+                                    "geist_backend_create",
                                     "failed to allocate %zu bytes for backend handle",
                                     sizeof(*be));
         return GEIST_E_OOM;
     }
 
-    *be = (struct geist_backend){
-        .desc     = desc,
-        .alloc    = *a,
-        .state    = nullptr,
-        .err_code = GEIST_OK,
+    *be = (struct geist_backend) {
+            .desc     = desc,
+            .alloc    = *a,
+            .state    = nullptr,
+            .err_code = GEIST_OK,
     };
     be->err_msg[0] = '\0';
 
@@ -84,7 +88,8 @@ enum geist_status geist_backend_create(const char                      *name,
         if (s != GEIST_OK) {
             /* Backend failed during init; copy its error to the create-time slot
              * so user can retrieve via geist_last_create_error(). */
-            geist_error_set_create_time(s, "geist_backend_create",
+            geist_error_set_create_time(s,
+                                        "geist_backend_create",
                                         "backend '%s' init failed: %s",
                                         desc->name,
                                         be->err_msg[0] != '\0' ? be->err_msg : "(no detail)");
@@ -124,8 +129,8 @@ enum geist_status geist_backend_errcode(const struct geist_backend *be) {
     return be != nullptr ? be->err_code : GEIST_E_INVALID_ARG;
 }
 
-enum geist_support geist_backend_supports_op(struct geist_backend                 *be,
-                                              const struct geist_op_support_query *query) {
+enum geist_support geist_backend_supports_op(struct geist_backend                *be,
+                                             const struct geist_op_support_query *query) {
     if (be == nullptr || query == nullptr || be->desc == nullptr || be->desc->vtbl == nullptr ||
         be->desc->vtbl->supports_op == nullptr) {
         return GEIST_SUPPORT_NONE;
@@ -135,8 +140,10 @@ enum geist_support geist_backend_supports_op(struct geist_backend               
 
 /* ---------- Backend-side helpers (declared in geist_backend.h) ---------- */
 
-void geist_backend_set_error(struct geist_backend *be, enum geist_status code,
-                             const char *fmt, ...) {
+void geist_backend_set_error(struct geist_backend *be,
+                             enum geist_status     code,
+                             const char           *fmt,
+                             ...) {
     if (be == nullptr) {
         return;
     }

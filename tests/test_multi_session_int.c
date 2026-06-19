@@ -29,7 +29,7 @@
 
 #define N_DECODE 3
 
-static enum geist_status decode_stream(struct geist_session* sess, geist_token_t out[N_DECODE]) {
+static enum geist_status decode_stream(struct geist_session *sess, geist_token_t out[N_DECODE]) {
     for (int i = 0; i < N_DECODE; i++) {
         const enum geist_status s = geist_session_decode_step(sess, &out[i]);
         if (s != GEIST_OK)
@@ -40,13 +40,13 @@ static enum geist_status decode_stream(struct geist_session* sess, geist_token_t
 
 /* Build a fresh single-session reference stream for a given prompt.
  * Used as the oracle for the interleaved test. */
-static enum geist_status reference_stream(struct geist_model* model,
-                                          struct geist_backend* be,
-                                          const char* prompt,
-                                          geist_token_t out[N_DECODE]) {
+static enum geist_status reference_stream(struct geist_model   *model,
+                                          struct geist_backend *be,
+                                          const char           *prompt,
+                                          geist_token_t         out[N_DECODE]) {
     struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
-    struct geist_session* sess = nullptr;
-    enum geist_status s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    enum geist_status         s    = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK)
         return s;
     s = geist_session_set_prompt(sess, prompt);
@@ -60,8 +60,8 @@ static enum geist_status reference_stream(struct geist_model* model,
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -70,8 +70,8 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "model_load(%s) failed: %s — %s\n",
@@ -117,9 +117,9 @@ int main(void) {
     }
 
     /* Interleaved run: two live sessions, alternating decode_step. */
-    struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
-    struct geist_session* sess_A = nullptr;
-    struct geist_session* sess_B = nullptr;
+    struct geist_session_opts opts   = {.max_seq_len = 1024, .temperature = 0.0f};
+    struct geist_session     *sess_A = nullptr;
+    struct geist_session     *sess_B = nullptr;
 
     s = geist_session_create(model, be, &opts, &sess_A);
     if (s != GEIST_OK) {
@@ -148,7 +148,7 @@ int main(void) {
 
     /* Interleave: A.step, B.step, A.step, B.step, A.step, B.step. */
     geist_token_t live_A[N_DECODE], live_B[N_DECODE];
-    int fails = 0;
+    int           fails = 0;
     for (int i = 0; i < N_DECODE; i++) {
         s = geist_session_decode_step(sess_A, &live_A[i]);
         if (s != GEIST_OK) {
@@ -201,7 +201,7 @@ int main(void) {
      * a 4-token oracle); the success condition is that decode_step
      * returns GEIST_OK and produces a non-(-1) token. */
     geist_token_t tail = -1;
-    s = geist_session_decode_step(sess_A, &tail);
+    s                  = geist_session_decode_step(sess_A, &tail);
     if (s != GEIST_OK || tail < 0) {
         fprintf(stderr,
                 "FAIL: post-B-destroy decode on A failed (s=%s, tok=%d)\n",

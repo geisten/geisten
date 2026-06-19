@@ -39,13 +39,12 @@
 #include <stdint.h>
 
 struct frame_arena {
-    void   *base;     /* not owned; caller-provided storage */
-    size_t  used;     /* bytes allocated from base so far */
-    size_t  capacity; /* total bytes available */
+    void  *base;     /* not owned; caller-provided storage */
+    size_t used;     /* bytes allocated from base so far */
+    size_t capacity; /* total bytes available */
 };
 
-static inline void frame_arena_init(struct frame_arena *a,
-                                     void *base, size_t capacity) {
+static inline void frame_arena_init(struct frame_arena *a, void *base, size_t capacity) {
     a->base     = base;
     a->capacity = capacity;
     a->used     = 0;
@@ -59,16 +58,17 @@ static inline void frame_arena_reset(struct frame_arena *a) {
  * (rounded up to 16 if smaller). Returns nullptr if the arena is
  * exhausted — caller MUST check; AGENT.md "outputs well-defined on
  * failure". */
-[[nodiscard]] static inline void *frame_arena_alloc(
-    struct frame_arena *a, size_t bytes, size_t align) {
-    if (align < 16) align = 16;
+[[nodiscard]] static inline void *
+frame_arena_alloc(struct frame_arena *a, size_t bytes, size_t align) {
+    if (align < 16)
+        align = 16;
     const size_t mask    = align - 1;
     const size_t aligned = (a->used + mask) & ~mask;
     if (aligned + bytes > a->capacity || aligned + bytes < aligned) {
         return nullptr;
     }
-    void *p   = (char *) a->base + aligned;
-    a->used   = aligned + bytes;
+    void *p = (char *) a->base + aligned;
+    a->used = aligned + bytes;
     return p;
 }
 

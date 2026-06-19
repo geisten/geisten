@@ -61,7 +61,7 @@
 struct geist_weight;
 struct geist_backend;
 
-#define TL1_BM   32
+#define TL1_BM 32
 #define TL1_BBK 128
 
 /* Returns total bytes for the packed TL1 representation of a (n_in, n_out)
@@ -72,19 +72,20 @@ size_t tl1_pack_size_bytes(size_t n_in, size_t n_out);
  * TQ2_0 layout) into the TL1 tile format. `out` must hold
  * tl1_pack_size_bytes() bytes. Returns 0 on success, non-zero if shape
  * is unsupported. */
-int tl1_pack_from_tq2_0(const void *tq2_0_rows, size_t n_in, size_t n_out,
-                         void *out);
+int tl1_pack_from_tq2_0(const void *tq2_0_rows, size_t n_in, size_t n_out, void *out);
 
 /* M=1 decode kernel: y[n_out] = (W·x)[n_out] using the TL1 LUT path.
  * `w->aux_fp32` must point to a tl1_pack_from_tq2_0 buffer; `w->n_in`
  * and `w->n_out` must match the packed shape. */
-void cpu_neon_w_tl1_m1(const float *x, const struct geist_weight *w,
-                       struct geist_backend *be, float *y);
+void cpu_neon_w_tl1_m1(const float               *x,
+                       const struct geist_weight *w,
+                       struct geist_backend      *be,
+                       float                     *y);
 
 /* M>1 prefill LUT-GEMM: y[m][n_out] = (W · x[m])[…] via the TL1 LUT path —
  * builds m per-token activation LUTs (amortized) and reuses each weight tile
  * across all m tokens. `w->aux_fp32` is the tl1_pack_from_tq2_0 buffer. */
-void cpu_neon_w_tl1_mN(const float *x, const struct geist_weight *w, size_t m,
-                       struct geist_backend *be, float *y);
+void cpu_neon_w_tl1_mN(
+        const float *x, const struct geist_weight *w, size_t m, struct geist_backend *be, float *y);
 
 #endif /* GEIST_INTERNAL_BACKEND_CPU_NEON_TL1_H */

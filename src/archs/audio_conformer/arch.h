@@ -38,8 +38,11 @@ struct geist_arch_ops_encoder {
     /* encode_pcm: 16 kHz int16 PCM → soft-token sequence. Caller provides
      * out_soft buffer of size (max_soft × soft_token_dim() floats). Returns
      * the number of soft tokens produced (≤ max_soft), or 0 on error. */
-    size_t (*encode_pcm)(void *encoder_state, const int16_t *pcm,
-                         size_t n_samples, float *out_soft, size_t max_soft);
+    size_t (*encode_pcm)(void          *encoder_state,
+                         const int16_t *pcm,
+                         size_t         n_samples,
+                         float         *out_soft,
+                         size_t         max_soft);
 
     /* soft_token_dim: dimensionality of each soft-token vector (1536 for
      * Gemma 4 audio tower). */

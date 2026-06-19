@@ -60,8 +60,7 @@ struct geist_arch_ops_decoder {
      * from geist_session_create so per-session sampler config (temperature,
      * top_p, top_k, random_seed) reaches the decode hot path. nullptr
      * means the architecture ignores session opts (greedy-only). */
-    void (*set_session_opts)(void *arch_state,
-                              const struct geist_session_opts *opts);
+    void (*set_session_opts)(void *arch_state, const struct geist_session_opts *opts);
 
     /* state_reset: drop conversational state (KV / SSM hidden), keep
      * weights. Used by geist_session_reset. */
@@ -107,12 +106,13 @@ struct geist_arch_ops_decoder {
      * kv_truncate: shrink recurrent state to new_len. Subsequent prefill
      *   overwrites from new_len onwards.
      * kv_len: current recurrent-state length (positions filled). */
-    geist_token_t   (*peek_next_token)(void *arch_state);
-    enum geist_status (*verify_forward)(void *arch_state, size_t k,
+    geist_token_t (*peek_next_token)(void *arch_state);
+    enum geist_status (*verify_forward)(void               *arch_state,
+                                        size_t              k,
                                         const geist_token_t ids[static k],
                                         geist_token_t       out_tokens[static k]);
-    void            (*kv_truncate)(void *arch_state, size_t new_len);
-    size_t          (*kv_len)(const void *arch_state);
+    void (*kv_truncate)(void *arch_state, size_t new_len);
+    size_t (*kv_len)(const void *arch_state);
 
     /* Multi-session lifecycle (P1.2.f). Each engine-level geist_session
      * may own its own per-session arch state (KV cache, scratch pool,
@@ -129,10 +129,9 @@ struct geist_arch_ops_decoder {
      *
      * All three nullptr → architecture stays single-session-per-model
      * (engine falls back to using the model's default session). */
-    void             *(*session_alloc)(void *arch_state,
-                                       const struct geist_session_opts *opts);
-    void              (*session_free)(void *arch_state, void *session_meta);
-    void              (*session_attach)(void *arch_state, void *session_meta);
+    void *(*session_alloc)(void *arch_state, const struct geist_session_opts *opts);
+    void (*session_free)(void *arch_state, void *session_meta);
+    void (*session_attach)(void *arch_state, void *session_meta);
 };
 
 /* Concrete descriptor for the transformer decoder. */

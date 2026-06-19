@@ -70,13 +70,13 @@ struct gguf_tokenizer {
      * uses this to pick byte-mapping behavior. GGUF strings are
      * length-prefixed, NOT NUL-terminated — use `model_len` for any
      * comparison. */
-    const char *model;  /* points into GGUF mmap; not owned */
+    const char *model; /* points into GGUF mmap; not owned */
     size_t      model_len;
 
     /* Resolved algorithm + SPM-only state (set at load). */
     enum gguf_tokenizer_mode mode;
-    bool    add_space_prefix;   /* SPM: prepend ▁ to the input (add_dummy_prefix) */
-    int32_t spm_byte_id[256];   /* SPM byte fallback: byte → "<0xXX>" vocab id, -1 if absent */
+    bool                     add_space_prefix; /* SPM: prepend ▁ to the input (add_dummy_prefix) */
+    int32_t spm_byte_id[256]; /* SPM byte fallback: byte → "<0xXX>" vocab id, -1 if absent */
 
     /* P1.5.h: open-addressed hash indices over the vocab + merges
      * arrays. Slot stores the index into the array; -1 (vocab) or
@@ -96,9 +96,9 @@ struct gguf_tokenizer {
      *
      * Layout: a single flat byte buffer holding the concatenated
      * strings; each token/merge slot's (ptr, len) indexes into it. */
-    char *vocab_arena;     /* not null = copy mode for vocab */
-    char *merge_arena;     /* not null = copy mode for merges */
-    char *model_arena;     /* not null = copy mode for model name */
+    char *vocab_arena; /* not null = copy mode for vocab */
+    char *merge_arena; /* not null = copy mode for merges */
+    char *model_arena; /* not null = copy mode for model name */
 
     /* Special / added tokens — entries in `tokenizer.ggml.tokens` whose
      * `tokenizer.ggml.token_type` is CONTROL(3) or USER_DEFINED(4).
@@ -111,7 +111,7 @@ struct gguf_tokenizer {
         const char *text;
         size_t      len;
         int32_t     id;
-    } *specials;
+    }     *specials;
     size_t n_specials;
 };
 
@@ -119,8 +119,7 @@ struct gguf_tokenizer {
  * arrays sized to vocab; freed in gguf_tokenizer_unload. Returns
  * false (and zeroes *tok) if the GGUF lacks the required keys
  * (`tokenizer.ggml.tokens` and `tokenizer.ggml.model`). */
-[[nodiscard]] bool gguf_tokenizer_load(struct gguf_tokenizer *tok,
-                                        const struct gguf_ctx      *ctx);
+[[nodiscard]] bool gguf_tokenizer_load(struct gguf_tokenizer *tok, const struct gguf_ctx *ctx);
 
 /* Copy-mode loader (P1.6). Like gguf_tokenizer_load, but allocates
  * heap arenas and memcpys every vocab + merge byte out of the GGUF
@@ -128,8 +127,7 @@ struct gguf_tokenizer {
  * tokenizer is fully self-contained. Used by geist_model_load so the
  * engine doesn't have to keep a second mmap alive for the
  * tokenizer's lifetime. */
-[[nodiscard]] bool gguf_tokenizer_load_copy(struct gguf_tokenizer *tok,
-                                             const struct gguf_ctx      *ctx);
+[[nodiscard]] bool gguf_tokenizer_load_copy(struct gguf_tokenizer *tok, const struct gguf_ctx *ctx);
 
 void gguf_tokenizer_unload(struct gguf_tokenizer *tok);
 
@@ -142,9 +140,8 @@ int32_t gguf_tokenizer_id_for_text(const struct gguf_tokenizer *tok, const char 
  * number of bytes written; if `out_cap` is too small, writes as much
  * as fits and returns the would-be total. Token IDs outside the
  * vocab are written as `<unk>` placeholders. */
-size_t gguf_tokenizer_decode(const struct gguf_tokenizer *tok,
-                              const int32_t *ids, size_t n,
-                              char *out, size_t out_cap);
+size_t gguf_tokenizer_decode(
+        const struct gguf_tokenizer *tok, const int32_t *ids, size_t n, char *out, size_t out_cap);
 
 /* Encode a UTF-8 text string into token IDs (P1.5.g).
  *
@@ -169,8 +166,9 @@ size_t gguf_tokenizer_decode(const struct gguf_tokenizer *tok,
  * may tokenize slightly differently from a reference encoder. ASCII
  * English text encodes correctly. */
 [[nodiscard]] bool gguf_tokenizer_encode(const struct gguf_tokenizer *tok,
-                                          const char *text,
-                                          int32_t *out_ids, size_t cap,
-                                          size_t *n_out);
+                                         const char                  *text,
+                                         int32_t                     *out_ids,
+                                         size_t                       cap,
+                                         size_t                      *n_out);
 
 #endif /* GEIST_INTERNAL_ENGINE_GGUF_TOKENIZER_H */

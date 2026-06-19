@@ -32,14 +32,13 @@ enum {
 
 struct cpu_x86_kernel_policy {
     cpu_x86_isa_mask isa;
-    bool prefer_vnni_i8;
-    bool prefer_amx_prefill;
-    bool use_packed_weights;
+    bool             prefer_vnni_i8;
+    bool             prefer_amx_prefill;
+    bool             use_packed_weights;
 };
 
-cpu_x86_isa_mask cpu_x86_isa_from_probe(const struct geist_hw_probe *hw);
-const char *cpu_x86_isa_mask_name(cpu_x86_isa_mask mask);
-struct cpu_x86_kernel_policy cpu_x86_kernel_policy_default(
-    const struct geist_hw_probe *hw);
+cpu_x86_isa_mask             cpu_x86_isa_from_probe(const struct geist_hw_probe *hw);
+const char                  *cpu_x86_isa_mask_name(cpu_x86_isa_mask mask);
+struct cpu_x86_kernel_policy cpu_x86_kernel_policy_default(const struct geist_hw_probe *hw);
 
 #endif /* GEIST_INTERNAL_BACKEND_CPU_X86_KERNEL_CATALOG_H */

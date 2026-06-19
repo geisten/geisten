@@ -35,32 +35,32 @@ static double now_ms(void) {
     return (double) ts.tv_sec * 1e3 + (double) ts.tv_nsec / 1e6;
 }
 
-static void synth_frame(int frame_idx, int n_frames, int h, int w, uint8_t* out) {
+static void synth_frame(int frame_idx, int n_frames, int h, int w, uint8_t *out) {
     const float phase = (float) frame_idx / (float) n_frames;
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            float fx = (float) x / (w - 1);
-            float fy = (float) y / (h - 1);
-            float r = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fx + phase)));
-            float g = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fy + 1.7f * phase)));
-            float b = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fx + fy + 2.3f * phase)));
-            uint8_t* p = out + (y * w + x) * 3;
-            p[0] = (uint8_t) (r < 0 ? 0 : (r > 255 ? 255 : r));
-            p[1] = (uint8_t) (g < 0 ? 0 : (g > 255 ? 255 : g));
-            p[2] = (uint8_t) (b < 0 ? 0 : (b > 255 ? 255 : b));
+            float    fx = (float) x / (w - 1);
+            float    fy = (float) y / (h - 1);
+            float    r  = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fx + phase)));
+            float    g  = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fy + 1.7f * phase)));
+            float    b  = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fx + fy + 2.3f * phase)));
+            uint8_t *p  = out + (y * w + x) * 3;
+            p[0]        = (uint8_t) (r < 0 ? 0 : (r > 255 ? 255 : r));
+            p[1]        = (uint8_t) (g < 0 ? 0 : (g > 255 ? 255 : g));
+            p[2]        = (uint8_t) (b < 0 ? 0 : (b > 255 ? 255 : b));
         }
     }
 }
 
-static const char* find_weights(void) {
-    static const char* candidates[] = {
+static const char *find_weights(void) {
+    static const char *candidates[] = {
             "./vision_bench/vision_tower.safetensors",
             "../gemma-4-E2B-it/vision_tower.safetensors",
             "vision_tower.safetensors",
             nullptr,
     };
     for (size_t i = 0; candidates[i] != nullptr; i++) {
-        FILE* f = fopen(candidates[i], "rb");
+        FILE *f = fopen(candidates[i], "rb");
         if (f != nullptr) {
             fclose(f);
             return candidates[i];
@@ -69,16 +69,16 @@ static const char* find_weights(void) {
     return nullptr;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     const int n_frames = argc > 1 ? atoi(argv[1]) : 32;
-    const int frame_h = argc > 2 ? atoi(argv[2]) : 192;
-    const int frame_w = argc > 3 ? atoi(argv[3]) : 192;
+    const int frame_h  = argc > 2 ? atoi(argv[2]) : 192;
+    const int frame_w  = argc > 3 ? atoi(argv[3]) : 192;
     if (n_frames < 1 || frame_h < 64 || frame_w < 64) {
         printf("SKIP: invalid frame dims (n=%d h=%d w=%d)\n", n_frames, frame_h, frame_w);
         return GEIST_TEST_SKIP;
     }
 
-    const char* weights = find_weights();
+    const char *weights = find_weights();
     if (weights == nullptr) {
         printf("SKIP: vision_tower.safetensors not found "
                "(vision_bench/, ../gemma-4-E2B-it/, cwd)\n");
@@ -91,20 +91,20 @@ int main(int argc, char** argv) {
            weights);
 
     const size_t frame_bytes = (size_t) frame_h * frame_w * 3;
-    uint8_t* frames = malloc((size_t) n_frames * frame_bytes);
+    uint8_t     *frames      = malloc((size_t) n_frames * frame_bytes);
     if (frames == nullptr)
         return GEIST_TEST_ERROR;
     for (int f = 0; f < n_frames; f++) {
         synth_frame(f, n_frames, frame_h, frame_w, frames + (size_t) f * frame_bytes);
     }
 
-    struct VisionEncoder* enc = vision_encoder_create(weights);
+    struct VisionEncoder *enc = vision_encoder_create(weights);
     if (enc == nullptr) {
         free(frames);
         return GEIST_TEST_ERROR;
     }
 
-    float* soft =
+    float *soft =
             malloc((size_t) n_frames * VISION_SOFT_TOKENS_PER_VIDEO_FRAME * V_SOFT * sizeof(float));
     if (soft == nullptr) {
         vision_encoder_destroy(enc);

@@ -33,15 +33,21 @@
  *
  * Buffer pointers via buffer_map by the caller. Geometry parameters
  * R, head_dim, n_kv_heads are per layer (R is KIVI-fixed). */
-void kivi_drain_one_layer(
-    float *k_residual, float *v_residual,
-    uint8_t *k_q4, uint8_t *v_q4,
-    float *k_scales, float *k_zeros,
-    float *v_scales, float *v_zeros,
-    size_t drained_count, size_t residual_count,
-    size_t R, size_t head_dim, size_t n_kv_heads) {
+void kivi_drain_one_layer(float   *k_residual,
+                          float   *v_residual,
+                          uint8_t *k_q4,
+                          uint8_t *v_q4,
+                          float   *k_scales,
+                          float   *k_zeros,
+                          float   *v_scales,
+                          float   *v_zeros,
+                          size_t   drained_count,
+                          size_t   residual_count,
+                          size_t   R,
+                          size_t   head_dim,
+                          size_t   n_kv_heads) {
 
-    const size_t group_idx           = drained_count / R;
+    const size_t group_idx            = drained_count / R;
     const size_t packed_bytes_per_tok = head_dim / 4;
     /* Gather R rows for each kv_head, pack as channel-grouped K, and
      * per-row pack V. For Gemma 4, n_kv_heads=1 so the outer loop is a
@@ -55,28 +61,26 @@ void kivi_drain_one_layer(
         }
         uint8_t *k_q4_grp     = k_q4 + (drained_count * n_kv_heads + h * R) * packed_bytes_per_tok;
         float   *k_scales_grp = k_scales + (group_idx * n_kv_heads + h) * head_dim;
-        float   *k_zeros_grp  = k_zeros  + (group_idx * n_kv_heads + h) * head_dim;
+        float   *k_zeros_grp  = k_zeros + (group_idx * n_kv_heads + h) * head_dim;
         kivi_pack_k_group(R, head_dim, k_group, k_q4_grp, k_scales_grp, k_zeros_grp);
 
         /* V side: per-token packed rows. */
         for (size_t t = 0; t < R; t++) {
-            const float *src = v_residual + (t * n_kv_heads + h) * head_dim;
-            const size_t slot = drained_count + t;
-            uint8_t *v_q4_row = v_q4 + (slot * n_kv_heads + h) * packed_bytes_per_tok;
-            float   *v_sc     = v_scales + slot * n_kv_heads + h;
-            float   *v_ze     = v_zeros  + slot * n_kv_heads + h;
+            const float *src      = v_residual + (t * n_kv_heads + h) * head_dim;
+            const size_t slot     = drained_count + t;
+            uint8_t     *v_q4_row = v_q4 + (slot * n_kv_heads + h) * packed_bytes_per_tok;
+            float       *v_sc     = v_scales + slot * n_kv_heads + h;
+            float       *v_ze     = v_zeros + slot * n_kv_heads + h;
             kivi_pack_v_row(head_dim, src, v_q4_row, v_sc, v_ze);
         }
     }
     /* Shift survivors down. Layout is [t, kv_h, channel] contiguous so a
      * single memmove per side covers all kv_heads. */
     if (residual_count > R) {
-        const size_t remaining = residual_count - R;
+        const size_t remaining  = residual_count - R;
         const size_t row_floats = n_kv_heads * head_dim;
-        memmove(k_residual, k_residual + R * row_floats,
-                remaining * row_floats * sizeof(float));
-        memmove(v_residual, v_residual + R * row_floats,
-                remaining * row_floats * sizeof(float));
+        memmove(k_residual, k_residual + R * row_floats, remaining * row_floats * sizeof(float));
+        memmove(v_residual, v_residual + R * row_floats, remaining * row_floats * sizeof(float));
     }
 }
 
@@ -89,85 +93,101 @@ void kivi_drain_one_layer(
  * dot-products against Q. V is dequant-and-weighted-sum inline.
  * Q is FP32 throughout (no INT8 sym-quant) to keep numerical fidelity
  * on the high-precision side. */
-void attention_kivi_via_buffers(
-    const float *q, size_t n_q, size_t n_q_heads, size_t head_dim,
-    const uint8_t *k_q4, const float *k_scales, const float *k_zeros,
-    const uint8_t *v_q4, const float *v_scales, const float *v_zeros,
-    const float *k_residual, const float *v_residual,
-    size_t n_kv, size_t n_kv_heads, size_t q_offset, size_t sliding_window,
-    size_t drained_count, size_t R,
-    float scores[static n_kv], float *out) {
+void attention_kivi_via_buffers(const float   *q,
+                                size_t         n_q,
+                                size_t         n_q_heads,
+                                size_t         head_dim,
+                                const uint8_t *k_q4,
+                                const float   *k_scales,
+                                const float   *k_zeros,
+                                const uint8_t *v_q4,
+                                const float   *v_scales,
+                                const float   *v_zeros,
+                                const float   *k_residual,
+                                const float   *v_residual,
+                                size_t         n_kv,
+                                size_t         n_kv_heads,
+                                size_t         q_offset,
+                                size_t         sliding_window,
+                                size_t         drained_count,
+                                size_t         R,
+                                float          scores[static n_kv],
+                                float         *out) {
 
-    const size_t kv_group_size = n_q_heads / n_kv_heads;
+    const size_t kv_group_size  = n_q_heads / n_kv_heads;
     const size_t packed_per_row = head_dim / 4;
-    float k_dequant[512];
+    float        k_dequant[512];
     for (size_t t = 0; t < n_q; t++) {
         const size_t q_pos = q_offset + t;
-        const size_t s_lo  = (sliding_window > 0 && q_pos + 1 > sliding_window)
-                                 ? q_pos + 1 - sliding_window
-                                 : 0;
-        const size_t s_hi  = q_pos < n_kv ? q_pos : n_kv - 1;
+        const size_t s_lo =
+                (sliding_window > 0 && q_pos + 1 > sliding_window) ? q_pos + 1 - sliding_window : 0;
+        const size_t s_hi = q_pos < n_kv ? q_pos : n_kv - 1;
 
         for (size_t h = 0; h < n_q_heads; h++) {
             const size_t kv_h = h / kv_group_size;
-            const float *qv = q + (t * n_q_heads + h) * head_dim;
+            const float *qv   = q + (t * n_q_heads + h) * head_dim;
 
             float max_score = -INFINITY;
             for (size_t s = s_lo; s <= s_hi; s++) {
                 float score = 0.0f;
                 if (s < drained_count) {
-                    const size_t group_idx = s / R;
-                    const float *sc = k_scales + (group_idx * n_kv_heads + kv_h) * head_dim;
-                    const float *ze = k_zeros  + (group_idx * n_kv_heads + kv_h) * head_dim;
+                    const size_t   group_idx = s / R;
+                    const float   *sc = k_scales + (group_idx * n_kv_heads + kv_h) * head_dim;
+                    const float   *ze = k_zeros + (group_idx * n_kv_heads + kv_h) * head_dim;
                     const uint8_t *kq = k_q4 + (s * n_kv_heads + kv_h) * packed_per_row;
                     for (size_t i = 0; i < packed_per_row; i++) {
-                        const uint8_t b = kq[i];
-                        k_dequant[4 * i + 0] = (float) (b & 0x3u)        * sc[4 * i + 0] + ze[4 * i + 0];
-                        k_dequant[4 * i + 1] = (float) ((b >> 2) & 0x3u) * sc[4 * i + 1] + ze[4 * i + 1];
-                        k_dequant[4 * i + 2] = (float) ((b >> 4) & 0x3u) * sc[4 * i + 2] + ze[4 * i + 2];
-                        k_dequant[4 * i + 3] = (float) ((b >> 6) & 0x3u) * sc[4 * i + 3] + ze[4 * i + 3];
+                        const uint8_t b      = kq[i];
+                        k_dequant[4 * i + 0] = (float) (b & 0x3u) * sc[4 * i + 0] + ze[4 * i + 0];
+                        k_dequant[4 * i + 1] =
+                                (float) ((b >> 2) & 0x3u) * sc[4 * i + 1] + ze[4 * i + 1];
+                        k_dequant[4 * i + 2] =
+                                (float) ((b >> 4) & 0x3u) * sc[4 * i + 2] + ze[4 * i + 2];
+                        k_dequant[4 * i + 3] =
+                                (float) ((b >> 6) & 0x3u) * sc[4 * i + 3] + ze[4 * i + 3];
                     }
                     for (size_t i = 0; i < head_dim; i++) {
                         score += qv[i] * k_dequant[i];
                     }
                 } else {
                     const size_t res_idx = s - drained_count;
-                    const float *kr = k_residual + (res_idx * n_kv_heads + kv_h) * head_dim;
+                    const float *kr      = k_residual + (res_idx * n_kv_heads + kv_h) * head_dim;
                     for (size_t i = 0; i < head_dim; i++) {
                         score += qv[i] * kr[i];
                     }
                 }
                 scores[s] = score;
-                if (score > max_score) max_score = score;
+                if (score > max_score)
+                    max_score = score;
             }
             double sum_exp = 0.0;
             for (size_t s = s_lo; s <= s_hi; s++) {
                 const float e = expf(scores[s] - max_score);
-                scores[s] = e;
+                scores[s]     = e;
                 sum_exp += e;
             }
             const float inv_sum = (float) (1.0 / sum_exp);
 
             float *outv = out + (t * n_q_heads + h) * head_dim;
-            for (size_t i = 0; i < head_dim; i++) outv[i] = 0.0f;
+            for (size_t i = 0; i < head_dim; i++)
+                outv[i] = 0.0f;
             for (size_t s = s_lo; s <= s_hi; s++) {
                 const float w = scores[s] * inv_sum;
                 if (s < drained_count) {
-                    const float vs = v_scales[s * n_kv_heads + kv_h];
-                    const float vz = v_zeros [s * n_kv_heads + kv_h];
-                    const uint8_t *vq = v_q4 + (s * n_kv_heads + kv_h) * packed_per_row;
-                    const float wvs = w * vs;
-                    const float wvz = w * vz;
+                    const float    vs  = v_scales[s * n_kv_heads + kv_h];
+                    const float    vz  = v_zeros[s * n_kv_heads + kv_h];
+                    const uint8_t *vq  = v_q4 + (s * n_kv_heads + kv_h) * packed_per_row;
+                    const float    wvs = w * vs;
+                    const float    wvz = w * vz;
                     for (size_t i = 0; i < packed_per_row; i++) {
                         const uint8_t b = vq[i];
-                        outv[4 * i + 0] += wvs * (float) (b & 0x3u)        + wvz;
+                        outv[4 * i + 0] += wvs * (float) (b & 0x3u) + wvz;
                         outv[4 * i + 1] += wvs * (float) ((b >> 2) & 0x3u) + wvz;
                         outv[4 * i + 2] += wvs * (float) ((b >> 4) & 0x3u) + wvz;
                         outv[4 * i + 3] += wvs * (float) ((b >> 6) & 0x3u) + wvz;
                     }
                 } else {
                     const size_t res_idx = s - drained_count;
-                    const float *vr = v_residual + (res_idx * n_kv_heads + kv_h) * head_dim;
+                    const float *vr      = v_residual + (res_idx * n_kv_heads + kv_h) * head_dim;
                     for (size_t i = 0; i < head_dim; i++) {
                         outv[i] += w * vr[i];
                     }
@@ -196,12 +216,19 @@ void attention_kivi_via_buffers(
  *   k_scale[n_kv, n_kv_heads]                     F32
  *   v_scale[n_kv, n_kv_heads]                     F32
  *   out[seq, n_q_heads, head_dim]                 F32 */
-void attention_int8_via_buffers(
-    const float *q, size_t n_q, size_t n_q_heads, size_t head_dim,
-    const int8_t *k_q8, const float *k_scale,
-    const int8_t *v_q8, const float *v_scale,
-    size_t n_kv, size_t n_kv_heads, size_t q_offset, size_t sliding_window,
-    float *out) {
+void attention_int8_via_buffers(const float  *q,
+                                size_t        n_q,
+                                size_t        n_q_heads,
+                                size_t        head_dim,
+                                const int8_t *k_q8,
+                                const float  *k_scale,
+                                const int8_t *v_q8,
+                                const float  *v_scale,
+                                size_t        n_kv,
+                                size_t        n_kv_heads,
+                                size_t        q_offset,
+                                size_t        sliding_window,
+                                float        *out) {
 
     const size_t kv_group_size = n_q_heads / n_kv_heads;
     /* The O(n^2) attention core. Every (t,h) is independent: it reads the
@@ -218,35 +245,40 @@ void attention_int8_via_buffers(
 #endif
     for (size_t t = 0; t < n_q; t++) {
         const size_t q_pos = q_offset + t;
-        const size_t s_lo  = (sliding_window > 0 && q_pos + 1 > sliding_window)
-                                 ? q_pos + 1 - sliding_window
-                                 : 0;
-        const size_t s_hi  = q_pos < n_kv ? q_pos : n_kv - 1;
-        float scores[n_kv]; /* private per t-iteration (was a shared param) */
+        const size_t s_lo =
+                (sliding_window > 0 && q_pos + 1 > sliding_window) ? q_pos + 1 - sliding_window : 0;
+        const size_t s_hi = q_pos < n_kv ? q_pos : n_kv - 1;
+        float        scores[n_kv]; /* private per t-iteration (was a shared param) */
 
         for (size_t h = 0; h < n_q_heads; h++) {
             const size_t kv_h = h / kv_group_size;
-            const float *qv = q + (t * n_q_heads + h) * head_dim;
+            const float *qv   = q + (t * n_q_heads + h) * head_dim;
 
             /* Per-head INT8 quant of Q[t,h,:]. head_dim ≤ 512 in Gemma 4. */
             int8_t q_q8[512];
             float  amax = 0.0f;
             for (size_t i = 0; i < head_dim; i++) {
-                float a = fabsf(qv[i]); if (a > amax) { amax = a; }
+                float a = fabsf(qv[i]);
+                if (a > amax) {
+                    amax = a;
+                }
             }
-            float scale_q = amax / 127.0f; if (scale_q == 0.0f) { scale_q = 1.0f; }
+            float scale_q = amax / 127.0f;
+            if (scale_q == 0.0f) {
+                scale_q = 1.0f;
+            }
             const float inv_q = 1.0f / scale_q;
             for (size_t i = 0; i < head_dim; i++) {
                 q_q8[i] = (int8_t) lrintf(qv[i] * inv_q);
             }
 
             for (size_t s = s_lo; s <= s_hi; s++) {
-                const int8_t *k = k_q8 + (s * n_kv_heads + kv_h) * head_dim;
-                const float   ks = k_scale[s * n_kv_heads + kv_h];
-                int32_t int_dot = 0;
+                const int8_t *k       = k_q8 + (s * n_kv_heads + kv_h) * head_dim;
+                const float   ks      = k_scale[s * n_kv_heads + kv_h];
+                int32_t       int_dot = 0;
 #if defined(__ARM_NEON)
                 int32x4_t acc = vdupq_n_s32(0);
-                size_t i = 0;
+                size_t    i   = 0;
                 for (; i + 16 <= head_dim; i += 16) {
                     acc = vdotq_s32(acc, vld1q_s8(q_q8 + i), vld1q_s8(k + i));
                 }
@@ -264,18 +296,22 @@ void attention_int8_via_buffers(
 
             float max_score = scores[s_lo];
             for (size_t s = s_lo + 1; s <= s_hi; s++) {
-                if (scores[s] > max_score) { max_score = scores[s]; }
+                if (scores[s] > max_score) {
+                    max_score = scores[s];
+                }
             }
             double sum_exp = 0.0;
             for (size_t s = s_lo; s <= s_hi; s++) {
-                float e = expf(scores[s] - max_score);
+                float e   = expf(scores[s] - max_score);
                 scores[s] = e;
                 sum_exp += e;
             }
             const float inv_sum = (float) (1.0 / sum_exp);
 
             float *outv = out + (t * n_q_heads + h) * head_dim;
-            for (size_t i = 0; i < head_dim; i++) { outv[i] = 0.0f; }
+            for (size_t i = 0; i < head_dim; i++) {
+                outv[i] = 0.0f;
+            }
             for (size_t s = s_lo; s <= s_hi; s++) {
                 const int8_t *vv  = v_q8 + (s * n_kv_heads + kv_h) * head_dim;
                 const float   vs  = v_scale[s * n_kv_heads + kv_h];

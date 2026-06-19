@@ -39,17 +39,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char* resolve_path(void) {
-    const char* env = getenv("GEIST_LLAMA_GGUF_PATH");
+static const char *resolve_path(void) {
+    const char *env = getenv("GEIST_LLAMA_GGUF_PATH");
     if (env != nullptr && env[0] != '\0')
         return env;
-    static const char* candidates[] = {
+    static const char *candidates[] = {
             "gguf_artifacts/smollm2-360m-instruct-q8_0.gguf",
             "./smollm2-360m-instruct-q8_0.gguf",
             nullptr,
     };
     for (size_t i = 0; candidates[i] != nullptr; i++) {
-        FILE* f = fopen(candidates[i], "rb");
+        FILE *f = fopen(candidates[i], "rb");
         if (f != nullptr) {
             fclose(f);
             return candidates[i];
@@ -59,7 +59,7 @@ static const char* resolve_path(void) {
 }
 
 int main(void) {
-    const char* path = resolve_path();
+    const char *path = resolve_path();
     if (path == nullptr) {
         printf("SKIP: no Llama GGUF found. Set GEIST_LLAMA_GGUF_PATH "
                "or place smollm2-360m-instruct-q8_0.gguf in ./ or "
@@ -67,8 +67,8 @@ int main(void) {
         return GEIST_TEST_SKIP;
     }
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
@@ -76,8 +76,8 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct transformer_arch_state* st = nullptr;
-    s = transformer_state_create(be, path, nullptr, &st);
+    struct transformer_arch_state *st = nullptr;
+    s                                 = transformer_state_create(be, path, nullptr, &st);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "state_create FAIL: %s — %s\n",
@@ -147,7 +147,7 @@ int main(void) {
 
     /* Per-layer geometry — uniform full-attn, head_dim = d/n_q. */
     for (size_t i = 0; i < st->n_layers; i++) {
-        const struct transformer_layer_weights* L = &st->layers[i];
+        const struct transformer_layer_weights *L = &st->layers[i];
         if (!L->is_full || L->is_kv_shared || L->head_dim != 64 || L->q_out != 960 ||
             L->kv_out != 320 || L->intermediate != 2560 || L->sliding_window != 0 ||
             L->n_rotated_dims != 64) {
@@ -191,9 +191,9 @@ int main(void) {
          * token strings point into the mmap region — needs to stay
          * open for the test's lifetime). Future: load + heap-copy
          * the tokenizer inside state_create so the engine owns it. */
-        const char* terr = nullptr;
-        struct gguf_ctx* tg = gguf_open(path, &terr);
-        struct gguf_tokenizer tok = {0};
+        const char           *terr = nullptr;
+        struct gguf_ctx      *tg   = gguf_open(path, &terr);
+        struct gguf_tokenizer tok  = {0};
         if (tg == nullptr || !gguf_tokenizer_load(&tok, tg)) {
             fprintf(stderr,
                     "FAIL: gguf_tokenizer_load: %s\n",
@@ -212,11 +212,11 @@ int main(void) {
          * BPE encoder. BOS + encoded tokens for "The capital of
          * France is". */
         geist_token_t prompt_ids[32] = {0};
-        size_t n_prompt = 0;
+        size_t        n_prompt       = 0;
         if (tok.vocab_size > 0 && tok.bos_id >= 0) {
             prompt_ids[n_prompt++] = tok.bos_id;
-            int32_t enc[24] = {0};
-            size_t n_enc = 0;
+            int32_t enc[24]        = {0};
+            size_t  n_enc          = 0;
             if (gguf_tokenizer_encode(&tok,
                                       "The capital of France is",
                                       enc,
@@ -244,13 +244,13 @@ int main(void) {
             fails++;
         } else {
             /* Decode 8 tokens; print each as it's produced. */
-            const int N_STEPS = 8;
-            geist_token_t prev = prompt_ids[n_prompt - 1];
+            const int     N_STEPS     = 8;
+            geist_token_t prev        = prompt_ids[n_prompt - 1];
             geist_token_t out_ids[16] = {0};
-            int n_decoded = 0;
+            int           n_decoded   = 0;
             for (int i = 0; i < N_STEPS; i++) {
                 geist_token_t next = -1;
-                ps = transformer_decode_step(st, prev, &next);
+                ps                 = transformer_decode_step(st, prev, &next);
                 if (ps != GEIST_OK || next < 0 || (size_t) next >= st->vocab_size) {
                     fprintf(stderr,
                             "FAIL: Llama decode_step[%d] status=%s tok=%d\n",

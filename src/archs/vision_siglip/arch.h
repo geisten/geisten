@@ -47,10 +47,12 @@ struct geist_arch_ops_vision {
      * Image preprocessing (aspect-preserving bicubic resize, patchify,
      * bilinear pos-embed interp) is owned by the encoder — caller hands
      * over already-decoded RGB pixels at whatever native resolution. */
-    size_t (*encode_image)(void *encoder_state,
-                            const uint8_t *rgb,
-                            size_t height, size_t width,
-                            float *out_soft, size_t max_soft);
+    size_t (*encode_image)(void          *encoder_state,
+                           const uint8_t *rgb,
+                           size_t         height,
+                           size_t         width,
+                           float         *out_soft,
+                           size_t         max_soft);
 
     /* encode_video: stack of n_frames RGB uint8 images, each (H, W, 3).
      * Frames are tower-encoded in one batched pass for SGEMM amortization.
@@ -59,10 +61,13 @@ struct geist_arch_ops_vision {
      *
      * Frame sampling (picking n_frames from a longer clip) is the
      * caller's responsibility — geist does not link a video decoder. */
-    size_t (*encode_video)(void *encoder_state,
-                            const uint8_t *frames,
-                            size_t n_frames, size_t height, size_t width,
-                            float *out_soft, size_t max_soft);
+    size_t (*encode_video)(void          *encoder_state,
+                           const uint8_t *frames,
+                           size_t         n_frames,
+                           size_t         height,
+                           size_t         width,
+                           float         *out_soft,
+                           size_t         max_soft);
 
     /* soft_token_dim: dimensionality of each soft-token vector. Projector
      * output dim — matches LM hidden_size so soft tokens splice directly

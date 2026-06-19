@@ -29,81 +29,89 @@
 /* ---------- IQ flat-decode cache ---------- */
 
 const int8_t *iq_flat_cache_lookup(const struct iq_flat_cache *cache, const void *key) {
-    if (cache == nullptr || cache->budget_bytes == 0) return nullptr;
+    if (cache == nullptr || cache->budget_bytes == 0)
+        return nullptr;
     for (size_t i = 0; i < cache->count; i++) {
-        if (cache->entries[i].key == key) return cache->entries[i].flat;
+        if (cache->entries[i].key == key)
+            return cache->entries[i].flat;
     }
     return nullptr;
 }
 
 const int8_t *iq_flat_cache_get_or_decode(struct iq_flat_cache *cache,
-                                           const void           *key,
-                                           enum geist_dtype      dtype,
-                                           size_t                n_in,
-                                           size_t                n_out) {
-    if (cache == nullptr || cache->budget_bytes == 0) return nullptr;
+                                          const void           *key,
+                                          enum geist_dtype      dtype,
+                                          size_t                n_in,
+                                          size_t                n_out) {
+    if (cache == nullptr || cache->budget_bytes == 0)
+        return nullptr;
     const int8_t *hit = iq_flat_cache_lookup(cache, key);
-    if (hit != nullptr) return hit;
+    if (hit != nullptr)
+        return hit;
 
     const size_t flat_bytes = n_in * n_out;
-    if (cache->used_bytes + flat_bytes > cache->budget_bytes) return nullptr;
-    if (cache->count == GEIST_IQ_FLAT_CACHE_MAX_ENTRIES)        return nullptr;
-    if (cache->entries == nullptr)                              return nullptr;
+    if (cache->used_bytes + flat_bytes > cache->budget_bytes)
+        return nullptr;
+    if (cache->count == GEIST_IQ_FLAT_CACHE_MAX_ENTRIES)
+        return nullptr;
+    if (cache->entries == nullptr)
+        return nullptr;
 
     int8_t *flat = (int8_t *) heap_alloc_aligned(flat_bytes, OPTIMAL_ALIGNMENT);
-    if (flat == nullptr) return nullptr;
+    if (flat == nullptr)
+        return nullptr;
 
-    const size_t n_blocks_per_row = dtype == GEIST_DTYPE_IQ2_S
-                                        ? n_in / IQ2_S_BLOCK_ELEMS
-                                        : n_in / IQ3_S_BLOCK_ELEMS;
-    const size_t block_bytes      = dtype == GEIST_DTYPE_IQ2_S
-                                        ? IQ2_S_BLOCK_BYTES
-                                        : IQ3_S_BLOCK_BYTES;
-    const uint8_t *src = (const uint8_t *) key;
+    const size_t n_blocks_per_row =
+            dtype == GEIST_DTYPE_IQ2_S ? n_in / IQ2_S_BLOCK_ELEMS : n_in / IQ3_S_BLOCK_ELEMS;
+    const size_t   block_bytes = dtype == GEIST_DTYPE_IQ2_S ? IQ2_S_BLOCK_BYTES : IQ3_S_BLOCK_BYTES;
+    const uint8_t *src         = (const uint8_t *) key;
     for (size_t r = 0; r < n_out; r++) {
         if (dtype == GEIST_DTYPE_IQ2_S) {
-            iq2s_decode_to_int8_row(src + r * n_blocks_per_row * block_bytes,
-                                     flat + r * n_in, n_in);
+            iq2s_decode_to_int8_row(
+                    src + r * n_blocks_per_row * block_bytes, flat + r * n_in, n_in);
         } else {
-            iq3s_decode_to_int8_row(src + r * n_blocks_per_row * block_bytes,
-                                     flat + r * n_in, n_in);
+            iq3s_decode_to_int8_row(
+                    src + r * n_blocks_per_row * block_bytes, flat + r * n_in, n_in);
         }
     }
 
-    cache->entries[cache->count++] = (struct iq_flat_entry){
-        .key  = key,
-        .flat = flat,
+    cache->entries[cache->count++] = (struct iq_flat_entry) {
+            .key  = key,
+            .flat = flat,
     };
     cache->used_bytes += flat_bytes;
     return flat;
 }
 
 void iq_flat_cache_destroy(struct iq_flat_cache *cache) {
-    if (cache == nullptr) return;
+    if (cache == nullptr)
+        return;
     for (size_t i = 0; i < cache->count; i++) {
-        if (cache->entries[i].flat != nullptr) safe_free((void **) &cache->entries[i].flat);
+        if (cache->entries[i].flat != nullptr)
+            safe_free((void **) &cache->entries[i].flat);
     }
-    if (cache->entries != nullptr) safe_free((void **) &cache->entries);
-    *cache = (struct iq_flat_cache){0};
+    if (cache->entries != nullptr)
+        safe_free((void **) &cache->entries);
+    *cache = (struct iq_flat_cache) {0};
 }
 
 /* ---------- Lifecycle ---------- */
 
-[[nodiscard]] static enum geist_status cpu_neon_create(struct geist_backend           *be,
+[[nodiscard]] static enum geist_status cpu_neon_create(struct geist_backend            *be,
                                                        const struct geist_backend_opts *opts) {
     (void) opts;
     struct cpu_neon_state *st =
-        geist_backend_alloc(be, sizeof(*st), alignof(struct cpu_neon_state));
+            geist_backend_alloc(be, sizeof(*st), alignof(struct cpu_neon_state));
     if (st == nullptr) {
         geist_backend_set_error(be, GEIST_E_OOM, "cpu_neon: state alloc failed");
         return GEIST_E_OOM;
     }
-    *st = (struct cpu_neon_state){0};
+    *st = (struct cpu_neon_state) {0};
     geist_hw_probe_fill(&st->hw);
     st->policy = cpu_neon_kernel_policy_default(&st->hw);
 
     const char *budget_env = getenv("GEIST_IQ_FLAT_CACHE_MB");
-    long mb = 0;
+    long        mb         = 0;
     if (budget_env != nullptr) {
         mb = strtol(budget_env, nullptr, 10);
     }
@@ -125,7 +133,8 @@ void iq_flat_cache_destroy(struct iq_flat_cache *cache) {
             fprintf(stderr,
                     "geist: GEIST_IQ_FLAT_CACHE_MB=%ld enabled via "
                     "FORCE override — flat-decode is known to regress "
-                    "memory-bandwidth-bound platforms.\n", mb);
+                    "memory-bandwidth-bound platforms.\n",
+                    mb);
         } else if (!st->policy.iq_flat_cache_allowed) {
             fprintf(stderr,
                     "geist: GEIST_IQ_FLAT_CACHE_MB=%ld ignored — non-Apple "
@@ -137,8 +146,8 @@ void iq_flat_cache_destroy(struct iq_flat_cache *cache) {
     }
     if (mb > 0) {
         st->iq_cache.budget_bytes = (size_t) mb * 1024u * 1024u;
-        st->iq_cache.entries      = heap_alloc_array_aligned(
-            struct iq_flat_entry, GEIST_IQ_FLAT_CACHE_MAX_ENTRIES);
+        st->iq_cache.entries =
+                heap_alloc_array_aligned(struct iq_flat_entry, GEIST_IQ_FLAT_CACHE_MAX_ENTRIES);
         if (st->iq_cache.entries == nullptr) {
             /* Out of memory just for the index — silently disable rather
              * than fail backend create; the dispatch path treats null
@@ -166,8 +175,8 @@ static void cpu_neon_destroy(struct geist_backend *be) {
 
 /* ---------- Capability ---------- */
 
-static enum geist_support cpu_neon_supports_op(struct geist_backend                 *be,
-                                                const struct geist_op_support_query *query) {
+static enum geist_support cpu_neon_supports_op(struct geist_backend                *be,
+                                               const struct geist_op_support_query *query) {
     (void) be;
     if (query == nullptr || query->input_count < 2) {
         return GEIST_SUPPORT_NONE;
@@ -216,8 +225,7 @@ static enum geist_support cpu_neon_supports_op(struct geist_backend             
         return GEIST_E_INVALID_ARG;
     }
 
-    struct geist_buffer *buf =
-        geist_backend_alloc(be, sizeof(*buf), alignof(struct geist_buffer));
+    struct geist_buffer *buf = geist_backend_alloc(be, sizeof(*buf), alignof(struct geist_buffer));
     if (buf == nullptr) {
         geist_backend_set_error(be, GEIST_E_OOM, "cpu_neon: buffer handle alloc");
         return GEIST_E_OOM;
@@ -228,38 +236,41 @@ static enum geist_support cpu_neon_supports_op(struct geist_backend             
         geist_backend_set_error(be, GEIST_E_OOM, "cpu_neon: %zu-byte host alloc", bytes);
         return GEIST_E_OOM;
     }
-    *buf = (struct geist_buffer){
-        .host = host, .bytes = bytes, .role = role, .memory_flags = memory_flags,
+    *buf = (struct geist_buffer) {
+            .host         = host,
+            .bytes        = bytes,
+            .role         = role,
+            .memory_flags = memory_flags,
     };
     *out = buf;
     return GEIST_OK;
 }
 
-[[nodiscard]] static enum geist_status cpu_neon_buffer_create_aliased(
-    struct geist_backend  *be,
-    void                  *host_ptr,
-    size_t                 n_bytes,
-    enum geist_buffer_role role,
-    struct geist_buffer  **out) {
+[[nodiscard]] static enum geist_status cpu_neon_buffer_create_aliased(struct geist_backend *be,
+                                                                      void  *host_ptr,
+                                                                      size_t n_bytes,
+                                                                      enum geist_buffer_role role,
+                                                                      struct geist_buffer  **out) {
 
-    if (out == nullptr) { return GEIST_E_INVALID_ARG; }
-    *out = nullptr;
-    if (host_ptr == nullptr || n_bytes == 0) {
-        geist_backend_set_error(be, GEIST_E_INVALID_ARG,
-                                "cpu_neon: aliased buffer needs host_ptr + bytes");
+    if (out == nullptr) {
         return GEIST_E_INVALID_ARG;
     }
-    struct geist_buffer *buf =
-        geist_backend_alloc(be, sizeof(*buf), alignof(struct geist_buffer));
+    *out = nullptr;
+    if (host_ptr == nullptr || n_bytes == 0) {
+        geist_backend_set_error(
+                be, GEIST_E_INVALID_ARG, "cpu_neon: aliased buffer needs host_ptr + bytes");
+        return GEIST_E_INVALID_ARG;
+    }
+    struct geist_buffer *buf = geist_backend_alloc(be, sizeof(*buf), alignof(struct geist_buffer));
     if (buf == nullptr) {
         geist_backend_set_error(be, GEIST_E_OOM, "cpu_neon: buffer handle alloc");
         return GEIST_E_OOM;
     }
-    *buf = (struct geist_buffer){
-        .host         = host_ptr,
-        .bytes        = n_bytes,
-        .role         = role,
-        .memory_flags = GEIST_MEMORY_ALIASED,
+    *buf = (struct geist_buffer) {
+            .host         = host_ptr,
+            .bytes        = n_bytes,
+            .role         = role,
+            .memory_flags = GEIST_MEMORY_ALIASED,
     };
     *out = buf;
     return GEIST_OK;
@@ -272,8 +283,7 @@ static void cpu_neon_buffer_destroy(struct geist_backend *be, struct geist_buffe
     /* Aliased buffers (P0.3): host_ptr is owned externally — typically an
      * mmap'd region the gguf_reader retains. Don't free, just discard
      * the metadata header. */
-    if ((buf->memory_flags & GEIST_MEMORY_ALIASED) == 0 &&
-        buf->host != nullptr) {
+    if ((buf->memory_flags & GEIST_MEMORY_ALIASED) == 0 && buf->host != nullptr) {
         safe_free(&buf->host);
     }
     geist_backend_free(be, buf);
@@ -281,7 +291,7 @@ static void cpu_neon_buffer_destroy(struct geist_backend *be, struct geist_buffe
 
 [[nodiscard]] static enum geist_status cpu_neon_buffer_upload(struct geist_buffer *buf,
                                                               size_t               n_bytes,
-                                                              const uint8_t        src[static n_bytes]) {
+                                                              const uint8_t src[static n_bytes]) {
     if (buf == nullptr || src == nullptr || n_bytes > buf->bytes) {
         return GEIST_E_INVALID_ARG;
     }
@@ -289,8 +299,8 @@ static void cpu_neon_buffer_destroy(struct geist_backend *be, struct geist_buffe
     return GEIST_OK;
 }
 
-[[nodiscard]] static enum geist_status cpu_neon_buffer_download(size_t                     n_bytes,
-                                                                uint8_t                    dst[static n_bytes],
+[[nodiscard]] static enum geist_status cpu_neon_buffer_download(size_t  n_bytes,
+                                                                uint8_t dst[static n_bytes],
                                                                 const struct geist_buffer *buf) {
     if (buf == nullptr || dst == nullptr || n_bytes > buf->bytes) {
         return GEIST_E_INVALID_ARG;
@@ -334,7 +344,9 @@ static int apple_perf_cores(void) {
     return 0;
 }
 #else
-static int apple_perf_cores(void) { return 0; }
+static int apple_perf_cores(void) {
+    return 0;
+}
 #endif
 
 /* Target OMP thread count for `region`, cached on first use. 0 = "leave the
@@ -354,10 +366,10 @@ static int cpu_neon_region_thread_count(enum geist_parallel_region region) {
             const char *env = getenv("GEIST_PREFILL_THREADS");
             if (env != nullptr && env[0] != '\0') {
                 const int v = atoi(env);
-                n = (v > 0) ? v : 0;
+                n           = (v > 0) ? v : 0;
             } else {
                 const int pc = apple_perf_cores();
-                n = (pc > 0) ? pc : omp_get_num_procs();
+                n            = (pc > 0) ? pc : omp_get_num_procs();
             }
         }
         return n;
@@ -372,7 +384,7 @@ static int cpu_neon_region_thread_count(enum geist_parallel_region region) {
         const char *env = getenv("GEIST_DECODE_THREADS");
         if (env != nullptr && env[0] != '\0') {
             const int v = atoi(env);
-            n = (v > 0) ? v : 0;
+            n           = (v > 0) ? v : 0;
         } else {
 #if defined(GEIST_TARGET_PI5)
             n = 3;
@@ -382,35 +394,37 @@ static int cpu_neon_region_thread_count(enum geist_parallel_region region) {
              * contend with coordination work. M1 Max tg128: 8 P-cores → ~25 tps
              * (noisy), 7 → ~30 tps (stable). Mirrors Pi 5's 3-of-4. */
             const int pc = apple_perf_cores();
-            n = (pc > 1) ? pc - 1 : 0;
+            n            = (pc > 1) ? pc - 1 : 0;
 #endif
         }
     }
     return n;
 }
 
-static int cpu_neon_parallel_region_begin(struct geist_backend       *be,
-                                          enum geist_parallel_region  region) {
+static int cpu_neon_parallel_region_begin(struct geist_backend      *be,
+                                          enum geist_parallel_region region) {
     (void) be;
     const int target = cpu_neon_region_thread_count(region);
-    if (target <= 0) return 0;
+    if (target <= 0)
+        return 0;
     const int prev = omp_get_max_threads();
     /* Prefill bumps in either direction; decode only caps DOWN — never adds
      * threads to a memory-bound GEMV. */
-    const bool apply = (region == GEIST_REGION_DECODE_STEP) ? (target < prev)
-                                                            : (target != prev);
-    if (!apply) return 0;
+    const bool apply = (region == GEIST_REGION_DECODE_STEP) ? (target < prev) : (target != prev);
+    if (!apply)
+        return 0;
     omp_set_num_threads(target);
-    return prev;  /* >0: restore to this in _end */
+    return prev; /* >0: restore to this in _end */
 }
 
 static void cpu_neon_parallel_region_end(struct geist_backend *be, int token) {
     (void) be;
-    if (token > 0) omp_set_num_threads(token);
+    if (token > 0)
+        omp_set_num_threads(token);
 }
 #else  /* !_OPENMP — no host threading to manage. */
-static int cpu_neon_parallel_region_begin(struct geist_backend       *be,
-                                          enum geist_parallel_region  region) {
+static int cpu_neon_parallel_region_begin(struct geist_backend      *be,
+                                          enum geist_parallel_region region) {
     (void) be;
     (void) region;
     return 0;
@@ -419,42 +433,42 @@ static void cpu_neon_parallel_region_end(struct geist_backend *be, int token) {
     (void) be;
     (void) token;
 }
-#endif  /* _OPENMP */
+#endif /* _OPENMP */
 
 /* ---------- Vtable + Descriptor ---------- */
 
 static const struct geist_backend_vtbl cpu_neon_vtbl = {
-    .create            = cpu_neon_create,
-    .destroy           = cpu_neon_destroy,
-    .supports_op       = cpu_neon_supports_op,
-    .buffer_create     = cpu_neon_buffer_create,
-    .buffer_destroy        = cpu_neon_buffer_destroy,
-    .buffer_create_aliased = cpu_neon_buffer_create_aliased,
-    .resolve_weight        = cpu_neon_resolve_weight,
-    .buffer_upload     = cpu_neon_buffer_upload,
-    .buffer_download   = cpu_neon_buffer_download,
-    .buffer_map        = cpu_neon_buffer_map,
-    .buffer_unmap      = cpu_neon_buffer_unmap,
-    .rmsnorm           = cpu_neon_rmsnorm,
-    .add               = cpu_neon_add,
-    .mul               = cpu_neon_mul,
-    .gelu_tanh         = cpu_neon_gelu_tanh,
-    .gelu_tanh_mul     = cpu_neon_gelu_tanh_mul,
-    .gelu_tanh_mul_scaled = cpu_neon_gelu_tanh_mul_scaled,
-    .relu_squared      = cpu_neon_relu_squared,
-    .silu              = cpu_neon_silu,
-    .rope_apply        = cpu_neon_rope_apply,
-    .embedding_lookup  = cpu_neon_embedding_lookup,
-    .attention         = cpu_neon_attention,
-    .ffn_geglu_q4q6_mN = cpu_neon_ffn_geglu_q4q6_mN,
-    .transformer_block = nullptr,
-    .parallel_region_begin = cpu_neon_parallel_region_begin,
-    .parallel_region_end   = cpu_neon_parallel_region_end,
+        .create                = cpu_neon_create,
+        .destroy               = cpu_neon_destroy,
+        .supports_op           = cpu_neon_supports_op,
+        .buffer_create         = cpu_neon_buffer_create,
+        .buffer_destroy        = cpu_neon_buffer_destroy,
+        .buffer_create_aliased = cpu_neon_buffer_create_aliased,
+        .resolve_weight        = cpu_neon_resolve_weight,
+        .buffer_upload         = cpu_neon_buffer_upload,
+        .buffer_download       = cpu_neon_buffer_download,
+        .buffer_map            = cpu_neon_buffer_map,
+        .buffer_unmap          = cpu_neon_buffer_unmap,
+        .rmsnorm               = cpu_neon_rmsnorm,
+        .add                   = cpu_neon_add,
+        .mul                   = cpu_neon_mul,
+        .gelu_tanh             = cpu_neon_gelu_tanh,
+        .gelu_tanh_mul         = cpu_neon_gelu_tanh_mul,
+        .gelu_tanh_mul_scaled  = cpu_neon_gelu_tanh_mul_scaled,
+        .relu_squared          = cpu_neon_relu_squared,
+        .silu                  = cpu_neon_silu,
+        .rope_apply            = cpu_neon_rope_apply,
+        .embedding_lookup      = cpu_neon_embedding_lookup,
+        .attention             = cpu_neon_attention,
+        .ffn_geglu_q4q6_mN     = cpu_neon_ffn_geglu_q4q6_mN,
+        .transformer_block     = nullptr,
+        .parallel_region_begin = cpu_neon_parallel_region_begin,
+        .parallel_region_end   = cpu_neon_parallel_region_end,
 };
 
 const struct geist_backend_descriptor geist_backend_cpu_neon = {
-    .name   = "cpu_neon",
-    .vtbl   = &cpu_neon_vtbl,
-    .caps   = nullptr,
-    .n_caps = 0,
+        .name   = "cpu_neon",
+        .vtbl   = &cpu_neon_vtbl,
+        .caps   = nullptr,
+        .n_caps = 0,
 };

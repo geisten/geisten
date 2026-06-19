@@ -29,14 +29,14 @@ static double now_s(void) {
     return (double) tv.tv_sec + (double) tv.tv_usec * 1e-6;
 }
 
-int main(int argc, char** argv) {
-    const size_t MB = (argc >= 2) ? (size_t) atoi(argv[1]) : 64;
-    const int reps = (argc >= 3) ? atoi(argv[2]) : 10;
-    const size_t N = (MB * 1024UL * 1024UL) / sizeof(double);
+int main(int argc, char **argv) {
+    const size_t MB   = (argc >= 2) ? (size_t) atoi(argv[1]) : 64;
+    const int    reps = (argc >= 3) ? atoi(argv[2]) : 10;
+    const size_t N    = (MB * 1024UL * 1024UL) / sizeof(double);
 
-    double* a = (double*) aligned_alloc(64, N * sizeof(double));
-    double* b = (double*) aligned_alloc(64, N * sizeof(double));
-    double* c = (double*) aligned_alloc(64, N * sizeof(double));
+    double *a = (double *) aligned_alloc(64, N * sizeof(double));
+    double *b = (double *) aligned_alloc(64, N * sizeof(double));
+    double *c = (double *) aligned_alloc(64, N * sizeof(double));
     if (!a || !b || !c) {
         fprintf(stderr, "alloc fail\n");
         return 1;
@@ -51,8 +51,8 @@ int main(int argc, char** argv) {
         c[i] = 3.0;
     }
 
-    const double scale = 3.0;
-    double best_copy = 1e30, best_scale = 1e30, best_add = 1e30, best_triad = 1e30;
+    const double scale     = 3.0;
+    double       best_copy = 1e30, best_scale = 1e30, best_add = 1e30, best_triad = 1e30;
 
     for (int r = 0; r < reps; r++) {
         double t0, t1;

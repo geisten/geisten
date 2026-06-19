@@ -23,17 +23,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char* resolve_path(void) {
-    const char* env = getenv("GEIST_LLAMA_GGUF_PATH");
+static const char *resolve_path(void) {
+    const char *env = getenv("GEIST_LLAMA_GGUF_PATH");
     if (env != nullptr && env[0] != '\0')
         return env;
-    static const char* candidates[] = {
+    static const char *candidates[] = {
             "gguf_artifacts/smollm2-360m-instruct-q8_0.gguf",
             "./smollm2-360m-instruct-q8_0.gguf",
             nullptr,
     };
     for (size_t i = 0; candidates[i] != nullptr; i++) {
-        FILE* f = fopen(candidates[i], "rb");
+        FILE *f = fopen(candidates[i], "rb");
         if (f != nullptr) {
             fclose(f);
             return candidates[i];
@@ -43,7 +43,7 @@ static const char* resolve_path(void) {
 }
 
 int main(void) {
-    const char* path = resolve_path();
+    const char *path = resolve_path();
     if (path == nullptr) {
         printf("SKIP: no Llama GGUF reachable. Place "
                "smollm2-360m-instruct-q8_0.gguf in ./gguf_artifacts/ or "
@@ -51,8 +51,8 @@ int main(void) {
         return GEIST_TEST_SKIP;
     }
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
@@ -60,8 +60,8 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "model_load failed: %s — %s\n",
@@ -74,7 +74,7 @@ int main(void) {
 
     /* Confirm the engine attached the GGUF-embedded tokenizer (not
      * the legacy sp_bpe path). */
-    struct gguf_tokenizer* gtok = geist_model_internal_gguf_tokenizer(model);
+    struct gguf_tokenizer *gtok = geist_model_internal_gguf_tokenizer(model);
     if (gtok == nullptr) {
         fprintf(stderr, "FAIL: model has no GGUF-embedded tokenizer attached\n");
         geist_model_destroy(model);
@@ -87,8 +87,8 @@ int main(void) {
            gtok->eos_id);
 
     struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed: %s\n", geist_status_to_string(s));
         geist_model_destroy(model);
@@ -100,10 +100,10 @@ int main(void) {
      * encodes via the GGUF tokenizer (P1.5.g/.h hash-indexed), the
      * arch's prefill chunks through 32 Llama layers, and decode_step
      * emits next tokens. Print the decoded continuation. */
-    int fails = 0;
-    int32_t out_ids[16] = {0};
-    int n_out = 0;
-    const char* prompt = "The capital of France is";
+    int         fails       = 0;
+    int32_t     out_ids[16] = {0};
+    int         n_out       = 0;
+    const char *prompt      = "The capital of France is";
 
     s = geist_session_set_prompt(sess, prompt);
     if (s != GEIST_OK) {
@@ -117,7 +117,7 @@ int main(void) {
         const int N_STEPS = 12;
         for (int i = 0; i < N_STEPS; i++) {
             geist_token_t tok = -1;
-            s = geist_session_decode_step(sess, &tok);
+            s                 = geist_session_decode_step(sess, &tok);
             if (s != GEIST_OK || tok < 0 || (size_t) tok >= gtok->vocab_size) {
                 fprintf(stderr,
                         "decode_step[%d] FAIL: %s tok=%d\n",

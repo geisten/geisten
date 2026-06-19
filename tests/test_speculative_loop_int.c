@@ -26,10 +26,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-static struct geist_backend* be;
-static struct geist_model* model;
+static struct geist_backend *be;
+static struct geist_model   *model;
 
-static int load_model(const char* path) {
+static int load_model(const char *path) {
     enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
@@ -58,14 +58,14 @@ int main(void) {
     /* Slightly longer prompt so the drafter has at least some history
      * to scan once decoding starts. BOS=2 keeps it deterministic. */
     const geist_token_t prompt_ids[] = {2, 9259, 1018, 9259, 1018, 9259, 1018};
-    const size_t prompt_n = sizeof prompt_ids / sizeof prompt_ids[0];
-    const size_t N = 30; /* tokens to decode */
-    const size_t K_MAX = 4;
+    const size_t        prompt_n     = sizeof prompt_ids / sizeof prompt_ids[0];
+    const size_t        N            = 30; /* tokens to decode */
+    const size_t        K_MAX        = 4;
 
     /* ---- Reference: sequential decode_step. */
     geist_token_t ref[N];
     {
-        struct geist_session* sess = nullptr;
+        struct geist_session     *sess = nullptr;
         struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
         if (geist_session_create(model, be, &opts, &sess) != GEIST_OK) {
             teardown();
@@ -91,11 +91,11 @@ int main(void) {
 
     /* ---- Speculative: same prompt, same N tokens via decode_speculative. */
     geist_token_t spec[N + K_MAX + 1]; /* overflow guard */
-    size_t spec_n = 0;
-    size_t n_calls = 0;
-    size_t total_emit = 0;
+    size_t        spec_n     = 0;
+    size_t        n_calls    = 0;
+    size_t        total_emit = 0;
     {
-        struct geist_session* sess = nullptr;
+        struct geist_session     *sess = nullptr;
         struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
         if (geist_session_create(model, be, &opts, &sess) != GEIST_OK) {
             teardown();
@@ -109,11 +109,11 @@ int main(void) {
 
         /* History for the drafter = prompt + emitted-so-far. */
         geist_token_t history[1024];
-        size_t history_n = prompt_n;
+        size_t        history_n = prompt_n;
         memcpy(history, prompt_ids, prompt_n * sizeof(*prompt_ids));
 
         geist_token_t emitted[K_MAX + 1];
-        size_t emit_n = 0;
+        size_t        emit_n = 0;
         while (spec_n < N) {
             n_calls++;
             enum geist_status s = geist_session_decode_speculative(
@@ -125,7 +125,7 @@ int main(void) {
             }
             total_emit += emit_n;
             for (size_t i = 0; i < emit_n && spec_n < N; i++) {
-                spec[spec_n++] = emitted[i];
+                spec[spec_n++]       = emitted[i];
                 history[history_n++] = emitted[i];
             }
         }
@@ -155,11 +155,11 @@ int main(void) {
      * per-position logits), so we only check that tokens are emitted at
      * a sane rate and stay within vocab. */
     {
-        struct geist_session* sess = nullptr;
+        struct geist_session     *sess = nullptr;
         struct geist_session_opts opts = {
                 .max_seq_len = 1024,
                 .temperature = 0.7f,
-                .top_p = 0.9f,
+                .top_p       = 0.9f,
                 .random_seed = 42,
         };
         if (geist_session_create(model, be, &opts, &sess) != GEIST_OK) {
@@ -172,13 +172,13 @@ int main(void) {
             return GEIST_TEST_FAIL;
         }
         geist_token_t history[1024];
-        size_t history_n = prompt_n;
+        size_t        history_n = prompt_n;
         memcpy(history, prompt_ids, prompt_n * sizeof(*prompt_ids));
         geist_token_t emitted[K_MAX + 1];
-        size_t emitted_total = 0;
-        size_t stoch_calls = 0;
+        size_t        emitted_total = 0;
+        size_t        stoch_calls   = 0;
         while (emitted_total < N) {
-            size_t n;
+            size_t            n;
             enum geist_status sx = geist_session_decode_speculative(
                     sess, K_MAX, history_n, history, K_MAX + 1, emitted, &n);
             if (sx != GEIST_OK || n == 0) {

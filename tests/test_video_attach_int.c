@@ -26,7 +26,7 @@
 #define FRAME_H 192
 #define FRAME_W 192
 
-static void synth_frame(int frame_idx, uint8_t* out) {
+static void synth_frame(int frame_idx, uint8_t *out) {
     /* Three-channel gradient with a per-frame phase shift in each axis,
      * matching the synthetic image generator's flavor: smooth content
      * so bicubic actually interpolates, varied between frames so per-
@@ -34,26 +34,26 @@ static void synth_frame(int frame_idx, uint8_t* out) {
     const float phase = (float) frame_idx / (float) N_FRAMES;
     for (int y = 0; y < FRAME_H; y++) {
         for (int x = 0; x < FRAME_W; x++) {
-            float fx = (float) x / (FRAME_W - 1);
-            float fy = (float) y / (FRAME_H - 1);
-            float r = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fx + phase)));
-            float g = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fy + 1.7f * phase)));
-            float b = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fx + fy + 2.3f * phase)));
-            uint8_t* p = out + (y * FRAME_W + x) * 3;
-            p[0] = (uint8_t) (r < 0 ? 0 : (r > 255 ? 255 : r));
-            p[1] = (uint8_t) (g < 0 ? 0 : (g > 255 ? 255 : g));
-            p[2] = (uint8_t) (b < 0 ? 0 : (b > 255 ? 255 : b));
+            float    fx = (float) x / (FRAME_W - 1);
+            float    fy = (float) y / (FRAME_H - 1);
+            float    r  = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fx + phase)));
+            float    g  = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fy + 1.7f * phase)));
+            float    b  = 255.0f * (0.5f + 0.5f * sinf(6.28f * (fx + fy + 2.3f * phase)));
+            uint8_t *p  = out + (y * FRAME_W + x) * 3;
+            p[0]        = (uint8_t) (r < 0 ? 0 : (r > 255 ? 255 : r));
+            p[1]        = (uint8_t) (g < 0 ? 0 : (g > 255 ? 255 : g));
+            p[2]        = (uint8_t) (b < 0 ? 0 : (b > 255 ? 255 : b));
         }
     }
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     (void) argc;
     (void) argv;
     GEIST_REQUIRE_GGUF(model_path);
 
     const size_t frame_bytes = (size_t) FRAME_H * FRAME_W * 3;
-    uint8_t* frames = malloc((size_t) N_FRAMES * frame_bytes);
+    uint8_t     *frames      = malloc((size_t) N_FRAMES * frame_bytes);
     if (frames == nullptr) {
         fprintf(stderr, "alloc failed\n");
         return GEIST_TEST_ERROR;
@@ -67,8 +67,8 @@ int main(int argc, char** argv) {
            FRAME_W,
            (double) (N_FRAMES * frame_bytes) / (1024.0 * 1024.0));
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
@@ -77,8 +77,8 @@ int main(int argc, char** argv) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
@@ -87,8 +87,8 @@ int main(int argc, char** argv) {
     }
 
     struct geist_session_opts opts = {.max_seq_len = 4096};
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed\n");
         geist_model_destroy(model);
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
      * with the image attach-only test, no chat-template wrap means the
      * model emits <pad> — what we're checking is that decode_step
      * doesn't error and the session is alive. */
-    int fails = 0;
+    int           fails = 0;
     geist_token_t tok;
     printf("decoded:");
     for (int i = 0; i < 6; i++) {
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
             fails++;
             break;
         }
-        const char* t = geist_session_token_to_str(sess, tok);
+        const char *t = geist_session_token_to_str(sess, tok);
         printf(" %d(%s)", tok, t ? t : "?");
     }
     printf("\n");

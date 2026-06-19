@@ -52,18 +52,18 @@ enum geist_ffn_activation_kind {
 struct geist_arch_config {
     /* ---- Family identity. Future use by sub-vtable dispatch
      * (PLE precompute / logit softcap routing). */
-    const char *family;  /* "gemma4" today; "llama", "mistral", … later */
+    const char *family; /* "gemma4" today; "llama", "mistral", … later */
 
     /* ---- Numerics. */
-    float rms_eps;          /* RMSNorm epsilon. Gemma 4: 1e-6f. */
-    float logit_softcap;    /* tanh(p/softcap)*softcap; 0 = disabled. */
+    float rms_eps;       /* RMSNorm epsilon. Gemma 4: 1e-6f. */
+    float logit_softcap; /* tanh(p/softcap)*softcap; 0 = disabled. */
 
     /* ---- PLE (Per-Layer Embedding, Gemma 3/4 family only). When
      * has_ple == false, the precompute path is skipped entirely. */
-    bool   has_ple;
-    float  ple_input_scale;        /* multiplied onto (model_proj + lookup) */
-    float  ple_model_proj_scale;   /* multiplied onto model_proj(h) */
-    float  ple_table_scale;        /* multiplied onto dequant'd PLE row */
+    bool  has_ple;
+    float ple_input_scale;      /* multiplied onto (model_proj + lookup) */
+    float ple_model_proj_scale; /* multiplied onto model_proj(h) */
+    float ple_table_scale;      /* multiplied onto dequant'd PLE row */
 
     /* ---- KV-shared layer mapping (Gemma 4 only). When a layer has
      * `is_kv_shared == true`, its K/V cache aliases the source layer's.
@@ -91,8 +91,8 @@ struct geist_arch_config {
      *   keeps GEGLU (default 0). Llama family is SWIGLU. BitNet 2B-4T
      *   is SQUARED_RELU and has no gate_proj — the FFN forward path
      *   skips the gate projection when this is SQUARED_RELU. */
-    bool                              has_sub_ln;
-    enum geist_ffn_activation_kind    ffn_activation;
+    bool                           has_sub_ln;
+    enum geist_ffn_activation_kind ffn_activation;
 
     /* RoPE pair convention.
      *   false: NEOX-style split pairs (i, i + head_dim/2). Gemma 3/4,

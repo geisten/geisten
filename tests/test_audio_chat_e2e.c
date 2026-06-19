@@ -48,11 +48,11 @@
 #define REPLY_CAP 4096
 
 struct audio_case {
-    const char* wav_path;
-    const char* prompt;
+    const char *wav_path;
+    const char *prompt;
     /* The model's response must contain at least ONE of these keywords
      * (case-insensitive substring match). Empty slot ends the list. */
-    const char* expect_any[4];
+    const char *expect_any[4];
 };
 
 /* Hand-curated from observed Gemma 4 E2B responses on these clips at
@@ -70,48 +70,48 @@ struct audio_case {
  * to the prompt fixes recognition without retraining. */
 static struct audio_case cases[] = {
         {
-                .wav_path = "audio_test_data/en_long.wav",
-                .prompt = "Repeat what you heard in quotes.",
+                .wav_path   = "audio_test_data/en_long.wav",
+                .prompt     = "Repeat what you heard in quotes.",
                 .expect_any = {"fox", "dog", "quick", nullptr},
         },
         {
-                .wav_path = "audio_test_data/en_question.wav",
-                .prompt = "Answer the question you heard.",
+                .wav_path   = "audio_test_data/en_question.wav",
+                .prompt     = "Answer the question you heard.",
                 .expect_any = {"Kabul", "Afghanistan", "capital", nullptr},
         },
         {
-                .wav_path = "audio_test_data/de_question.wav",
-                .prompt = "Repeat what you heard in quotes.",
+                .wav_path   = "audio_test_data/de_question.wav",
+                .prompt     = "Repeat what you heard in quotes.",
                 .expect_any = {"weather", "Wetter", "weath", nullptr},
         },
         /* Smart-home short imperative — only recognised with a few-shot
          * vocabulary anchor in the prompt. */
         {
-                .wav_path = "audio_test_data/lampe_an.wav",
-                .prompt = "The user gave a smart home command. Common commands: "
-                          "'Lampe an', 'Licht aus', 'Musik an'. Which command did you hear?",
+                .wav_path   = "audio_test_data/lampe_an.wav",
+                .prompt     = "The user gave a smart home command. Common commands: "
+                              "'Lampe an', 'Licht aus', 'Musik an'. Which command did you hear?",
                 .expect_any = {"Lampe an", "Lampe", "lamp", nullptr},
         },
         /* German greeting with greeting-domain few-shot anchor. */
         {
-                .wav_path = "audio_test_data/de_hello.wav",
-                .prompt = "The user said a short greeting. Common greetings: "
-                          "'Hallo', 'Hello', 'Hello world', 'Guten Tag'. "
-                          "Which greeting did you hear?",
+                .wav_path   = "audio_test_data/de_hello.wav",
+                .prompt     = "The user said a short greeting. Common greetings: "
+                              "'Hallo', 'Hello', 'Hello world', 'Guten Tag'. "
+                              "Which greeting did you hear?",
                 .expect_any = {"Hallo", nullptr},
         },
         /* English greeting with same greeting-domain anchor. */
         {
-                .wav_path = "audio_test_data/hello_world.wav",
-                .prompt = "The user said a short greeting. Common greetings: "
-                          "'Hallo', 'Hello', 'Hello world', 'Guten Tag'. "
-                          "Which greeting did you hear?",
+                .wav_path   = "audio_test_data/hello_world.wav",
+                .prompt     = "The user said a short greeting. Common greetings: "
+                              "'Hallo', 'Hello', 'Hello world', 'Guten Tag'. "
+                              "Which greeting did you hear?",
                 .expect_any = {"Hello world", "Hello", "world", nullptr},
         },
 };
 
-static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sample_rate_out) {
-    FILE* f = fopen(path, "rb");
+static int16_t *read_wav_pcm(const char *path, size_t *n_samples_out, int *sample_rate_out) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     unsigned char hdr[44];
@@ -130,8 +130,8 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
     fseek(f, 0, SEEK_END);
     long file_bytes = ftell(f);
     fseek(f, 44, SEEK_SET);
-    size_t n = (size_t) (file_bytes - 44) / 2;
-    int16_t* pcm = malloc(n * sizeof(int16_t));
+    size_t   n   = (size_t) (file_bytes - 44) / 2;
+    int16_t *pcm = malloc(n * sizeof(int16_t));
     if (pcm == nullptr) {
         fclose(f);
         return nullptr;
@@ -142,19 +142,19 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
         free(pcm);
         return nullptr;
     }
-    *n_samples_out = n;
+    *n_samples_out   = n;
     *sample_rate_out = (int) sr;
     return pcm;
 }
 
-static enum geist_status tokenize_drop_bos(struct geist_session* s,
-                                           const char* text,
-                                           bool drop_bos,
-                                           geist_token_t* out,
-                                           size_t cap,
-                                           size_t* n_out) {
-    geist_token_t scratch[PROMPT_CAP];
-    size_t n = 0;
+static enum geist_status tokenize_drop_bos(struct geist_session *s,
+                                           const char           *text,
+                                           bool                  drop_bos,
+                                           geist_token_t        *out,
+                                           size_t                cap,
+                                           size_t               *n_out) {
+    geist_token_t     scratch[PROMPT_CAP];
+    size_t            n  = 0;
     enum geist_status rc = geist_session_tokenize(s, text, PROMPT_CAP, scratch, &n);
     if (rc != GEIST_OK)
         return rc;
@@ -177,7 +177,7 @@ static enum geist_status tokenize_drop_bos(struct geist_session* s,
  *      Strip all control bytes < 0x20 (except real whitespace 0x09 \t,
  *      0x0A \n, 0x0D \r) so the cleaned haystack reads as the model's
  *      intended text. */
-static void normalize_sp(const char* in, char* out, size_t out_cap) {
+static void normalize_sp(const char *in, char *out, size_t out_cap) {
     size_t j = 0;
     for (size_t i = 0; in[i] != '\0' && j + 1 < out_cap; i++) {
         const unsigned char c0 = (unsigned char) in[i];
@@ -196,11 +196,11 @@ static void normalize_sp(const char* in, char* out, size_t out_cap) {
 
 /* Case-insensitive substring search. Substring `needle` is treated as
  * ASCII-lowercased; haystack is compared char-by-char with tolower(). */
-static bool contains_ci(const char* haystack, const char* needle) {
+static bool contains_ci(const char *haystack, const char *needle) {
     if (haystack == nullptr || needle == nullptr || needle[0] == '\0')
         return false;
     const size_t nn = strlen(needle);
-    for (const char* p = haystack; *p; p++) {
+    for (const char *p = haystack; *p; p++) {
         size_t i;
         for (i = 0; i < nn; i++) {
             if (tolower((unsigned char) p[i]) != tolower((unsigned char) needle[i]))
@@ -213,7 +213,7 @@ static bool contains_ci(const char* haystack, const char* needle) {
 }
 
 /* Returns true if `reply` matches any of `expect_any`. */
-static bool reply_matches(const char* reply, const char* const* expect_any) {
+static bool reply_matches(const char *reply, const char *const *expect_any) {
     char norm[REPLY_CAP];
     normalize_sp(reply, norm, sizeof norm);
     for (size_t i = 0; expect_any[i] != nullptr; i++) {
@@ -226,16 +226,16 @@ static bool reply_matches(const char* reply, const char* const* expect_any) {
 /* Returns true on success, false on a hard pipeline error (caller
  * propagates as test FAIL). Writes the decoded model reply into `reply`
  * (NUL-terminated, capped at reply_cap). */
-static bool run_one_case(struct geist_model* model,
-                         struct geist_backend* be,
-                         const struct audio_case* tc,
-                         char* reply,
-                         size_t reply_cap) {
+static bool run_one_case(struct geist_model      *model,
+                         struct geist_backend    *be,
+                         const struct audio_case *tc,
+                         char                    *reply,
+                         size_t                   reply_cap) {
     reply[0] = '\0';
 
-    size_t n_samples;
-    int sample_rate;
-    int16_t* pcm = read_wav_pcm(tc->wav_path, &n_samples, &sample_rate);
+    size_t   n_samples;
+    int      sample_rate;
+    int16_t *pcm = read_wav_pcm(tc->wav_path, &n_samples, &sample_rate);
     if (pcm == nullptr || sample_rate != 16000) {
         snprintf(reply, reply_cap, "[skip: bad wav]");
         if (pcm)
@@ -244,15 +244,15 @@ static bool run_one_case(struct geist_model* model,
     }
 
     struct geist_session_opts opts = {.max_seq_len = 2048};
-    struct geist_session* sess = nullptr;
-    enum geist_status s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    enum geist_status         s    = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         free(pcm);
         return false;
     }
 
     geist_token_t prefix[PROMPT_CAP];
-    size_t prefix_n = 0;
+    size_t        prefix_n = 0;
     s = tokenize_drop_bos(sess, "<bos><|turn>user\n<|audio>", false, prefix, PROMPT_CAP, &prefix_n);
     if (s != GEIST_OK)
         goto out_fail;
@@ -269,7 +269,7 @@ static bool run_one_case(struct geist_model* model,
     char suffix_text[PROMPT_CAP];
     snprintf(suffix_text, sizeof suffix_text, "<audio|>\n%s<turn|>\n<|turn>model\n", tc->prompt);
     geist_token_t suffix[PROMPT_CAP];
-    size_t suffix_n = 0;
+    size_t        suffix_n = 0;
     s = tokenize_drop_bos(sess, suffix_text, true, suffix, PROMPT_CAP, &suffix_n);
     if (s != GEIST_OK)
         goto out_fail;
@@ -286,7 +286,7 @@ static bool run_one_case(struct geist_model* model,
             break;
         if (tok == 1 /* <eos> */ || tok == 106 /* <turn|> */)
             break;
-        const char* t = geist_session_token_to_str(sess, tok);
+        const char *t = geist_session_token_to_str(sess, tok);
         if (t == nullptr)
             continue;
         const size_t tn = strlen(t);
@@ -310,15 +310,15 @@ out_fail:
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         GEIST_SKIP("backend create failed");
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         geist_backend_destroy(be);
         GEIST_SKIP("model_load failed (set GEIST_GGUF_PATH)");
@@ -327,11 +327,11 @@ int main(void) {
     /* Quick tokenizer probe — SKIP cleanly if the tokenizer is missing
      * since these tests are useless without it. */
     {
-        struct geist_session_opts opts = {.max_seq_len = 64};
-        struct geist_session* probe = nullptr;
+        struct geist_session_opts opts  = {.max_seq_len = 64};
+        struct geist_session     *probe = nullptr;
         if (geist_session_create(model, be, &opts, &probe) == GEIST_OK) {
-            geist_token_t t[4];
-            size_t pn = 0;
+            geist_token_t     t[4];
+            size_t            pn = 0;
             enum geist_status ps = geist_session_tokenize(probe, "x", 4, t, &pn);
             geist_session_destroy(probe);
             if (ps == GEIST_E_NOT_FOUND) {
@@ -343,12 +343,12 @@ int main(void) {
     }
 
     const size_t n_cases = sizeof(cases) / sizeof(cases[0]);
-    size_t n_pass = 0, n_fail = 0, n_skip = 0;
-    char reply[REPLY_CAP];
+    size_t       n_pass = 0, n_fail = 0, n_skip = 0;
+    char         reply[REPLY_CAP];
 
     printf("audio_chat_e2e: %zu cases\n\n", n_cases);
     for (size_t i = 0; i < n_cases; i++) {
-        const struct audio_case* tc = &cases[i];
+        const struct audio_case *tc = &cases[i];
         printf("[%zu/%zu] %s\n", i + 1, n_cases, tc->wav_path);
         printf("  prompt: \"%s\"\n", tc->prompt);
 

@@ -28,19 +28,19 @@ typedef enum CBLAS_TRANSPOSE_ { CblasNoTrans_ = 111, CblasTrans_ = 112 } CBLAS_T
 extern void cblas_sgemm(int /*order*/,
                         int /*TransA*/,
                         int /*TransB*/,
-                        int M,
-                        int N,
-                        int K,
-                        float alpha,
-                        const float* A,
-                        int lda,
-                        const float* B,
-                        int ldb,
-                        float beta,
-                        float* C,
-                        int ldc);
+                        int          M,
+                        int          N,
+                        int          K,
+                        float        alpha,
+                        const float *A,
+                        int          lda,
+                        const float *B,
+                        int          ldb,
+                        float        beta,
+                        float       *C,
+                        int          ldc);
 
-static float cosine_sim(const float* a, const float* b, size_t n) {
+static float cosine_sim(const float *a, const float *b, size_t n) {
     double dot = 0.0, na = 0.0, nb = 0.0;
     for (size_t i = 0; i < n; i++) {
         dot += (double) a[i] * (double) b[i];
@@ -52,9 +52,9 @@ static float cosine_sim(const float* a, const float* b, size_t n) {
     return (float) (dot / (sqrt(na) * sqrt(nb)));
 }
 
-static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
-    const size_t n_in = t->dims[0];
-    const size_t n_out = t->dims[1];
+static int verify_q6k_prefill(const struct gguf_tensor_t *t, size_t m) {
+    const size_t n_in             = t->dims[0];
+    const size_t n_out            = t->dims[1];
     const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
     if (n_in % Q6_K_BLOCK_ELEMS != 0) {
         printf("  skip: n_in=%zu not multiple of %zu\n", n_in, Q6_K_BLOCK_ELEMS);
@@ -62,17 +62,17 @@ static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
     }
     printf("=== Q6_K m=%zu n_out=%zu n_in=%zu (%s) ===\n", m, n_out, n_in, t->name);
 
-    float* x = malloc(m * n_in * sizeof(float));
-    float* y_fast = malloc(m * n_out * sizeof(float));
-    float* y_ref = malloc(m * n_out * sizeof(float));
+    float *x      = malloc(m * n_in * sizeof(float));
+    float *y_fast = malloc(m * n_out * sizeof(float));
+    float *y_ref  = malloc(m * n_out * sizeof(float));
     for (size_t i = 0; i < m * n_in; i++) {
         x[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
     }
 
     /* Reference: dequant whole weight then sgemm M × n_in × n_out. */
-    float* w_fp32 = malloc(n_out * n_in * sizeof(float));
+    float *w_fp32 = malloc(n_out * n_in * sizeof(float));
     for (size_t r = 0; r < n_out; r++) {
-        dequant_q6_K_row((const uint8_t*) t->data + r * n_blocks_per_row * Q6_K_BLOCK_BYTES,
+        dequant_q6_K_row((const uint8_t *) t->data + r * n_blocks_per_row * Q6_K_BLOCK_BYTES,
                          w_fp32 + r * n_in,
                          n_in);
     }
@@ -96,7 +96,7 @@ static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
     linear_q6k_w6a8_prefill(x, t->data, m, n_in, n_out, y_fast);
 
     /* Per-row cosine sim. Each row is one of the M activations. */
-    int fails = 0;
+    int   fails   = 0;
     float min_cos = 1.0f;
     for (size_t i = 0; i < m; i++) {
         const float cos = cosine_sim(y_ref + i * n_out, y_fast + i * n_out, n_out);
@@ -110,8 +110,8 @@ static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
     printf("  min row cosine=%.6f over m=%zu rows\n", min_cos, m);
 
     {
-        int8_t* x_q8 = malloc(m * n_in);
-        float* scale_x = malloc(m * sizeof(float));
+        int8_t *x_q8    = malloc(m * n_in);
+        float  *scale_x = malloc(m * sizeof(float));
         if (x_q8 == nullptr || scale_x == nullptr) {
             fprintf(stderr, "  Q6_K raw ntile4 scratch alloc failed\n");
             fails++;
@@ -139,7 +139,7 @@ static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
 
     if (m == 2 && n_out % 8 == 0) {
         const size_t x8_bytes = q6k_x8_gemv_size_bytes(n_in, n_out);
-        void* x8 = x8_bytes > 0 ? malloc(x8_bytes) : nullptr;
+        void        *x8       = x8_bytes > 0 ? malloc(x8_bytes) : nullptr;
         if (x8 == nullptr || q6k_x8_gemv_pack(t->data, n_in, n_out, x8) != 0) {
             fprintf(stderr, "  Q6_K x8 gemv pack failed\n");
             fails++;
@@ -157,13 +157,13 @@ static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
     }
 
     const size_t packed_bytes = q6k_predecode_ntile4_size_bytes(n_in, n_out);
-    void* packed = packed_bytes > 0 ? malloc(packed_bytes) : nullptr;
+    void        *packed       = packed_bytes > 0 ? malloc(packed_bytes) : nullptr;
     if (packed == nullptr || q6k_predecode_ntile4_pack(t->data, n_in, n_out, packed) != 0) {
         fprintf(stderr, "  Q6_K ntile4 pack failed\n");
         fails++;
     } else {
-        int8_t* x_q8 = malloc(m * n_in);
-        float* scale_x = malloc(m * sizeof(float));
+        int8_t *x_q8    = malloc(m * n_in);
+        float  *scale_x = malloc(m * sizeof(float));
         if (x_q8 == nullptr || scale_x == nullptr) {
             fprintf(stderr, "  Q6_K ntile4 scratch alloc failed\n");
             fails++;
@@ -192,13 +192,13 @@ static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
     free(packed);
 
     const size_t packed8_bytes = q6k_predecode_ntile8_size_bytes(n_in, n_out);
-    void* packed8 = packed8_bytes > 0 ? malloc(packed8_bytes) : nullptr;
+    void        *packed8       = packed8_bytes > 0 ? malloc(packed8_bytes) : nullptr;
     if (packed8 == nullptr || q6k_predecode_ntile8_pack(t->data, n_in, n_out, packed8) != 0) {
         fprintf(stderr, "  Q6_K ntile8 pack failed\n");
         fails++;
     } else {
-        int8_t* x_q8 = malloc(m * n_in);
-        float* scale_x = malloc(m * sizeof(float));
+        int8_t *x_q8    = malloc(m * n_in);
+        float  *scale_x = malloc(m * sizeof(float));
         if (x_q8 == nullptr || scale_x == nullptr) {
             fprintf(stderr, "  Q6_K ntile8 scratch alloc failed\n");
             fails++;
@@ -227,13 +227,13 @@ static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
     free(packed8);
 
     const size_t stream_bytes = q6k_predecode_ntile4_stream_size_bytes(n_in, n_out);
-    void* stream = stream_bytes > 0 ? malloc(stream_bytes) : nullptr;
+    void        *stream       = stream_bytes > 0 ? malloc(stream_bytes) : nullptr;
     if (stream == nullptr || q6k_predecode_ntile4_stream_pack(t->data, n_in, n_out, stream) != 0) {
         fprintf(stderr, "  Q6_K ntile4 stream pack failed\n");
         fails++;
     } else {
-        int8_t* x_q8 = malloc(m * n_in);
-        float* scale_x = malloc(m * sizeof(float));
+        int8_t *x_q8    = malloc(m * n_in);
+        float  *scale_x = malloc(m * sizeof(float));
         if (x_q8 == nullptr || scale_x == nullptr) {
             fprintf(stderr, "  Q6_K ntile4 stream scratch alloc failed\n");
             fails++;
@@ -270,8 +270,8 @@ static int verify_q6k_prefill(const struct gguf_tensor_t* t, size_t m) {
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(model_path, &err);
+    const char      *err = nullptr;
+    struct gguf_ctx *ctx = gguf_open(model_path, &err);
     if (ctx == nullptr) {
         printf("SKIP: gguf_open(%s): %s\n", model_path, err ? err : "(no detail)");
         return GEIST_TEST_SKIP;
@@ -280,11 +280,11 @@ int main(void) {
     /* Pick the FIRST Q6_K tensor with at least 1 super-block per row.
      * lm_head is large (262144 rows on Gemma 4) — restrict to smaller
      * tensors to keep the test fast; fall back to anything Q6_K. */
-    const struct gguf_tensor_t* q6k_small = nullptr;
-    const struct gguf_tensor_t* q6k_any = nullptr;
-    const size_t nt = gguf_tensor_count(ctx);
+    const struct gguf_tensor_t *q6k_small = nullptr;
+    const struct gguf_tensor_t *q6k_any   = nullptr;
+    const size_t                nt        = gguf_tensor_count(ctx);
     for (size_t i = 0; i < nt; i++) {
-        const struct gguf_tensor_t* t = gguf_tensor_at(ctx, i);
+        const struct gguf_tensor_t *t = gguf_tensor_at(ctx, i);
         if (t == nullptr || t->dtype != GGUF_TYPE_Q6_K || t->n_dims != 2)
             continue;
         if (t->dims[0] % Q6_K_BLOCK_ELEMS != 0)
@@ -295,7 +295,7 @@ int main(void) {
             q6k_small = t;
         }
     }
-    const struct gguf_tensor_t* t = q6k_small ? q6k_small : q6k_any;
+    const struct gguf_tensor_t *t = q6k_small ? q6k_small : q6k_any;
     if (t == nullptr) {
         printf("SKIP: no 2-D Q6_K tensor in %s\n", model_path);
         gguf_close(ctx);
@@ -303,7 +303,7 @@ int main(void) {
     }
 
     srand(42);
-    int fails = 0;
+    int          fails      = 0;
     const size_t m_values[] = {2, 4, 8};
     for (size_t k = 0; k < sizeof m_values / sizeof m_values[0]; k++) {
         fails += verify_q6k_prefill(t, m_values[k]);

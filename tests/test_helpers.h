@@ -29,7 +29,7 @@
  * build failure. These wrappers also make a broken fixture fail loudly (abort)
  * instead of feeding garbage downstream. static inline -> no unused-function
  * warning in TUs that don't use them. */
-static inline size_t xfread(void* p, size_t sz, size_t n, FILE* f) {
+static inline size_t xfread(void *p, size_t sz, size_t n, FILE *f) {
     size_t got = fread(p, sz, n, f);
     if (got != n) {
         fprintf(stderr, "xfread: short read (%zu of %zu items)\n", got, n);
@@ -37,7 +37,7 @@ static inline size_t xfread(void* p, size_t sz, size_t n, FILE* f) {
     }
     return got;
 }
-static inline size_t xfwrite(const void* p, size_t sz, size_t n, FILE* f) {
+static inline size_t xfwrite(const void *p, size_t sz, size_t n, FILE *f) {
     size_t put = fwrite(p, sz, n, f);
     if (put != n) {
         fprintf(stderr, "xfwrite: short write (%zu of %zu items)\n", put, n);
@@ -87,23 +87,23 @@ static inline size_t xfwrite(const void* p, size_t sz, size_t n, FILE* f) {
  *   4. ../../gemma-4-E2B-it/gemma-4-e2b-it-q3_k_m.gguf
  *
  * Caller does NOT free the returned pointer (it is either env or static). */
-static inline const char* geist_test_find_gguf(void) {
-    const char* env = getenv("GEIST_GGUF_PATH");
+static inline const char *geist_test_find_gguf(void) {
+    const char *env = getenv("GEIST_GGUF_PATH");
     if (env && env[0]) {
-        FILE* f = fopen(env, "rb");
+        FILE *f = fopen(env, "rb");
         if (f) {
             fclose(f);
             return env;
         }
     }
-    static const char* candidates[] = {
+    static const char *candidates[] = {
             "./gemma-4-e2b-it-q3_k_m.gguf",
             "../models/gemma-4-e2b-it-q3_k_m.gguf",
             "../../gemma-4-E2B-it/gemma-4-e2b-it-q3_k_m.gguf",
             nullptr,
     };
     for (size_t i = 0; candidates[i] != nullptr; i++) {
-        FILE* f = fopen(candidates[i], "rb");
+        FILE *f = fopen(candidates[i], "rb");
         if (f) {
             fclose(f);
             return candidates[i];
@@ -115,7 +115,7 @@ static inline const char* geist_test_find_gguf(void) {
 /* clang-tidy: bugprone-macro-parentheses doesn't understand that `varname` here is a
  * declaration identifier — wrapping it in parens would yield invalid C. Suppress. */
 #define GEIST_REQUIRE_GGUF(varname) /* NOLINT(bugprone-macro-parentheses) */ \
-    const char* varname = geist_test_find_gguf();                            \
+    const char *varname = geist_test_find_gguf();                            \
     GEIST_SKIP_IF((varname) == nullptr,                                      \
                   "GGUF model not found. Set GEIST_GGUF_PATH or place model in ./, ../models/")
 
@@ -134,7 +134,7 @@ static inline bool geist_fp32_close(float a, float b, float rtol, float atol) {
 /* Vector-equivalent: returns the index of the first element that fails
  * the closeness test, or -1 if all elements pass. */
 static inline ptrdiff_t
-geist_fp32_close_array(const float* a, const float* b, size_t n, float rtol, float atol) {
+geist_fp32_close_array(const float *a, const float *b, size_t n, float rtol, float atol) {
     for (size_t i = 0; i < n; i++) {
         if (!geist_fp32_close(a[i], b[i], rtol, atol)) {
             return (ptrdiff_t) i;

@@ -29,10 +29,10 @@ extern const struct geist_backend_descriptor geist_backend_cpu_scalar;
 
 const struct geist_backend_descriptor *const geist_backend_registry[] = {
 #if defined(GEIST_BACKEND_CPU_NEON) && GEIST_BACKEND_CPU_NEON
-    &geist_backend_cpu_neon,
+        &geist_backend_cpu_neon,
 #endif
 #if defined(GEIST_BACKEND_CPU_SCALAR) && GEIST_BACKEND_CPU_SCALAR
-    &geist_backend_cpu_scalar,
+        &geist_backend_cpu_scalar,
 #endif
-    nullptr,
+        nullptr,
 };

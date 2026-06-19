@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int check(bool cond, const char* what) {
+static int check(bool cond, const char *what) {
     if (!cond) {
         fprintf(stderr, "FAIL: %s\n", what);
         return 1;
@@ -25,25 +25,25 @@ static int check(bool cond, const char* what) {
 }
 
 /* Build a 1-row F32 DENSE tensor backed by an existing buffer. */
-static struct geist_tensor make_tensor_1d(struct geist_buffer* buf, size_t n) {
+static struct geist_tensor make_tensor_1d(struct geist_buffer *buf, size_t n) {
     return (struct geist_tensor) {
             .buffer = buf,
             .offset = 0,
-            .dtype = GEIST_DTYPE_F32,
+            .dtype  = GEIST_DTYPE_F32,
             .layout = GEIST_LAYOUT_DENSE,
-            .ndim = 1,
-            .shape = {(int64_t) n},
+            .ndim   = 1,
+            .shape  = {(int64_t) n},
             .stride = {1},
     };
 }
 
 /* Cross-reference a single op across the two backends. */
-static int compare_op_outputs(const char* op_name,
-                              const float* out_a,
-                              const float* out_b,
-                              size_t n,
-                              float rtol,
-                              float atol) {
+static int compare_op_outputs(const char  *op_name,
+                              const float *out_a,
+                              const float *out_b,
+                              size_t       n,
+                              float        rtol,
+                              float        atol) {
     ptrdiff_t bad = geist_fp32_close_array(out_a, out_b, n, rtol, atol);
     if (bad >= 0) {
         fprintf(stderr,
@@ -60,8 +60,8 @@ static int compare_op_outputs(const char* op_name,
 /* Helper: build a backend, run an op of choice, get scalar host buffer back.
  * Returns 0 on success, -1 on error. */
 static int
-run_add(const char* backend_name, const float* a_in, const float* b_in, size_t n, float* out_host) {
-    struct geist_backend* be = nullptr;
+run_add(const char *backend_name, const float *a_in, const float *b_in, size_t n, float *out_host) {
+    struct geist_backend *be = nullptr;
     if (geist_backend_create(backend_name, nullptr, nullptr, &be) != GEIST_OK) {
         return -1;
     }
@@ -72,17 +72,17 @@ run_add(const char* backend_name, const float* a_in, const float* b_in, size_t n
             be, n * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &bb);
     (void) be->desc->vtbl->buffer_create(
             be, n * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &by);
-    (void) be->desc->vtbl->buffer_upload(ba, n * sizeof(float), (const uint8_t*) a_in);
-    (void) be->desc->vtbl->buffer_upload(bb, n * sizeof(float), (const uint8_t*) b_in);
+    (void) be->desc->vtbl->buffer_upload(ba, n * sizeof(float), (const uint8_t *) a_in);
+    (void) be->desc->vtbl->buffer_upload(bb, n * sizeof(float), (const uint8_t *) b_in);
     struct geist_tensor a = make_tensor_1d(ba, n);
     struct geist_tensor b = make_tensor_1d(bb, n);
     struct geist_tensor y = make_tensor_1d(by, n);
-    enum geist_status s = be->desc->vtbl->add(be, &a, &b, &y);
+    enum geist_status   s = be->desc->vtbl->add(be, &a, &b, &y);
     if (s != GEIST_OK) {
         geist_backend_destroy(be);
         return -1;
     }
-    (void) be->desc->vtbl->buffer_download(n * sizeof(float), (uint8_t*) out_host, by);
+    (void) be->desc->vtbl->buffer_download(n * sizeof(float), (uint8_t *) out_host, by);
     (void) be->desc->vtbl->buffer_destroy(be, ba);
     (void) be->desc->vtbl->buffer_destroy(be, bb);
     (void) be->desc->vtbl->buffer_destroy(be, by);
@@ -90,8 +90,8 @@ run_add(const char* backend_name, const float* a_in, const float* b_in, size_t n
     return 0;
 }
 
-static int run_gelu(const char* backend_name, const float* x_in, size_t n, float* out_host) {
-    struct geist_backend* be = nullptr;
+static int run_gelu(const char *backend_name, const float *x_in, size_t n, float *out_host) {
+    struct geist_backend *be = nullptr;
     if (geist_backend_create(backend_name, nullptr, nullptr, &be) != GEIST_OK) {
         return -1;
     }
@@ -100,29 +100,29 @@ static int run_gelu(const char* backend_name, const float* x_in, size_t n, float
             be, n * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &bx);
     (void) be->desc->vtbl->buffer_create(
             be, n * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &by);
-    (void) be->desc->vtbl->buffer_upload(bx, n * sizeof(float), (const uint8_t*) x_in);
+    (void) be->desc->vtbl->buffer_upload(bx, n * sizeof(float), (const uint8_t *) x_in);
     struct geist_tensor x = make_tensor_1d(bx, n);
     struct geist_tensor y = make_tensor_1d(by, n);
-    enum geist_status s = be->desc->vtbl->gelu_tanh(be, &x, &y);
+    enum geist_status   s = be->desc->vtbl->gelu_tanh(be, &x, &y);
     if (s != GEIST_OK) {
         geist_backend_destroy(be);
         return -1;
     }
-    (void) be->desc->vtbl->buffer_download(n * sizeof(float), (uint8_t*) out_host, by);
+    (void) be->desc->vtbl->buffer_download(n * sizeof(float), (uint8_t *) out_host, by);
     (void) be->desc->vtbl->buffer_destroy(be, bx);
     (void) be->desc->vtbl->buffer_destroy(be, by);
     geist_backend_destroy(be);
     return 0;
 }
 
-static int run_rmsnorm(const char* backend_name,
-                       const float* x_in,
-                       const float* w_in,
-                       size_t n_rows,
-                       size_t feat,
-                       float eps,
-                       float* out_host) {
-    struct geist_backend* be = nullptr;
+static int run_rmsnorm(const char  *backend_name,
+                       const float *x_in,
+                       const float *w_in,
+                       size_t       n_rows,
+                       size_t       feat,
+                       float        eps,
+                       float       *out_host) {
+    struct geist_backend *be = nullptr;
     if (geist_backend_create(backend_name, nullptr, nullptr, &be) != GEIST_OK) {
         return -1;
     }
@@ -133,26 +133,26 @@ static int run_rmsnorm(const char* backend_name,
             be, feat * sizeof(float), GEIST_BUFFER_WEIGHT, GEIST_MEMORY_AUTO, &bw);
     (void) be->desc->vtbl->buffer_create(
             be, n_rows * feat * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &by);
-    (void) be->desc->vtbl->buffer_upload(bx, n_rows * feat * sizeof(float), (const uint8_t*) x_in);
-    (void) be->desc->vtbl->buffer_upload(bw, feat * sizeof(float), (const uint8_t*) w_in);
+    (void) be->desc->vtbl->buffer_upload(bx, n_rows * feat * sizeof(float), (const uint8_t *) x_in);
+    (void) be->desc->vtbl->buffer_upload(bw, feat * sizeof(float), (const uint8_t *) w_in);
     struct geist_tensor x = {
             .buffer = bx,
             .offset = 0,
-            .dtype = GEIST_DTYPE_F32,
+            .dtype  = GEIST_DTYPE_F32,
             .layout = GEIST_LAYOUT_DENSE,
-            .ndim = 2,
-            .shape = {(int64_t) n_rows, (int64_t) feat},
+            .ndim   = 2,
+            .shape  = {(int64_t) n_rows, (int64_t) feat},
             .stride = {(int64_t) feat, 1},
     };
     struct geist_tensor w = make_tensor_1d(bw, feat);
     struct geist_tensor y = x;
-    y.buffer = by;
-    enum geist_status s = be->desc->vtbl->rmsnorm(be, &x, &w, eps, &y);
+    y.buffer              = by;
+    enum geist_status s   = be->desc->vtbl->rmsnorm(be, &x, &w, eps, &y);
     if (s != GEIST_OK) {
         geist_backend_destroy(be);
         return -1;
     }
-    (void) be->desc->vtbl->buffer_download(n_rows * feat * sizeof(float), (uint8_t*) out_host, by);
+    (void) be->desc->vtbl->buffer_download(n_rows * feat * sizeof(float), (uint8_t *) out_host, by);
     (void) be->desc->vtbl->buffer_destroy(be, bx);
     (void) be->desc->vtbl->buffer_destroy(be, bw);
     (void) be->desc->vtbl->buffer_destroy(be, by);
@@ -161,8 +161,8 @@ static int run_rmsnorm(const char* backend_name,
 }
 
 int main(void) {
-    int fails = 0;
-    const size_t N = 256;
+    int          fails = 0;
+    const size_t N     = 256;
 
     /* Deterministic input. */
     float a[N], b[N], x[N], w[N];

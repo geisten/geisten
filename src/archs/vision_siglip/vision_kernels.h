@@ -26,8 +26,7 @@
  *     pool_h = grid_h / 3, pool_w = grid_w / 3
  *     grid_h / grid_w are guaranteed multiples of 3 (HF planner rounds to
  *     side_mult = pool_kernel * patch_size = 48 px = 3 patches). */
-void avgpool2d_k3_fp32(const float *in, float *out,
-                        size_t grid_h, size_t grid_w, size_t hidden);
+void avgpool2d_k3_fp32(const float *in, float *out, size_t grid_h, size_t grid_w, size_t hidden);
 
 /* 2D split-axis rotary position embedding, applied in-place.
  *
@@ -46,10 +45,12 @@ void avgpool2d_k3_fp32(const float *in, float *out,
  *   theta     rope base (100 for Gemma 4 vision)
  *
  * head_dim must be a multiple of 4 (each half is a multiple of 2). */
-void rope_2d_split_fp32(float *x,
-                         const int32_t *positions,
-                         size_t n_tokens, size_t n_heads, size_t head_dim,
-                         float theta);
+void rope_2d_split_fp32(float         *x,
+                        const int32_t *positions,
+                        size_t         n_tokens,
+                        size_t         n_heads,
+                        size_t         head_dim,
+                        float          theta);
 
 /* Bidirectional (non-causal) multi-head attention.
  *
@@ -63,8 +64,12 @@ void rope_2d_split_fp32(float *x,
  *
  * Implementation runs per-head GEMMs via cblas to amortize the n²
  * score-matrix workload. */
-void vision_attention_bidir_fp32(const float *q, const float *k, const float *v,
-                                  size_t n_tokens, size_t n_heads, size_t head_dim,
-                                  float *out);
+void vision_attention_bidir_fp32(const float *q,
+                                 const float *k,
+                                 const float *v,
+                                 size_t       n_tokens,
+                                 size_t       n_heads,
+                                 size_t       head_dim,
+                                 float       *out);
 
 #endif

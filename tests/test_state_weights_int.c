@@ -40,18 +40,18 @@ struct check_stats {
 
 /* Compare a backend buffer's contents against the named GGUF tensor's mmap'd
  * bytes. Logs failure detail to stderr but does not exit — caller aggregates. */
-static void check_buf_eq_gguf(struct geist_backend* be,
-                              struct gguf_ctx* ctx,
-                              struct geist_buffer* buf,
-                              const char* tensor_name,
-                              struct check_stats* stats) {
-    const struct gguf_tensor_t* t = gguf_get_tensor(ctx, tensor_name);
+static void check_buf_eq_gguf(struct geist_backend *be,
+                              struct gguf_ctx      *ctx,
+                              struct geist_buffer  *buf,
+                              const char           *tensor_name,
+                              struct check_stats   *stats) {
+    const struct gguf_tensor_t *t = gguf_get_tensor(ctx, tensor_name);
     if (t == nullptr) {
         fprintf(stderr, "  MISS in GGUF: '%s'\n", tensor_name);
         stats->n_failed++;
         return;
     }
-    uint8_t* readback = malloc(t->nbytes);
+    uint8_t *readback = malloc(t->nbytes);
     if (readback == nullptr) {
         fprintf(stderr, "  alloc fail for '%s'\n", tensor_name);
         stats->n_failed++;
@@ -78,8 +78,8 @@ static void check_buf_eq_gguf(struct geist_backend* be,
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -88,8 +88,8 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct transformer_arch_state* st = nullptr;
-    s = transformer_state_create(be, model_path, nullptr, &st);
+    struct transformer_arch_state *st = nullptr;
+    s                                 = transformer_state_create(be, model_path, nullptr, &st);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "transformer_state_create failed: %s — %s\n",
@@ -101,8 +101,8 @@ int main(void) {
     printf("v2 state created on %s backend\n", geist_backend_name(be));
 
     /* Independent GGUF handle for the comparison (the state owns its own). */
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(model_path, &err);
+    const char      *err = nullptr;
+    struct gguf_ctx *ctx = gguf_open(model_path, &err);
     if (ctx == nullptr) {
         fprintf(stderr, "gguf_open(ref): %s\n", err != nullptr ? err : "(no detail)");
         transformer_state_destroy(st);
@@ -118,7 +118,7 @@ int main(void) {
      * the backends' linear() doesn't accept F16 weights. So the buffer
      * holds FP32 bytes that won't memcmp against the GGUF F16 source —
      * we skip the byte check there and verify size only. */
-    static const char* const GLOBAL_NAMES[] = {
+    static const char *const GLOBAL_NAMES[] = {
             "token_embd.weight",
             "per_layer_token_embd.weight",
             "per_layer_model_proj.weight", /* see special case below */
@@ -139,7 +139,7 @@ int main(void) {
              * expected element count. */
             const size_t expect_bytes =
                     (size_t) GEIST_GEMMA4_PLE_OUT * GEIST_GEMMA4_HIDDEN * sizeof(float);
-            uint8_t* probe = malloc(expect_bytes);
+            uint8_t *probe = malloc(expect_bytes);
             if (probe == nullptr) {
                 stats.n_failed++;
                 continue;
@@ -175,9 +175,9 @@ int main(void) {
      *    layer_output_scale is loaded as a scalar (no buffer).
      */
     for (int li = 0; li < GEIST_GEMMA4_NUM_LAYERS; li++) {
-        const struct transformer_layer_weights* L = &st->layers[li];
-        char nb[64];
-        size_t i = 0;
+        const struct transformer_layer_weights *L = &st->layers[li];
+        char                                    nb[64];
+        size_t                                  i = 0;
 
         snprintf(nb, sizeof nb, "blk.%d.attn_norm.weight", li);
         check_buf_eq_gguf(be, ctx, L->bufs[i++], nb, &stats);
@@ -224,12 +224,12 @@ int main(void) {
         /* Also sanity-check the per-layer scalar: gguf has a 1-element F32
          * tensor whose value must equal L->layer_scalar. */
         snprintf(nb, sizeof nb, "blk.%d.layer_output_scale.weight", li);
-        const struct gguf_tensor_t* t = gguf_get_tensor(ctx, nb);
+        const struct gguf_tensor_t *t = gguf_get_tensor(ctx, nb);
         if (t == nullptr || t->dtype != GGUF_TYPE_F32 || gguf_tensor_elem_count(t) != 1) {
             fprintf(stderr, "layer %d: layer_output_scale missing/malformed\n", li);
             stats.n_failed++;
         } else {
-            float expected = *(const float*) t->data;
+            float expected = *(const float *) t->data;
             if (expected != L->layer_scalar) {
                 fprintf(stderr,
                         "layer %d: scalar mismatch %g vs %g\n",

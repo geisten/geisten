@@ -26,15 +26,17 @@
  */
 #define ACT_SPARSITY_MAX_LAYERS 64
 
-static pthread_once_t  g_act_sparsity_once     = PTHREAD_ONCE_INIT;
-static pthread_mutex_t g_act_sparsity_mutex    = PTHREAD_MUTEX_INITIALIZER;
+static pthread_once_t  g_act_sparsity_once            = PTHREAD_ONCE_INIT;
+static pthread_mutex_t g_act_sparsity_mutex           = PTHREAD_MUTEX_INITIALIZER;
 static bool            g_act_sparsity_overflow_warned = false;
 static uint64_t        g_act_sparsity_zeros[ACT_SPARSITY_MAX_LAYERS];
 static uint64_t        g_act_sparsity_total[ACT_SPARSITY_MAX_LAYERS];
 static size_t          g_act_sparsity_n_layers;
 
 static void act_sparsity_flush(void) {
-    if (g_act_sparsity_n_layers == 0) { return; }
+    if (g_act_sparsity_n_layers == 0) {
+        return;
+    }
     uint64_t z_sum = 0;
     uint64_t t_sum = 0;
     fprintf(stderr, "\n=== FFN down_proj input sparsity (GEIST_DUMP_ACT_SPARSITY) ===\n");
@@ -42,17 +44,24 @@ static void act_sparsity_flush(void) {
     for (size_t i = 0; i < g_act_sparsity_n_layers; i++) {
         uint64_t z = g_act_sparsity_zeros[i];
         uint64_t t = g_act_sparsity_total[i];
-        if (t == 0) { continue; }
+        if (t == 0) {
+            continue;
+        }
         z_sum += z;
         t_sum += t;
-        fprintf(stderr, "  %5zu  %15llu  %15llu  %7.2f%%\n",
-                i, (unsigned long long) z, (unsigned long long) t,
+        fprintf(stderr,
+                "  %5zu  %15llu  %15llu  %7.2f%%\n",
+                i,
+                (unsigned long long) z,
+                (unsigned long long) t,
                 100.0 * (double) z / (double) t);
     }
     if (t_sum > 0) {
         fprintf(stderr, "  -----  ---------------  ---------------  -------\n");
-        fprintf(stderr, "  TOTAL  %15llu  %15llu  %7.2f%%\n",
-                (unsigned long long) z_sum, (unsigned long long) t_sum,
+        fprintf(stderr,
+                "  TOTAL  %15llu  %15llu  %7.2f%%\n",
+                (unsigned long long) z_sum,
+                (unsigned long long) t_sum,
                 100.0 * (double) z_sum / (double) t_sum);
     }
 }
@@ -61,16 +70,19 @@ static void act_sparsity_register_once(void) {
     atexit(act_sparsity_flush);
 }
 
-void transformer_probe_ffn_sparsity(
-    const struct geist_backend_vtbl *v,
-    bool enabled,
-    int layer_idx,
-    struct geist_buffer *buf,
-    size_t n_elems) {
+void transformer_probe_ffn_sparsity(const struct geist_backend_vtbl *v,
+                                    bool                             enabled,
+                                    int                              layer_idx,
+                                    struct geist_buffer             *buf,
+                                    size_t                           n_elems) {
 
-    if (!enabled || v == nullptr || buf == nullptr) { return; }
+    if (!enabled || v == nullptr || buf == nullptr) {
+        return;
+    }
     pthread_once(&g_act_sparsity_once, act_sparsity_register_once);
-    if (layer_idx < 0) { return; }
+    if (layer_idx < 0) {
+        return;
+    }
     if (layer_idx >= ACT_SPARSITY_MAX_LAYERS) {
         /* Warn once if a model exceeds the static cap so users do not
          * mistake silent truncation for genuine late-layer sparsity. */
@@ -80,21 +92,26 @@ void transformer_probe_ffn_sparsity(
                     "geist: GEIST_DUMP_ACT_SPARSITY: layer %d >= "
                     "ACT_SPARSITY_MAX_LAYERS (%d); higher layers will "
                     "be dropped from the report.\n",
-                    layer_idx, ACT_SPARSITY_MAX_LAYERS);
+                    layer_idx,
+                    ACT_SPARSITY_MAX_LAYERS);
             g_act_sparsity_overflow_warned = true;
         }
         pthread_mutex_unlock(&g_act_sparsity_mutex);
         return;
     }
     const float *data = (const float *) v->buffer_map(buf);
-    if (data == nullptr) { return; }
+    if (data == nullptr) {
+        return;
+    }
 
     /* Count outside the mutex so the per-token cost is just the (cheap)
      * tight loop. The mutex only serializes the global accumulator
      * update. */
     uint64_t z = 0;
     for (size_t i = 0; i < n_elems; i++) {
-        if (data[i] == 0.0f) { z++; }
+        if (data[i] == 0.0f) {
+            z++;
+        }
     }
     v->buffer_unmap(buf);
 

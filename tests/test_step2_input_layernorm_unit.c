@@ -21,8 +21,8 @@
 #define HIDDEN 1536
 #define RMS_EPS 1e-6f
 
-static int32_t* read_input_ids(const char* path, size_t* n_out) {
-    FILE* f = fopen(path, "rb");
+static int32_t *read_input_ids(const char *path, size_t *n_out) {
+    FILE *f = fopen(path, "rb");
     if (!f)
         return nullptr;
     fseek(f, 0, SEEK_END);
@@ -32,7 +32,7 @@ static int32_t* read_input_ids(const char* path, size_t* n_out) {
         fclose(f);
         return nullptr;
     }
-    int32_t* ids = (int32_t*) malloc((size_t) sz);
+    int32_t *ids = (int32_t *) malloc((size_t) sz);
     if (fread(ids, 1, (size_t) sz, f) != (size_t) sz) {
         free(ids);
         fclose(f);
@@ -43,22 +43,22 @@ static int32_t* read_input_ids(const char* path, size_t* n_out) {
     return ids;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 4, "<model.safetensors> <input_ids.bin> <out.bin>");
 
-    const char* err = nullptr;
-    struct st_ctx* ctx = st_open(argv[1], &err);
+    const char    *err = nullptr;
+    struct st_ctx *ctx = st_open(argv[1], &err);
     if (!ctx) {
         fprintf(stderr, "st_open: %s\n", err);
         return 1;
     }
 
     /* Resolve weights */
-    const struct st_tensor_t* embed = st_get(ctx, "model.language_model.embed_tokens.weight");
-    const struct st_tensor_t* norm =
+    const struct st_tensor_t *embed = st_get(ctx, "model.language_model.embed_tokens.weight");
+    const struct st_tensor_t *norm =
             st_get(ctx, "model.language_model.layers.0.input_layernorm.weight");
     if (!embed || !norm) {
-        fprintf(stderr, "missing weight: embed=%p norm=%p\n", (void*) embed, (void*) norm);
+        fprintf(stderr, "missing weight: embed=%p norm=%p\n", (void *) embed, (void *) norm);
         st_close(ctx);
         return 1;
     }
@@ -69,14 +69,14 @@ int main(int argc, char** argv) {
     }
 
     /* Convert norm weight BF16 -> FP32 once */
-    float* norm_w = bf16_alloc_fp32((const uint16_t*) norm->data, HIDDEN);
+    float *norm_w = bf16_alloc_fp32((const uint16_t *) norm->data, HIDDEN);
     if (!norm_w) {
         st_close(ctx);
         return 1;
     }
 
-    size_t n_ids = 0;
-    int32_t* ids = read_input_ids(argv[2], &n_ids);
+    size_t   n_ids = 0;
+    int32_t *ids   = read_input_ids(argv[2], &n_ids);
     if (!ids) {
         free(norm_w);
         st_close(ctx);
@@ -85,8 +85,8 @@ int main(int argc, char** argv) {
     fprintf(stderr, "n_ids=%zu\n", n_ids);
 
     /* Compute embedding (Step 1, in-place into hidden_states) */
-    const float embed_scale = sqrtf((float) HIDDEN);
-    float* hidden_states = (float*) malloc(n_ids * HIDDEN * sizeof(float));
+    const float embed_scale   = sqrtf((float) HIDDEN);
+    float      *hidden_states = (float *) malloc(n_ids * HIDDEN * sizeof(float));
     if (!hidden_states) {
         free(norm_w);
         free(ids);
@@ -94,16 +94,16 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const uint16_t* table = (const uint16_t*) embed->data;
+    const uint16_t *table = (const uint16_t *) embed->data;
     for (size_t t = 0; t < n_ids; t++) {
-        const uint16_t* row = table + (size_t) ids[t] * HIDDEN;
-        float* dst = hidden_states + t * HIDDEN;
+        const uint16_t *row = table + (size_t) ids[t] * HIDDEN;
+        float          *dst = hidden_states + t * HIDDEN;
         for (size_t i = 0; i < HIDDEN; i++)
             dst[i] = bf16_to_fp32(row[i]) * embed_scale;
     }
 
     /* Apply input_layernorm in-place */
-    float* out = (float*) malloc(n_ids * HIDDEN * sizeof(float));
+    float *out = (float *) malloc(n_ids * HIDDEN * sizeof(float));
     if (!out) {
         free(hidden_states);
         free(norm_w);
@@ -114,7 +114,7 @@ int main(int argc, char** argv) {
     rmsnorm_fp32(hidden_states, norm_w, n_ids, HIDDEN, RMS_EPS, out);
 
     /* Write output */
-    FILE* fo = fopen(argv[3], "wb");
+    FILE *fo = fopen(argv[3], "wb");
     if (!fo) {
         perror("fopen out");
         return 1;

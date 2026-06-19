@@ -28,62 +28,56 @@ extern "C" {
 #endif
 
 /* Compile-time invariants checked once for all kernels. */
-static_assert(sizeof(float) == 4,    "PTQTP assumes IEEE-754 binary32");
+static_assert(sizeof(float) == 4, "PTQTP assumes IEEE-754 binary32");
 static_assert(sizeof(uint16_t) == 2, "PTQTP assumes 16-bit fp16 storage");
 
 /* 2-plane GEMV with FP32-precomputed alpha (loader-side conversion).
  * Use this when the loader has already promoted alpha to fp32 (one-time
  * cost at startup; hot path avoids the conversion). */
-void ptqtp_gemv_2plane_fp32alpha(
-    size_t n_in,
-    size_t n_out,
-    size_t group_size,
-    const int8_t* x_q8,            /* [n_in]; pre-quantized symmetric int8 */
-    float scale_x,                  /* x quant scale; output multiplied by it */
-    const uint8_t* trits,           /* [n_out * n_in / 2]; joint nibble */
-    const float* alpha_fp32,        /* [n_out * n_groups * 2] */
-    float* y                        /* [n_out]; output, overwritten */
+void ptqtp_gemv_2plane_fp32alpha(size_t        n_in,
+                                 size_t        n_out,
+                                 size_t        group_size,
+                                 const int8_t *x_q8,    /* [n_in]; pre-quantized symmetric int8 */
+                                 float         scale_x, /* x quant scale; output multiplied by it */
+                                 const uint8_t *trits,  /* [n_out * n_in / 2]; joint nibble */
+                                 const float   *alpha_fp32, /* [n_out * n_groups * 2] */
+                                 float         *y           /* [n_out]; output, overwritten */
 );
 
 /* 2-plane GEMV with FP16 alpha (NEON vcvt_f32_f16 inline). Slightly less
  * bandwidth on the alpha side; identical math. */
-void ptqtp_gemv_2plane_fp16alpha(
-    size_t n_in,
-    size_t n_out,
-    size_t group_size,
-    const int8_t* x_q8,
-    float scale_x,
-    const uint8_t* trits,
-    const uint16_t* alpha_fp16,     /* [n_out * n_groups * 2] */
-    float* y
-);
+void ptqtp_gemv_2plane_fp16alpha(size_t          n_in,
+                                 size_t          n_out,
+                                 size_t          group_size,
+                                 const int8_t   *x_q8,
+                                 float           scale_x,
+                                 const uint8_t  *trits,
+                                 const uint16_t *alpha_fp16, /* [n_out * n_groups * 2] */
+                                 float          *y);
 
 /* 2-plane batched GEMM. M tokens × n_in input → M × n_out output. Each
  * weight row is read once and accumulated over all M tokens. */
-void ptqtp_gemm_2plane_fp32alpha(
-    size_t M,
-    size_t n_in,
-    size_t n_out,
-    size_t group_size,
-    const int8_t* x_q8,             /* [M * n_in] row-major */
-    const float* scale_x,           /* [M] */
-    const uint8_t* trits,
-    const float* alpha_fp32,
-    float* y                        /* [M * n_out] row-major */
+void ptqtp_gemm_2plane_fp32alpha(size_t         M,
+                                 size_t         n_in,
+                                 size_t         n_out,
+                                 size_t         group_size,
+                                 const int8_t  *x_q8,    /* [M * n_in] row-major */
+                                 const float   *scale_x, /* [M] */
+                                 const uint8_t *trits,
+                                 const float   *alpha_fp32,
+                                 float         *y /* [M * n_out] row-major */
 );
 
 /* 3-plane GEMV with FP32-precomputed alpha. Trits are 1 byte per weight,
  * idx ∈ [0, 27). Decoder uses 3× vqtbl2q (32-entry LUT) per chunk. */
-void ptqtp_gemv_3plane_fp32alpha(
-    size_t n_in,
-    size_t n_out,
-    size_t group_size,
-    const int8_t* x_q8,
-    float scale_x,
-    const uint8_t* trits,           /* [n_out * n_in] */
-    const float* alpha_fp32,        /* [n_out * n_groups * 3] */
-    float* y
-);
+void ptqtp_gemv_3plane_fp32alpha(size_t         n_in,
+                                 size_t         n_out,
+                                 size_t         group_size,
+                                 const int8_t  *x_q8,
+                                 float          scale_x,
+                                 const uint8_t *trits,      /* [n_out * n_in] */
+                                 const float   *alpha_fp32, /* [n_out * n_groups * 3] */
+                                 float         *y);
 
 /* 3-plane PACKED-5-bit GEMV. Same 3-plane semantics as above, but trits
  * stored at 5 bpw (vs 8 bpw): per row, low nibbles of every weight come
@@ -100,16 +94,14 @@ void ptqtp_gemv_3plane_fp32alpha(
  * (uint8x8 per source byte). NEON path: ~16 ops/16 weights vs the
  * standard 3-plane kernel's ~8 ops/16 weights (~2× compute) with
  * 5/8 = 62.5% of the bandwidth. Wins when memory-bound. */
-void ptqtp_gemv_3plane_packed5_fp32alpha(
-    size_t n_in,
-    size_t n_out,
-    size_t group_size,
-    const int8_t* x_q8,
-    float scale_x,
-    const uint8_t* trits,           /* per row: n_in/2 + n_in/8 bytes */
-    const float* alpha_fp32,
-    float* y
-);
+void ptqtp_gemv_3plane_packed5_fp32alpha(size_t         n_in,
+                                         size_t         n_out,
+                                         size_t         group_size,
+                                         const int8_t  *x_q8,
+                                         float          scale_x,
+                                         const uint8_t *trits, /* per row: n_in/2 + n_in/8 bytes */
+                                         const float   *alpha_fp32,
+                                         float         *y);
 
 #ifdef __cplusplus
 }

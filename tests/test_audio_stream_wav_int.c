@@ -37,8 +37,8 @@
 #define MAX_SOFT 256
 #define PUSH_CHUNK_S 320 /* 20 ms @ 16 kHz - matches push-to-talk frontends */
 
-static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sample_rate_out) {
-    FILE* f = fopen(path, "rb");
+static int16_t *read_wav_pcm(const char *path, size_t *n_samples_out, int *sample_rate_out) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     unsigned char hdr[44];
@@ -57,8 +57,8 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
     fseek(f, 0, SEEK_END);
     long file_bytes = ftell(f);
     fseek(f, 44, SEEK_SET);
-    size_t n = (size_t) (file_bytes - 44) / 2;
-    int16_t* pcm = malloc(n * sizeof(int16_t));
+    size_t   n   = (size_t) (file_bytes - 44) / 2;
+    int16_t *pcm = malloc(n * sizeof(int16_t));
     if (pcm == nullptr) {
         fclose(f);
         return nullptr;
@@ -69,20 +69,20 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
         free(pcm);
         return nullptr;
     }
-    *n_samples_out = n;
+    *n_samples_out   = n;
     *sample_rate_out = (int) sr;
     return pcm;
 }
 
-static const char* find_audio_tower(void) {
-    static const char* cands[] = {
+static const char *find_audio_tower(void) {
+    static const char *cands[] = {
             "audio_bench/audio_tower.safetensors",
             "../audio_bench/audio_tower.safetensors",
             "../gemma-4-E2B-it/audio_tower.safetensors",
             nullptr,
     };
     for (size_t i = 0; cands[i] != nullptr; i++) {
-        FILE* f = fopen(cands[i], "rb");
+        FILE *f = fopen(cands[i], "rb");
         if (f != nullptr) {
             fclose(f);
             return cands[i];
@@ -91,16 +91,16 @@ static const char* find_audio_tower(void) {
     return nullptr;
 }
 
-int main(int argc, char** argv) {
-    const char* wav_path = argc > 1 ? argv[1] : "audio_test_data/en_long.wav";
-    const char* tower_path = find_audio_tower();
+int main(int argc, char **argv) {
+    const char *wav_path   = argc > 1 ? argv[1] : "audio_test_data/en_long.wav";
+    const char *tower_path = find_audio_tower();
     if (tower_path == nullptr) {
         GEIST_SKIP("audio_tower.safetensors not found in audio_bench/ or sibling dirs");
     }
 
-    size_t n_samples;
-    int sample_rate;
-    int16_t* pcm = read_wav_pcm(wav_path, &n_samples, &sample_rate);
+    size_t   n_samples;
+    int      sample_rate;
+    int16_t *pcm = read_wav_pcm(wav_path, &n_samples, &sample_rate);
     if (pcm == nullptr)
         GEIST_SKIP("could not read WAV (default audio_test_data/en_long.wav)");
     if (sample_rate != 16000) {
@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
     const double audio_s = (double) n_samples / 16000.0;
     printf("audio_stream_wav: %s (%.2f s, %zu samples)\n", wav_path, audio_s, n_samples);
 
-    struct AudioEncoder* enc = audio_encoder_create(tower_path);
+    struct AudioEncoder *enc = audio_encoder_create(tower_path);
     if (enc == nullptr) {
         free(pcm);
         GEIST_SKIP("audio_encoder_create failed (missing mel_constants.bin?)");
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
 
     /* Drain until segment_done — the Phase 2 worker emits tokens
      * incrementally, so we may need multiple pull calls. */
-    float* soft = calloc(MAX_SOFT * SOFT_DIM, sizeof(float));
+    float *soft = calloc(MAX_SOFT * SOFT_DIM, sizeof(float));
     if (soft == nullptr) {
         audio_encoder_destroy(enc);
         return GEIST_TEST_ERROR;
@@ -181,7 +181,7 @@ int main(int argc, char** argv) {
      *    the soft-token tensor. Healthy soft tokens are roughly
      *    standard-normal scale post-rmsnorm + linear projection, so
      *    we expect peak |values| in the 1-100 range. */
-    float vmin = soft[0], vmax = soft[0];
+    float  vmin = soft[0], vmax = soft[0];
     double vsum = 0.0, vsq = 0.0;
     for (size_t i = 0; i < n_soft * SOFT_DIM; i++) {
         const float v = soft[i];

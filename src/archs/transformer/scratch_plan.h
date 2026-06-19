@@ -24,8 +24,7 @@ struct transformer_scratch_plan {
     size_t pool_bytes;
 };
 
-void transformer_scratch_plan_build(
-    const struct transformer_arch_state *st,
-    struct transformer_scratch_plan *out);
+void transformer_scratch_plan_build(const struct transformer_arch_state *st,
+                                    struct transformer_scratch_plan     *out);
 
 #endif /* GEIST_INTERNAL_ARCH_TRANSFORMER_SCRATCH_PLAN_H */

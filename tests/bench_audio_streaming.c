@@ -35,8 +35,8 @@ static double now_ms(void) {
     return (double) ts.tv_sec * 1e3 + (double) ts.tv_nsec / 1e6;
 }
 
-static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sample_rate_out) {
-    FILE* f = fopen(path, "rb");
+static int16_t *read_wav_pcm(const char *path, size_t *n_samples_out, int *sample_rate_out) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     unsigned char hdr[44];
@@ -48,18 +48,18 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
         fclose(f);
         return nullptr;
     }
-    const int n_channels = hdr[22] | (hdr[23] << 8);
-    const int sample_rate = hdr[24] | (hdr[25] << 8) | (hdr[26] << 16) | (hdr[27] << 24);
+    const int n_channels      = hdr[22] | (hdr[23] << 8);
+    const int sample_rate     = hdr[24] | (hdr[25] << 8) | (hdr[26] << 16) | (hdr[27] << 24);
     const int bits_per_sample = hdr[34] | (hdr[35] << 8);
     if (n_channels != 1 || bits_per_sample != 16) {
         fclose(f);
         return nullptr;
     }
     fseek(f, 0, SEEK_END);
-    const long size = ftell(f);
+    const long   size      = ftell(f);
     const size_t n_samples = (size - 44) / 2;
     fseek(f, 44, SEEK_SET);
-    int16_t* pcm = malloc(n_samples * sizeof(int16_t));
+    int16_t *pcm = malloc(n_samples * sizeof(int16_t));
     if (pcm == nullptr) {
         fclose(f);
         return nullptr;
@@ -70,20 +70,20 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
         return nullptr;
     }
     fclose(f);
-    *n_samples_out = n_samples;
+    *n_samples_out   = n_samples;
     *sample_rate_out = sample_rate;
     return pcm;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     /* Default to a shipped test asset so `make bench-audio` works from a
      * clean checkout. Override with explicit args for custom benchmarks. */
-    const char* wav_path = argc > 1 ? argv[1] : "audio_test_data/de_hello.wav";
-    const char* audio_tower_path = argc > 2 ? argv[2] : "audio_bench/audio_tower.safetensors";
+    const char *wav_path         = argc > 1 ? argv[1] : "audio_test_data/de_hello.wav";
+    const char *audio_tower_path = argc > 2 ? argv[2] : "audio_bench/audio_tower.safetensors";
 
-    size_t n_samples;
-    int sample_rate;
-    int16_t* pcm = read_wav_pcm(wav_path, &n_samples, &sample_rate);
+    size_t   n_samples;
+    int      sample_rate;
+    int16_t *pcm = read_wav_pcm(wav_path, &n_samples, &sample_rate);
     if (pcm == nullptr || sample_rate != 16000) {
         fprintf(stderr, "wav read failed or sample rate != 16kHz\n");
         if (pcm)
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     const double audio_seconds = (double) n_samples / 16000.0;
     printf("loaded %zu PCM samples = %.2f s of audio\n", n_samples, audio_seconds);
 
-    struct AudioEncoder* enc = audio_encoder_create(audio_tower_path);
+    struct AudioEncoder *enc = audio_encoder_create(audio_tower_path);
     if (enc == nullptr) {
         free(pcm);
         return GEIST_TEST_FAIL;
@@ -109,11 +109,11 @@ int main(int argc, char** argv) {
         audio_encoder_push_pcm(enc, pcm + off, take);
 
         const double target_ms = t0_total + (double) (off + take) / 16.0;
-        const double now = now_ms();
+        const double now       = now_ms();
         const double remain_ms = target_ms - now;
         if (remain_ms > 0.0) {
             struct timespec ts = {
-                    .tv_sec = (time_t) (remain_ms / 1000.0),
+                    .tv_sec  = (time_t) (remain_ms / 1000.0),
                     .tv_nsec = (long) ((remain_ms - (long) (remain_ms / 1000.0) * 1000.0) * 1e6),
             };
             nanosleep(&ts, nullptr);
@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
     audio_encoder_end_input(enc);
     const double t0_residual = now_ms();
 
-    float* soft = malloc(256 * 1536 * sizeof(float));
+    float *soft = malloc(256 * 1536 * sizeof(float));
     /* Drain until segment_done — the Phase 2 worker emits tokens
      * incrementally and pull returns as soon as ANY are available. */
     size_t n_soft = 0;

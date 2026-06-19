@@ -33,14 +33,15 @@ constexpr size_t KIVI_K_GROUP_SIZE = 128;
 /* Quantize one V row (e.g. one head's worth of values for one token).
  * Writes n/4 bytes of packed 2-bit quants and one (scale, zero) pair.
  * n must be a multiple of 4. */
-void kivi_pack_v_row(size_t n, const float in[static n],
-                     uint8_t out_q[static n / 4],
-                     float *out_scale, float *out_zero);
+void kivi_pack_v_row(size_t      n,
+                     const float in[static n],
+                     uint8_t     out_q[static n / 4],
+                     float      *out_scale,
+                     float      *out_zero);
 
 /* Inverse of kivi_pack_v_row. */
-void kivi_unpack_v_row(size_t n, const uint8_t in_q[static n / 4],
-                       float scale, float zero,
-                       float out[static n]);
+void kivi_unpack_v_row(
+        size_t n, const uint8_t in_q[static n / 4], float scale, float zero, float out[static n]);
 
 /* Quantize one K group: g_tokens rows of n_channels floats each
  * (row-major [g_tokens, n_channels]). Per-channel min/range across the
@@ -48,17 +49,19 @@ void kivi_unpack_v_row(size_t n, const uint8_t in_q[static n / 4],
  * n_channels) values into (g_tokens * n_channels)/4 bytes. Both
  * g_tokens and n_channels must be multiples of 4 for clean packing
  * (Gemma 4 head_dim is 256 or 512, group size is 128 — both fit). */
-void kivi_pack_k_group(size_t g_tokens, size_t n_channels,
+void kivi_pack_k_group(size_t      g_tokens,
+                       size_t      n_channels,
                        const float in[static g_tokens * n_channels],
-                       uint8_t out_q[static (g_tokens * n_channels) / 4],
-                       float out_scales[static n_channels],
-                       float out_zeros[static n_channels]);
+                       uint8_t     out_q[static(g_tokens * n_channels) / 4],
+                       float       out_scales[static n_channels],
+                       float       out_zeros[static n_channels]);
 
 /* Inverse of kivi_pack_k_group. */
-void kivi_unpack_k_group(size_t g_tokens, size_t n_channels,
-                         const uint8_t in_q[static (g_tokens * n_channels) / 4],
-                         const float scales[static n_channels],
-                         const float zeros[static n_channels],
-                         float out[static g_tokens * n_channels]);
+void kivi_unpack_k_group(size_t        g_tokens,
+                         size_t        n_channels,
+                         const uint8_t in_q[static(g_tokens * n_channels) / 4],
+                         const float   scales[static n_channels],
+                         const float   zeros[static n_channels],
+                         float         out[static g_tokens * n_channels]);
 
 #endif /* GEIST_KIVI_H */

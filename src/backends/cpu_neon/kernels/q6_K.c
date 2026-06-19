@@ -27,11 +27,12 @@
 
 typedef void (*geist_pp_body_fn)(size_t i, void *ctx);
 extern void geist_pp_parallel_for(size_t n, geist_pp_body_fn body_fn, void *ctx)
-    __attribute__((weak));
+        __attribute__((weak));
 
 static int q6k_pp_enabled(void) {
     static int enabled = -1;
-    if (enabled >= 0) return enabled;
+    if (enabled >= 0)
+        return enabled;
     const char *e = getenv("GEIST_PP");
     if (e != NULL && e[0] != '\0') {
         enabled = (e[0] == '1') ? 1 : 0;
@@ -83,90 +84,80 @@ struct q8k_activation_block {
     int16_t bsums[16];
 };
 
-static constexpr uint32_t Q6K_PREDECODE_NTILE4_MAGIC = 0x344B3650u; /* "P6K4" */
-static constexpr uint32_t Q6K_PREDECODE_NTILE8_MAGIC = 0x384B3650u; /* "P6K8" */
+static constexpr uint32_t Q6K_PREDECODE_NTILE4_MAGIC        = 0x344B3650u; /* "P6K4" */
+static constexpr uint32_t Q6K_PREDECODE_NTILE8_MAGIC        = 0x384B3650u; /* "P6K8" */
 static constexpr uint32_t Q6K_PREDECODE_NTILE4_STREAM_MAGIC = 0x34533650u; /* "P6S4" */
-static constexpr uint32_t Q6K_X8_GEMV_MAGIC = 0x38583650u; /* "P6X8" */
+static constexpr uint32_t Q6K_X8_GEMV_MAGIC                 = 0x38583650u; /* "P6X8" */
 
-static_assert(sizeof(struct q6k_predecode_block) == 276,
-              "q6k_predecode_block layout changed");
-static_assert(sizeof(struct q6k_predecode_stream4) == 1280,
-              "q6k_predecode_stream4 layout changed");
-static_assert(sizeof(struct q6k_x8_block) == Q6_K_BLOCK_BYTES * 8,
-              "q6k_x8_block layout changed");
+static_assert(sizeof(struct q6k_predecode_block) == 276, "q6k_predecode_block layout changed");
+static_assert(sizeof(struct q6k_predecode_stream4) == 1280, "q6k_predecode_stream4 layout changed");
+static_assert(sizeof(struct q6k_x8_block) == Q6_K_BLOCK_BYTES * 8, "q6k_x8_block layout changed");
 
-static inline const struct q6k_predecode_block *
-q6k_predecode_ntile4_blocks(const void *packed) {
-    return (const struct q6k_predecode_block *)
-        ((const uint8_t *) packed + sizeof(struct q6k_predecode_header));
+static inline const struct q6k_predecode_block *q6k_predecode_ntile4_blocks(const void *packed) {
+    return (const struct q6k_predecode_block *) ((const uint8_t *) packed +
+                                                 sizeof(struct q6k_predecode_header));
 }
 
-static inline const struct q6k_predecode_block *
-q6k_predecode_ntile8_blocks(const void *packed) {
-    return (const struct q6k_predecode_block *)
-        ((const uint8_t *) packed + sizeof(struct q6k_predecode_header));
+static inline const struct q6k_predecode_block *q6k_predecode_ntile8_blocks(const void *packed) {
+    return (const struct q6k_predecode_block *) ((const uint8_t *) packed +
+                                                 sizeof(struct q6k_predecode_header));
 }
 
 static inline const struct q6k_predecode_stream4 *
 q6k_predecode_ntile4_stream_blocks(const void *packed) {
-    return (const struct q6k_predecode_stream4 *)
-        ((const uint8_t *) packed + sizeof(struct q6k_predecode_header));
+    return (const struct q6k_predecode_stream4 *) ((const uint8_t *) packed +
+                                                   sizeof(struct q6k_predecode_header));
 }
 
-static inline const struct q6k_x8_block *
-q6k_x8_blocks(const void *packed) {
-    return (const struct q6k_x8_block *)
-        ((const uint8_t *) packed + sizeof(struct q6k_x8_header));
+static inline const struct q6k_x8_block *q6k_x8_blocks(const void *packed) {
+    return (const struct q6k_x8_block *) ((const uint8_t *) packed + sizeof(struct q6k_x8_header));
 }
 
-static inline bool q6k_predecode_ntile4_valid(const void *packed,
-                                               size_t n_in, size_t n_out) {
-    if (packed == NULL) return false;
+static inline bool q6k_predecode_ntile4_valid(const void *packed, size_t n_in, size_t n_out) {
+    if (packed == NULL)
+        return false;
     const struct q6k_predecode_header *h = (const struct q6k_predecode_header *) packed;
-    return h->magic == Q6K_PREDECODE_NTILE4_MAGIC
-        && h->n_in == (uint32_t) n_in
-        && h->n_out == (uint32_t) n_out
-        && h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS)
-        && h->block_bytes == sizeof(struct q6k_predecode_block);
+    return h->magic == Q6K_PREDECODE_NTILE4_MAGIC && h->n_in == (uint32_t) n_in &&
+           h->n_out == (uint32_t) n_out &&
+           h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS) &&
+           h->block_bytes == sizeof(struct q6k_predecode_block);
 }
 
-static inline bool q6k_predecode_ntile8_valid(const void *packed,
-                                               size_t n_in, size_t n_out) {
-    if (packed == NULL) return false;
+static inline bool q6k_predecode_ntile8_valid(const void *packed, size_t n_in, size_t n_out) {
+    if (packed == NULL)
+        return false;
     const struct q6k_predecode_header *h = (const struct q6k_predecode_header *) packed;
-    return h->magic == Q6K_PREDECODE_NTILE8_MAGIC
-        && h->n_in == (uint32_t) n_in
-        && h->n_out == (uint32_t) n_out
-        && h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS)
-        && h->block_bytes == sizeof(struct q6k_predecode_block);
+    return h->magic == Q6K_PREDECODE_NTILE8_MAGIC && h->n_in == (uint32_t) n_in &&
+           h->n_out == (uint32_t) n_out &&
+           h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS) &&
+           h->block_bytes == sizeof(struct q6k_predecode_block);
 }
 
-static inline bool q6k_predecode_ntile4_stream_valid(const void *packed,
-                                                      size_t n_in,
-                                                      size_t n_out) {
-    if (packed == NULL) return false;
+static inline bool
+q6k_predecode_ntile4_stream_valid(const void *packed, size_t n_in, size_t n_out) {
+    if (packed == NULL)
+        return false;
     const struct q6k_predecode_header *h = (const struct q6k_predecode_header *) packed;
-    return h->magic == Q6K_PREDECODE_NTILE4_STREAM_MAGIC
-        && h->n_in == (uint32_t) n_in
-        && h->n_out == (uint32_t) n_out
-        && h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS)
-        && h->block_bytes == sizeof(struct q6k_predecode_stream4);
+    return h->magic == Q6K_PREDECODE_NTILE4_STREAM_MAGIC && h->n_in == (uint32_t) n_in &&
+           h->n_out == (uint32_t) n_out &&
+           h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS) &&
+           h->block_bytes == sizeof(struct q6k_predecode_stream4);
 }
 
 static inline bool q6k_x8_valid(const void *packed, size_t n_in, size_t n_out) {
-    if (packed == NULL || n_out % 8 != 0) return false;
+    if (packed == NULL || n_out % 8 != 0)
+        return false;
     const struct q6k_x8_header *h = (const struct q6k_x8_header *) packed;
-    return h->magic == Q6K_X8_GEMV_MAGIC
-        && h->n_in == (uint32_t) n_in
-        && h->n_out == (uint32_t) n_out
-        && h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS)
-        && h->block_bytes == sizeof(struct q6k_x8_block);
+    return h->magic == Q6K_X8_GEMV_MAGIC && h->n_in == (uint32_t) n_in &&
+           h->n_out == (uint32_t) n_out &&
+           h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS) &&
+           h->block_bytes == sizeof(struct q6k_x8_block);
 }
 
 struct q6k_pp_ctx {
     const void    *w_q6k;
     const int8_t  *x_q8;
-    const int16_t *bsums;           /* 16 int16 per super-block */
+    const int16_t *bsums; /* 16 int16 per super-block */
     size_t         n_blocks_per_row;
     size_t         n_out;
     float          scale_x;
@@ -179,125 +170,120 @@ static void q6k_pp_row(size_t n, void *vctx) {
 
 #if defined(__ARM_NEON)
 static inline float q6k_dot4_scaled(const int8_t *xb,
-                                    int8x16_t q0, int8x16_t q1,
-                                    int8x16_t q2, int8x16_t q3,
-                                    float scale_x, float ds0, float ds1,
-                                    float ds2, float ds3) {
-    const int32_t dot0 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q0, vld1q_s8(xb +  0)));
+                                    int8x16_t     q0,
+                                    int8x16_t     q1,
+                                    int8x16_t     q2,
+                                    int8x16_t     q3,
+                                    float         scale_x,
+                                    float         ds0,
+                                    float         ds1,
+                                    float         ds2,
+                                    float         ds3) {
+    const int32_t dot0 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q0, vld1q_s8(xb + 0)));
     const int32_t dot1 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q1, vld1q_s8(xb + 32)));
     const int32_t dot2 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q2, vld1q_s8(xb + 64)));
     const int32_t dot3 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q3, vld1q_s8(xb + 96)));
-    return scale_x * (ds0 * (float) dot0 + ds1 * (float) dot1 +
-                      ds2 * (float) dot2 + ds3 * (float) dot3);
+    return scale_x *
+           (ds0 * (float) dot0 + ds1 * (float) dot1 + ds2 * (float) dot2 + ds3 * (float) dot3);
 }
 #endif
 
 size_t q6k_predecode_ntile4_size_bytes(size_t n_in, size_t n_out) {
-    if (n_in == 0 || n_out == 0 || n_in % Q6_K_BLOCK_ELEMS != 0) return 0;
-    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX ||
-        n_out > UINT32_MAX) {
+    if (n_in == 0 || n_out == 0 || n_in % Q6_K_BLOCK_ELEMS != 0)
+        return 0;
+    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX || n_out > UINT32_MAX) {
         return 0;
     }
-    const size_t n_tiles = (n_out + 3) / 4;
+    const size_t n_tiles  = (n_out + 3) / 4;
     const size_t n_blocks = n_tiles * (n_in / Q6_K_BLOCK_ELEMS) * 4;
-    if (n_blocks > (SIZE_MAX - sizeof(struct q6k_predecode_header)) /
-                       sizeof(struct q6k_predecode_block)) {
+    if (n_blocks >
+        (SIZE_MAX - sizeof(struct q6k_predecode_header)) / sizeof(struct q6k_predecode_block)) {
         return 0;
     }
-    return sizeof(struct q6k_predecode_header) +
-           n_blocks * sizeof(struct q6k_predecode_block);
+    return sizeof(struct q6k_predecode_header) + n_blocks * sizeof(struct q6k_predecode_block);
 }
 
 size_t q6k_predecode_ntile8_size_bytes(size_t n_in, size_t n_out) {
-    if (n_in == 0 || n_out == 0 || n_in % Q6_K_BLOCK_ELEMS != 0) return 0;
-    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX ||
-        n_out > UINT32_MAX) {
+    if (n_in == 0 || n_out == 0 || n_in % Q6_K_BLOCK_ELEMS != 0)
+        return 0;
+    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX || n_out > UINT32_MAX) {
         return 0;
     }
-    const size_t n_tiles = (n_out + 7) / 8;
+    const size_t n_tiles  = (n_out + 7) / 8;
     const size_t n_blocks = n_tiles * (n_in / Q6_K_BLOCK_ELEMS) * 8;
-    if (n_blocks > (SIZE_MAX - sizeof(struct q6k_predecode_header)) /
-                       sizeof(struct q6k_predecode_block)) {
+    if (n_blocks >
+        (SIZE_MAX - sizeof(struct q6k_predecode_header)) / sizeof(struct q6k_predecode_block)) {
         return 0;
     }
-    return sizeof(struct q6k_predecode_header) +
-           n_blocks * sizeof(struct q6k_predecode_block);
+    return sizeof(struct q6k_predecode_header) + n_blocks * sizeof(struct q6k_predecode_block);
 }
 
 size_t q6k_predecode_ntile4_stream_size_bytes(size_t n_in, size_t n_out) {
-    if (n_in == 0 || n_out == 0 || n_in % Q6_K_BLOCK_ELEMS != 0) return 0;
-    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX ||
-        n_out > UINT32_MAX) {
+    if (n_in == 0 || n_out == 0 || n_in % Q6_K_BLOCK_ELEMS != 0)
+        return 0;
+    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX || n_out > UINT32_MAX) {
         return 0;
     }
-    const size_t n_tiles = (n_out + 3) / 4;
+    const size_t n_tiles  = (n_out + 3) / 4;
     const size_t n_blocks = n_tiles * (n_in / Q6_K_BLOCK_ELEMS);
-    if (n_blocks > (SIZE_MAX - sizeof(struct q6k_predecode_header)) /
-                       sizeof(struct q6k_predecode_stream4)) {
+    if (n_blocks >
+        (SIZE_MAX - sizeof(struct q6k_predecode_header)) / sizeof(struct q6k_predecode_stream4)) {
         return 0;
     }
-    return sizeof(struct q6k_predecode_header) +
-           n_blocks * sizeof(struct q6k_predecode_stream4);
+    return sizeof(struct q6k_predecode_header) + n_blocks * sizeof(struct q6k_predecode_stream4);
 }
 
 size_t q6k_x8_gemv_size_bytes(size_t n_in, size_t n_out) {
-    if (n_in == 0 || n_out == 0 ||
-        n_in % Q6_K_BLOCK_ELEMS != 0 || n_out % 8 != 0) {
+    if (n_in == 0 || n_out == 0 || n_in % Q6_K_BLOCK_ELEMS != 0 || n_out % 8 != 0) {
         return 0;
     }
-    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX ||
-        n_out > UINT32_MAX) {
+    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX || n_out > UINT32_MAX) {
         return 0;
     }
     const size_t n_blocks = (n_out / 8) * (n_in / Q6_K_BLOCK_ELEMS);
-    if (n_blocks > (SIZE_MAX - sizeof(struct q6k_x8_header)) /
-                       sizeof(struct q6k_x8_block)) {
+    if (n_blocks > (SIZE_MAX - sizeof(struct q6k_x8_header)) / sizeof(struct q6k_x8_block)) {
         return 0;
     }
     return sizeof(struct q6k_x8_header) + n_blocks * sizeof(struct q6k_x8_block);
 }
 
-static void q6k_predecode_one_block(const struct block_q6_K_t *s,
-                                    struct q6k_predecode_block *d) {
+static void q6k_predecode_one_block(const struct block_q6_K_t *s, struct q6k_predecode_block *d) {
     d->d = fp16_to_fp32(s->d);
     memcpy(d->scales, s->scales, sizeof(d->scales));
     for (int half = 0; half < 2; half++) {
         const uint8_t *ql = s->ql + half * 64;
         const uint8_t *qh = s->qh + half * 32;
-        int8_t *q = d->qs + half * 128;
+        int8_t        *q  = d->qs + half * 128;
         for (int l = 0; l < 32; l++) {
-            q[l +  0] = (int8_t) ((ql[l +  0] & 0xF) |
-                                  (((qh[l] >> 0) & 3) << 4)) - 32;
-            q[l + 32] = (int8_t) ((ql[l + 32] & 0xF) |
-                                  (((qh[l] >> 2) & 3) << 4)) - 32;
-            q[l + 64] = (int8_t) ((ql[l +  0] >>  4) |
-                                  (((qh[l] >> 4) & 3) << 4)) - 32;
-            q[l + 96] = (int8_t) ((ql[l + 32] >>  4) |
-                                  (((qh[l] >> 6) & 3) << 4)) - 32;
+            q[l + 0]  = (int8_t) ((ql[l + 0] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
+            q[l + 32] = (int8_t) ((ql[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
+            q[l + 64] = (int8_t) ((ql[l + 0] >> 4) | (((qh[l] >> 4) & 3) << 4)) - 32;
+            q[l + 96] = (int8_t) ((ql[l + 32] >> 4) | (((qh[l] >> 6) & 3) << 4)) - 32;
         }
     }
 }
 
-int q6k_predecode_ntile4_pack(const void *w_q6k, size_t n_in, size_t n_out,
-                              void *dst) {
-    if (w_q6k == NULL || dst == NULL) return -1;
+int q6k_predecode_ntile4_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst) {
+    if (w_q6k == NULL || dst == NULL)
+        return -1;
     const size_t bytes = q6k_predecode_ntile4_size_bytes(n_in, n_out);
-    if (bytes == 0) return -1;
+    if (bytes == 0)
+        return -1;
 
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    struct q6k_predecode_header *h = (struct q6k_predecode_header *) dst;
-    *h = (struct q6k_predecode_header) {
-        .magic = Q6K_PREDECODE_NTILE4_MAGIC,
-        .n_in = (uint32_t) n_in,
-        .n_out = (uint32_t) n_out,
-        .n_blocks_per_row = (uint32_t) n_blocks_per_row,
-        .block_bytes = (uint32_t) sizeof(struct q6k_predecode_block),
-        .reserved = 0,
+    const size_t                 n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    struct q6k_predecode_header *h                = (struct q6k_predecode_header *) dst;
+    *h                                            = (struct q6k_predecode_header) {
+            .magic            = Q6K_PREDECODE_NTILE4_MAGIC,
+            .n_in             = (uint32_t) n_in,
+            .n_out            = (uint32_t) n_out,
+            .n_blocks_per_row = (uint32_t) n_blocks_per_row,
+            .block_bytes      = (uint32_t) sizeof(struct q6k_predecode_block),
+            .reserved         = 0,
     };
 
-    const struct block_q6_K_t *src = (const struct block_q6_K_t *) w_q6k;
-    struct q6k_predecode_block *dstb = (struct q6k_predecode_block *)
-        ((uint8_t *) dst + sizeof(*h));
+    const struct block_q6_K_t  *src = (const struct block_q6_K_t *) w_q6k;
+    struct q6k_predecode_block *dstb =
+            (struct q6k_predecode_block *) ((uint8_t *) dst + sizeof(*h));
     memset(dstb, 0, bytes - sizeof(*h));
 
     const size_t n_tiles = (n_out + 3) / 4;
@@ -305,10 +291,10 @@ int q6k_predecode_ntile4_pack(const void *w_q6k, size_t n_in, size_t n_out,
         for (size_t b = 0; b < n_blocks_per_row; b++) {
             for (size_t nr = 0; nr < 4; nr++) {
                 const size_t n = nt * 4 + nr;
-                if (n >= n_out) continue;
-                const struct block_q6_K_t *s = src + n * n_blocks_per_row + b;
-                struct q6k_predecode_block *d =
-                    dstb + (nt * n_blocks_per_row + b) * 4 + nr;
+                if (n >= n_out)
+                    continue;
+                const struct block_q6_K_t  *s = src + n * n_blocks_per_row + b;
+                struct q6k_predecode_block *d = dstb + (nt * n_blocks_per_row + b) * 4 + nr;
                 q6k_predecode_one_block(s, d);
             }
         }
@@ -316,26 +302,27 @@ int q6k_predecode_ntile4_pack(const void *w_q6k, size_t n_in, size_t n_out,
     return 0;
 }
 
-int q6k_predecode_ntile8_pack(const void *w_q6k, size_t n_in, size_t n_out,
-                              void *dst) {
-    if (w_q6k == NULL || dst == NULL) return -1;
+int q6k_predecode_ntile8_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst) {
+    if (w_q6k == NULL || dst == NULL)
+        return -1;
     const size_t bytes = q6k_predecode_ntile8_size_bytes(n_in, n_out);
-    if (bytes == 0) return -1;
+    if (bytes == 0)
+        return -1;
 
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    struct q6k_predecode_header *h = (struct q6k_predecode_header *) dst;
-    *h = (struct q6k_predecode_header) {
-        .magic = Q6K_PREDECODE_NTILE8_MAGIC,
-        .n_in = (uint32_t) n_in,
-        .n_out = (uint32_t) n_out,
-        .n_blocks_per_row = (uint32_t) n_blocks_per_row,
-        .block_bytes = (uint32_t) sizeof(struct q6k_predecode_block),
-        .reserved = 0,
+    const size_t                 n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    struct q6k_predecode_header *h                = (struct q6k_predecode_header *) dst;
+    *h                                            = (struct q6k_predecode_header) {
+            .magic            = Q6K_PREDECODE_NTILE8_MAGIC,
+            .n_in             = (uint32_t) n_in,
+            .n_out            = (uint32_t) n_out,
+            .n_blocks_per_row = (uint32_t) n_blocks_per_row,
+            .block_bytes      = (uint32_t) sizeof(struct q6k_predecode_block),
+            .reserved         = 0,
     };
 
-    const struct block_q6_K_t *src = (const struct block_q6_K_t *) w_q6k;
-    struct q6k_predecode_block *dstb = (struct q6k_predecode_block *)
-        ((uint8_t *) dst + sizeof(*h));
+    const struct block_q6_K_t  *src = (const struct block_q6_K_t *) w_q6k;
+    struct q6k_predecode_block *dstb =
+            (struct q6k_predecode_block *) ((uint8_t *) dst + sizeof(*h));
     memset(dstb, 0, bytes - sizeof(*h));
 
     const size_t n_tiles = (n_out + 7) / 8;
@@ -343,10 +330,10 @@ int q6k_predecode_ntile8_pack(const void *w_q6k, size_t n_in, size_t n_out,
         for (size_t b = 0; b < n_blocks_per_row; b++) {
             for (size_t nr = 0; nr < 8; nr++) {
                 const size_t n = nt * 8 + nr;
-                if (n >= n_out) continue;
-                const struct block_q6_K_t *s = src + n * n_blocks_per_row + b;
-                struct q6k_predecode_block *d =
-                    dstb + (nt * n_blocks_per_row + b) * 8 + nr;
+                if (n >= n_out)
+                    continue;
+                const struct block_q6_K_t  *s = src + n * n_blocks_per_row + b;
+                struct q6k_predecode_block *d = dstb + (nt * n_blocks_per_row + b) * 8 + nr;
                 q6k_predecode_one_block(s, d);
             }
         }
@@ -354,26 +341,27 @@ int q6k_predecode_ntile8_pack(const void *w_q6k, size_t n_in, size_t n_out,
     return 0;
 }
 
-int q6k_predecode_ntile4_stream_pack(const void *w_q6k, size_t n_in,
-                                     size_t n_out, void *dst) {
-    if (w_q6k == NULL || dst == NULL) return -1;
+int q6k_predecode_ntile4_stream_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst) {
+    if (w_q6k == NULL || dst == NULL)
+        return -1;
     const size_t bytes = q6k_predecode_ntile4_stream_size_bytes(n_in, n_out);
-    if (bytes == 0) return -1;
+    if (bytes == 0)
+        return -1;
 
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    struct q6k_predecode_header *h = (struct q6k_predecode_header *) dst;
-    *h = (struct q6k_predecode_header) {
-        .magic = Q6K_PREDECODE_NTILE4_STREAM_MAGIC,
-        .n_in = (uint32_t) n_in,
-        .n_out = (uint32_t) n_out,
-        .n_blocks_per_row = (uint32_t) n_blocks_per_row,
-        .block_bytes = (uint32_t) sizeof(struct q6k_predecode_stream4),
-        .reserved = 0,
+    const size_t                 n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    struct q6k_predecode_header *h                = (struct q6k_predecode_header *) dst;
+    *h                                            = (struct q6k_predecode_header) {
+            .magic            = Q6K_PREDECODE_NTILE4_STREAM_MAGIC,
+            .n_in             = (uint32_t) n_in,
+            .n_out            = (uint32_t) n_out,
+            .n_blocks_per_row = (uint32_t) n_blocks_per_row,
+            .block_bytes      = (uint32_t) sizeof(struct q6k_predecode_stream4),
+            .reserved         = 0,
     };
 
-    const struct block_q6_K_t *src = (const struct block_q6_K_t *) w_q6k;
-    struct q6k_predecode_stream4 *dstb = (struct q6k_predecode_stream4 *)
-        ((uint8_t *) dst + sizeof(*h));
+    const struct block_q6_K_t    *src = (const struct block_q6_K_t *) w_q6k;
+    struct q6k_predecode_stream4 *dstb =
+            (struct q6k_predecode_stream4 *) ((uint8_t *) dst + sizeof(*h));
     memset(dstb, 0, bytes - sizeof(*h));
 
     const size_t n_tiles = (n_out + 3) / 4;
@@ -382,7 +370,8 @@ int q6k_predecode_ntile4_stream_pack(const void *w_q6k, size_t n_in,
             struct q6k_predecode_stream4 *d = dstb + nt * n_blocks_per_row + b;
             for (size_t nr = 0; nr < 4; nr++) {
                 const size_t n = nt * 4 + nr;
-                if (n >= n_out) continue;
+                if (n >= n_out)
+                    continue;
                 const struct block_q6_K_t *s = src + n * n_blocks_per_row + b;
                 struct q6k_predecode_block tmp;
                 q6k_predecode_one_block(s, &tmp);
@@ -402,10 +391,10 @@ static struct q6k_x8_block q6k_x8_make_block(const struct block_q6_K_t in[8]) {
         out.d[r] = in[r].d;
     }
 
-    const int chunk = 4;
+    const int chunk    = 4;
     const int ql_iters = (Q6_K_BLOCK_ELEMS / 2 * 8) / chunk;
     for (int i = 0; i < ql_iters; i++) {
-        const int src_id = i % 8;
+        const int src_id  = i % 8;
         const int src_off = (i / 8) * chunk;
         const int dst_off = i * chunk;
         memcpy(out.ql + dst_off, in[src_id].ql + src_off, chunk);
@@ -413,7 +402,7 @@ static struct q6k_x8_block q6k_x8_make_block(const struct block_q6_K_t in[8]) {
 
     const int qh_iters = (Q6_K_BLOCK_ELEMS / 4 * 8) / chunk;
     for (int i = 0; i < qh_iters; i++) {
-        const int src_id = i % 8;
+        const int src_id  = i % 8;
         const int src_off = (i / 8) * chunk;
         const int dst_off = i * chunk;
         memcpy(out.qh + dst_off, in[src_id].qh + src_off, chunk);
@@ -428,24 +417,25 @@ static struct q6k_x8_block q6k_x8_make_block(const struct block_q6_K_t in[8]) {
 }
 
 int q6k_x8_gemv_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst) {
-    if (w_q6k == NULL || dst == NULL) return -1;
+    if (w_q6k == NULL || dst == NULL)
+        return -1;
     const size_t bytes = q6k_x8_gemv_size_bytes(n_in, n_out);
-    if (bytes == 0) return -1;
+    if (bytes == 0)
+        return -1;
 
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    struct q6k_x8_header *h = (struct q6k_x8_header *) dst;
-    *h = (struct q6k_x8_header) {
-        .magic = Q6K_X8_GEMV_MAGIC,
-        .n_in = (uint32_t) n_in,
-        .n_out = (uint32_t) n_out,
-        .n_blocks_per_row = (uint32_t) n_blocks_per_row,
-        .block_bytes = (uint32_t) sizeof(struct q6k_x8_block),
-        .reserved = 0,
+    const size_t          n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    struct q6k_x8_header *h                = (struct q6k_x8_header *) dst;
+    *h                                     = (struct q6k_x8_header) {
+            .magic            = Q6K_X8_GEMV_MAGIC,
+            .n_in             = (uint32_t) n_in,
+            .n_out            = (uint32_t) n_out,
+            .n_blocks_per_row = (uint32_t) n_blocks_per_row,
+            .block_bytes      = (uint32_t) sizeof(struct q6k_x8_block),
+            .reserved         = 0,
     };
 
     const struct block_q6_K_t *src = (const struct block_q6_K_t *) w_q6k;
-    struct q6k_x8_block *out = (struct q6k_x8_block *)
-        ((uint8_t *) dst + sizeof(*h));
+    struct q6k_x8_block       *out = (struct q6k_x8_block *) ((uint8_t *) dst + sizeof(*h));
     for (size_t row = 0; row < n_out; row += 8) {
         for (size_t b = 0; b < n_blocks_per_row; b++) {
             struct block_q6_K_t tmp[8];
@@ -458,10 +448,8 @@ int q6k_x8_gemv_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst) {
     return 0;
 }
 
-
-void linear_q6k_decode_w6a8_pre(const int8_t* x_q8, float scale_x,
-                                 const void* w_q6k, size_t n_in, size_t n_out,
-                                 float* y) {
+void linear_q6k_decode_w6a8_pre(
+        const int8_t *x_q8, float scale_x, const void *w_q6k, size_t n_in, size_t n_out, float *y) {
 #if defined(__ARM_NEON)
     const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
 
@@ -477,30 +465,36 @@ void linear_q6k_decode_w6a8_pre(const int8_t* x_q8, float scale_x,
      * where bsums[j] is the sum of 16 contiguous int8 activations for
      * sub-block j. Saves 16 vsubq_s8 per super-block (~25% of inner
      * NEON ops). Mirrors ggml_vec_dot_q6_K_q8_K's deferred-bias trick. */
-    static _Thread_local int16_t *bsums_tl = NULL;
+    static _Thread_local int16_t *bsums_tl  = NULL;
     static _Thread_local size_t   bsums_cap = 0;
     /* 16 int16 sub-block bsums per super-block. */
     const size_t bsums_need = n_blocks_per_row * 16;
     if (bsums_cap < bsums_need) {
         safe_free((void **) &bsums_tl);
         bsums_tl = heap_alloc_array_aligned(int16_t, bsums_need);
-        if (bsums_tl == NULL) { bsums_cap = 0; return; }
+        if (bsums_tl == NULL) {
+            bsums_cap = 0;
+            return;
+        }
         bsums_cap = bsums_need;
     }
     for (size_t b = 0; b < n_blocks_per_row; b++) {
         const int8_t *xb = x_q8 + b * Q6_K_BLOCK_ELEMS;
         for (int j = 0; j < 16; j++) {
-            const int8x16_t v = vld1q_s8(xb + j * 16);
+            const int8x16_t v    = vld1q_s8(xb + j * 16);
             bsums_tl[b * 16 + j] = (int16_t) vaddlvq_s8(v);
         }
     }
-    int16_t *const bsums = bsums_tl;  /* shared with workers */
+    int16_t *const bsums = bsums_tl; /* shared with workers */
 
     const struct q6k_pp_ctx ctx = {
-        .w_q6k = w_q6k, .x_q8 = x_q8,
-        .bsums = bsums,
-        .n_blocks_per_row = n_blocks_per_row,
-        .n_out = n_out, .scale_x = scale_x, .y = y,
+            .w_q6k            = w_q6k,
+            .x_q8             = x_q8,
+            .bsums            = bsums,
+            .n_blocks_per_row = n_blocks_per_row,
+            .n_out            = n_out,
+            .scale_x          = scale_x,
+            .y                = y,
     };
     if (q6k_pp_enabled()) {
 #if defined(_OPENMP)
@@ -514,17 +508,17 @@ void linear_q6k_decode_w6a8_pre(const int8_t* x_q8, float scale_x,
 
 #if defined(_OPENMP)
     if (omp_in_parallel()) {
-        #pragma omp for schedule(static) nowait
+#pragma omp for schedule(static) nowait
         for (size_t n = 0; n < n_out; n++) {
             q6k_decode_one_row(n, &ctx);
         }
     } else if (n_out >= 4096) {
-        #pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static)
         for (size_t n = 0; n < n_out; n++) {
             q6k_decode_one_row(n, &ctx);
         }
     } else {
-        #pragma omp parallel for schedule(dynamic, 4)
+#pragma omp parallel for schedule(dynamic, 4)
         for (size_t n = 0; n < n_out; n++) {
             q6k_decode_one_row(n, &ctx);
         }
@@ -536,23 +530,31 @@ void linear_q6k_decode_w6a8_pre(const int8_t* x_q8, float scale_x,
 #endif
 #else
     /* Scalar fallback for non-NEON: reuse FP32 reference by dequant-on-fly. */
-    (void)x_q8; (void)scale_x; (void)w_q6k; (void)n_in; (void)n_out; (void)y;
+    (void) x_q8;
+    (void) scale_x;
+    (void) w_q6k;
+    (void) n_in;
+    (void) n_out;
+    (void) y;
     fprintf(stderr, "linear_q6k_decode_w6a8_pre: NEON required\n");
 #endif
 }
 
-void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8, float scale_x,
-                                    const void *packed, size_t n_in,
-                                    size_t n_out, float *y) {
+void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8,
+                                   float         scale_x,
+                                   const void   *packed,
+                                   size_t        n_in,
+                                   size_t        n_out,
+                                   float        *y) {
 #if defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
-    if (!q6k_x8_valid(packed, n_in, n_out)) return;
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    static _Thread_local struct q8k_activation_block *q8_tl = NULL;
-    static _Thread_local size_t q8_cap = 0;
+    if (!q6k_x8_valid(packed, n_in, n_out))
+        return;
+    const size_t                                      n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    static _Thread_local struct q8k_activation_block *q8_tl            = NULL;
+    static _Thread_local size_t                       q8_cap           = 0;
     if (q8_cap < n_blocks_per_row) {
         safe_free((void **) &q8_tl);
-        q8_tl = heap_alloc_array_aligned(struct q8k_activation_block,
-                                         n_blocks_per_row);
+        q8_tl = heap_alloc_array_aligned(struct q8k_activation_block, n_blocks_per_row);
         if (q8_tl == NULL) {
             q8_cap = 0;
             return;
@@ -561,7 +563,7 @@ void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8, float scale_x,
     }
     for (size_t b = 0; b < n_blocks_per_row; b++) {
         struct q8k_activation_block *qb = q8_tl + b;
-        qb->d = scale_x;
+        qb->d                           = scale_x;
         memcpy(qb->qs, x_q8 + b * Q6_K_BLOCK_ELEMS, Q6_K_BLOCK_ELEMS);
         for (int s = 0; s < 16; s++) {
             qb->bsums[s] = (int16_t) vaddlvq_s8(vld1q_s8(qb->qs + s * 16));
@@ -569,40 +571,38 @@ void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8, float scale_x,
     }
     struct q8k_activation_block *const q8_blocks = q8_tl;
 
-    const struct q6k_x8_block *w = q6k_x8_blocks(packed);
-    const uint8x16_t mask_lo4 = vdupq_n_u8(0x0F);
-    const uint8x16_t mask_lo2 = vdupq_n_u8(0x03);
-    const uint8x16_t mask_hi2_shifted = vdupq_n_u8(0x30);
+    const struct q6k_x8_block *w                = q6k_x8_blocks(packed);
+    const uint8x16_t           mask_lo4         = vdupq_n_u8(0x0F);
+    const uint8x16_t           mask_lo2         = vdupq_n_u8(0x03);
+    const uint8x16_t           mask_hi2_shifted = vdupq_n_u8(0x30);
 
 #if defined(_OPENMP)
-    #pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static)
 #endif
     for (size_t tile = 0; tile < n_out / 8; tile++) {
-        float32x4_t acc_f32_0 = vdupq_n_f32(0.0f);
-        float32x4_t acc_f32_1 = vdupq_n_f32(0.0f);
-        const struct q6k_x8_block *row = w + tile * n_blocks_per_row;
+        float32x4_t                acc_f32_0 = vdupq_n_f32(0.0f);
+        float32x4_t                acc_f32_1 = vdupq_n_f32(0.0f);
+        const struct q6k_x8_block *row       = w + tile * n_blocks_per_row;
 
         for (size_t b = 0; b < n_blocks_per_row; b++) {
-            const struct q6k_x8_block *blk = row + b;
-            const struct q8k_activation_block *q8 = q8_blocks + b;
+            const struct q6k_x8_block         *blk = row + b;
+            const struct q8k_activation_block *q8  = q8_blocks + b;
 
             float d_arr[8];
-            for (int i = 0; i < 8; i++) d_arr[i] = fp16_to_fp32(blk->d[i]);
-            const float32x4_t sb_scale_0 =
-                vmulq_n_f32(vld1q_f32(d_arr + 0), q8->d);
-            const float32x4_t sb_scale_1 =
-                vmulq_n_f32(vld1q_f32(d_arr + 4), q8->d);
+            for (int i = 0; i < 8; i++)
+                d_arr[i] = fp16_to_fp32(blk->d[i]);
+            const float32x4_t sb_scale_0 = vmulq_n_f32(vld1q_f32(d_arr + 0), q8->d);
+            const float32x4_t sb_scale_1 = vmulq_n_f32(vld1q_f32(d_arr + 4), q8->d);
 
             int16_t q6_scales[16 * 8];
             for (int s = 0; s < 16; s++) {
-                vst1q_s16(q6_scales + s * 8,
-                          vmovl_s8(vld1_s8(blk->scales + s * 8)));
+                vst1q_s16(q6_scales + s * 8, vmovl_s8(vld1_s8(blk->scales + s * 8)));
             }
 
             int32x4_t bias_0 = vdupq_n_s32(0);
             int32x4_t bias_1 = vdupq_n_s32(0);
             for (int s = 0; s < 16; s += 4) {
-                const int16x4_t bs = vld1_s16(q8->bsums + s);
+                const int16x4_t bs   = vld1_s16(q8->bsums + s);
                 const int16x4_t sc00 = vld1_s16(q6_scales + (s + 0) * 8 + 0);
                 const int16x4_t sc01 = vld1_s16(q6_scales + (s + 0) * 8 + 4);
                 const int16x4_t sc10 = vld1_s16(q6_scales + (s + 1) * 8 + 0);
@@ -611,14 +611,14 @@ void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8, float scale_x,
                 const int16x4_t sc21 = vld1_s16(q6_scales + (s + 2) * 8 + 4);
                 const int16x4_t sc30 = vld1_s16(q6_scales + (s + 3) * 8 + 0);
                 const int16x4_t sc31 = vld1_s16(q6_scales + (s + 3) * 8 + 4);
-                bias_0 = vmlal_lane_s16(bias_0, sc00, bs, 0);
-                bias_1 = vmlal_lane_s16(bias_1, sc01, bs, 0);
-                bias_0 = vmlal_lane_s16(bias_0, sc10, bs, 1);
-                bias_1 = vmlal_lane_s16(bias_1, sc11, bs, 1);
-                bias_0 = vmlal_lane_s16(bias_0, sc20, bs, 2);
-                bias_1 = vmlal_lane_s16(bias_1, sc21, bs, 2);
-                bias_0 = vmlal_lane_s16(bias_0, sc30, bs, 3);
-                bias_1 = vmlal_lane_s16(bias_1, sc31, bs, 3);
+                bias_0               = vmlal_lane_s16(bias_0, sc00, bs, 0);
+                bias_1               = vmlal_lane_s16(bias_1, sc01, bs, 0);
+                bias_0               = vmlal_lane_s16(bias_0, sc10, bs, 1);
+                bias_1               = vmlal_lane_s16(bias_1, sc11, bs, 1);
+                bias_0               = vmlal_lane_s16(bias_0, sc20, bs, 2);
+                bias_1               = vmlal_lane_s16(bias_1, sc21, bs, 2);
+                bias_0               = vmlal_lane_s16(bias_0, sc30, bs, 3);
+                bias_1               = vmlal_lane_s16(bias_1, sc31, bs, 3);
             }
             bias_0 = vshlq_n_s32(bias_0, 5);
             bias_1 = vshlq_n_s32(bias_1, 5);
@@ -632,21 +632,19 @@ void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8, float scale_x,
                 for (int sb = 0; sb < 4; sb++) {
                     const int8_t *q8_l_base = q8->qs + half * 128 + sb * 16;
                     const int8_t *q8_h_base = q8_l_base + 64;
-                    int8x16_t q8_l[4];
-                    int8x16_t q8_h[4];
+                    int8x16_t     q8_l[4];
+                    int8x16_t     q8_h[4];
                     for (int i = 0; i < 4; i++) {
-                        q8_l[i] = (int8x16_t) vld1q_dup_s32(
-                            (const int32_t *) (q8_l_base + i * 4));
-                        q8_h[i] = (int8x16_t) vld1q_dup_s32(
-                            (const int32_t *) (q8_h_base + i * 4));
+                        q8_l[i] = (int8x16_t) vld1q_dup_s32((const int32_t *) (q8_l_base + i * 4));
+                        q8_h[i] = (int8x16_t) vld1q_dup_s32((const int32_t *) (q8_h_base + i * 4));
                     }
 
-                    const int ql_off = sb * 128;
-                    const int qh_off = ql_off & 255;
-                    uint8x16x4_t ql_0 = vld1q_u8_x4(ql_base + ql_off);
-                    uint8x16x4_t ql_1 = vld1q_u8_x4(ql_base + ql_off + 64);
-                    uint8x16x4_t qh_0 = vld1q_u8_x4(qh_base + qh_off);
-                    uint8x16x4_t qh_1 = vld1q_u8_x4(qh_base + qh_off + 64);
+                    const int    ql_off = sb * 128;
+                    const int    qh_off = ql_off & 255;
+                    uint8x16x4_t ql_0   = vld1q_u8_x4(ql_base + ql_off);
+                    uint8x16x4_t ql_1   = vld1q_u8_x4(ql_base + ql_off + 64);
+                    uint8x16x4_t qh_0   = vld1q_u8_x4(qh_base + qh_off);
+                    uint8x16x4_t qh_1   = vld1q_u8_x4(qh_base + qh_off + 64);
                     if (sb > 1) {
                         for (int i = 0; i < 4; i++) {
                             qh_0.val[i] = vshrq_n_u8(qh_0.val[i], 2);
@@ -655,35 +653,45 @@ void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8, float scale_x,
                     }
 
                     const uint8x16_t ql[8] = {
-                        ql_0.val[0], ql_0.val[1], ql_0.val[2], ql_0.val[3],
-                        ql_1.val[0], ql_1.val[1], ql_1.val[2], ql_1.val[3],
+                            ql_0.val[0],
+                            ql_0.val[1],
+                            ql_0.val[2],
+                            ql_0.val[3],
+                            ql_1.val[0],
+                            ql_1.val[1],
+                            ql_1.val[2],
+                            ql_1.val[3],
                     };
                     const uint8x16_t qh[8] = {
-                        qh_0.val[0], qh_0.val[1], qh_0.val[2], qh_0.val[3],
-                        qh_1.val[0], qh_1.val[1], qh_1.val[2], qh_1.val[3],
+                            qh_0.val[0],
+                            qh_0.val[1],
+                            qh_0.val[2],
+                            qh_0.val[3],
+                            qh_1.val[0],
+                            qh_1.val[1],
+                            qh_1.val[2],
+                            qh_1.val[3],
                     };
 
                     for (int group = 0; group < 2; group++) {
                         int32x4_t sb_acc_l = vdupq_n_s32(0);
                         int32x4_t sb_acc_h = vdupq_n_s32(0);
                         for (int chunk = 0; chunk < 4; chunk++) {
-                            const int idx = chunk * 2 + group;
-                            const int8x16_t q_l = vreinterpretq_s8_u8(
-                                vsliq_n_u8(vandq_u8(ql[idx], mask_lo4),
-                                           vandq_u8(qh[idx], mask_lo2), 4));
-                            const int8x16_t q_h = vreinterpretq_s8_u8(
-                                vorrq_u8(vshrq_n_u8(ql[idx], 4),
-                                         vandq_u8(qh[idx], mask_hi2_shifted)));
-                            sb_acc_l = vdotq_s32(sb_acc_l, q_l, q8_l[chunk]);
-                            sb_acc_h = vdotq_s32(sb_acc_h, q_h, q8_h[chunk]);
+                            const int       idx = chunk * 2 + group;
+                            const int8x16_t q_l = vreinterpretq_s8_u8(vsliq_n_u8(
+                                    vandq_u8(ql[idx], mask_lo4), vandq_u8(qh[idx], mask_lo2), 4));
+                            const int8x16_t q_h = vreinterpretq_s8_u8(vorrq_u8(
+                                    vshrq_n_u8(ql[idx], 4), vandq_u8(qh[idx], mask_hi2_shifted)));
+                            sb_acc_l            = vdotq_s32(sb_acc_l, q_l, q8_l[chunk]);
+                            sb_acc_h            = vdotq_s32(sb_acc_h, q_h, q8_h[chunk]);
                         }
 
-                        const int scale_idx_l = half * 8 + sb;
-                        const int scale_idx_h = half * 8 + sb + 4;
-                        const int32x4_t sc_l = vmovl_s16(vld1_s16(
-                            q6_scales + scale_idx_l * 8 + group * 4));
-                        const int32x4_t sc_h = vmovl_s16(vld1_s16(
-                            q6_scales + scale_idx_h * 8 + group * 4));
+                        const int       scale_idx_l = half * 8 + sb;
+                        const int       scale_idx_h = half * 8 + sb + 4;
+                        const int32x4_t sc_l =
+                                vmovl_s16(vld1_s16(q6_scales + scale_idx_l * 8 + group * 4));
+                        const int32x4_t sc_h =
+                                vmovl_s16(vld1_s16(q6_scales + scale_idx_h * 8 + group * 4));
                         if (group == 0) {
                             acc_0 = vmlaq_s32(acc_0, sb_acc_l, sc_l);
                             acc_0 = vmlaq_s32(acc_0, sb_acc_h, sc_h);
@@ -695,12 +703,10 @@ void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8, float scale_x,
                 }
             }
 
-            acc_0 = vsubq_s32(acc_0, bias_0);
-            acc_1 = vsubq_s32(acc_1, bias_1);
-            acc_f32_0 = vaddq_f32(acc_f32_0,
-                                  vmulq_f32(vcvtq_f32_s32(acc_0), sb_scale_0));
-            acc_f32_1 = vaddq_f32(acc_f32_1,
-                                  vmulq_f32(vcvtq_f32_s32(acc_1), sb_scale_1));
+            acc_0     = vsubq_s32(acc_0, bias_0);
+            acc_1     = vsubq_s32(acc_1, bias_1);
+            acc_f32_0 = vaddq_f32(acc_f32_0, vmulq_f32(vcvtq_f32_s32(acc_0), sb_scale_0));
+            acc_f32_1 = vaddq_f32(acc_f32_1, vmulq_f32(vcvtq_f32_s32(acc_1), sb_scale_1));
         }
 
         float *dst = y + tile * 8;
@@ -708,25 +714,31 @@ void linear_q6k_decode_w6a8_x8_pre(const int8_t *x_q8, float scale_x,
         vst1q_f32(dst + 4, acc_f32_1);
     }
 #else
-    (void)x_q8; (void)scale_x; (void)packed; (void)n_in; (void)n_out; (void)y;
+    (void) x_q8;
+    (void) scale_x;
+    (void) packed;
+    (void) n_in;
+    (void) n_out;
+    (void) y;
     fprintf(stderr, "linear_q6k_decode_w6a8_x8_pre: NEON dotprod required\n");
 #endif
 }
 
 #if defined(__ARM_NEON)
 static void q6k_decode_one_row(size_t n, const struct q6k_pp_ctx *c) {
-    const struct block_q6_K_t* w        = (const struct block_q6_K_t*) c->w_q6k;
-    const size_t n_blocks_per_row = c->n_blocks_per_row;
-    const size_t n_out            = c->n_out;
-    const int8_t *x_q8            = c->x_q8;
-    const int16_t *bsums          = c->bsums;
-    const float scale_x           = c->scale_x;
-    float *y                      = c->y;
+    const struct block_q6_K_t *w                = (const struct block_q6_K_t *) c->w_q6k;
+    const size_t               n_blocks_per_row = c->n_blocks_per_row;
+    const size_t               n_out            = c->n_out;
+    const int8_t              *x_q8             = c->x_q8;
+    const int16_t             *bsums            = c->bsums;
+    const float                scale_x          = c->scale_x;
+    float                     *y                = c->y;
 
-    const struct block_q6_K_t* row = w + n * n_blocks_per_row;
-    float acc = 0.0f;
+    const struct block_q6_K_t *row = w + n * n_blocks_per_row;
+    float                      acc = 0.0f;
 #if !defined(GEIST_TARGET_PI5)
-    if (n + 1 < n_out) __builtin_prefetch(row + n_blocks_per_row, 0, 0);
+    if (n + 1 < n_out)
+        __builtin_prefetch(row + n_blocks_per_row, 0, 0);
 #else
     (void) n_out;
 #endif
@@ -735,29 +747,30 @@ static void q6k_decode_one_row(size_t n, const struct q6k_pp_ctx *c) {
     const uint8x16_t mask_lo2 = vdupq_n_u8(0x03);
 
     for (size_t b = 0; b < n_blocks_per_row; b++) {
-        const struct block_q6_K_t* blk = &row[b];
+        const struct block_q6_K_t *blk = &row[b];
 #if !defined(GEIST_TARGET_PI5)
-        if (b + 2 < n_blocks_per_row) __builtin_prefetch(&row[b + 2], 0, 0);
+        if (b + 2 < n_blocks_per_row)
+            __builtin_prefetch(&row[b + 2], 0, 0);
 #endif
 
-        const float d = fp16_to_fp32(blk->d);
-        const int8_t*  sc = blk->scales;
-        const int8_t*  xb = x_q8 + b * Q6_K_BLOCK_ELEMS;
+        const float    d  = fp16_to_fp32(blk->d);
+        const int8_t  *sc = blk->scales;
+        const int8_t  *xb = x_q8 + b * Q6_K_BLOCK_ELEMS;
         const int16_t *bs = bsums + b * 16;
 
         /* Deferred -32 bias correction: isum_mins = Σ scales[j] × bsums[j].
          * Done once per super-block via int16 vmull + horizontal sum. */
-        const int16x8x2_t q8sums   = {{ vld1q_s16(bs + 0), vld1q_s16(bs + 8) }};
+        const int16x8x2_t q8sums   = {{vld1q_s16(bs + 0), vld1q_s16(bs + 8)}};
         const int8x16_t   scales_b = vld1q_s8(sc);
         const int16x8x2_t q6scales = {{
-            vmovl_s8(vget_low_s8(scales_b)),
-            vmovl_s8(vget_high_s8(scales_b)),
+                vmovl_s8(vget_low_s8(scales_b)),
+                vmovl_s8(vget_high_s8(scales_b)),
         }};
-        const int32x4_t prod = vaddq_s32(
-            vaddq_s32(vmull_s16(vget_low_s16 (q8sums.val[0]), vget_low_s16 (q6scales.val[0])),
-                      vmull_s16(vget_high_s16(q8sums.val[0]), vget_high_s16(q6scales.val[0]))),
-            vaddq_s32(vmull_s16(vget_low_s16 (q8sums.val[1]), vget_low_s16 (q6scales.val[1])),
-                      vmull_s16(vget_high_s16(q8sums.val[1]), vget_high_s16(q6scales.val[1]))));
+        const int32x4_t   prod     = vaddq_s32(
+                vaddq_s32(vmull_s16(vget_low_s16(q8sums.val[0]), vget_low_s16(q6scales.val[0])),
+                          vmull_s16(vget_high_s16(q8sums.val[0]), vget_high_s16(q6scales.val[0]))),
+                vaddq_s32(vmull_s16(vget_low_s16(q8sums.val[1]), vget_low_s16(q6scales.val[1])),
+                          vmull_s16(vget_high_s16(q8sums.val[1]), vget_high_s16(q6scales.val[1]))));
         const int32_t isum_mins = vaddvq_s32(prod);
 
         /* Inner dot accumulation as raw int32 (sum of stream contributions
@@ -777,32 +790,32 @@ static void q6k_decode_one_row(size_t n, const struct q6k_pp_ctx *c) {
 #endif
 
         for (int half = 0; half < 2; half++) {
-            const uint8_t* ql = blk->ql + half * 64;
-            const uint8_t* qh = blk->qh + half * 32;
+            const uint8_t *ql = blk->ql + half * 64;
+            const uint8_t *qh = blk->qh + half * 32;
             for (int sub_off = 0; sub_off < 32; sub_off += 16) {
-                const uint8x16_t ql_b0 = vld1q_u8(ql + sub_off +  0);
+                const uint8x16_t ql_b0 = vld1q_u8(ql + sub_off + 0);
                 const uint8x16_t ql_b1 = vld1q_u8(ql + sub_off + 32);
                 const uint8x16_t qhv   = vld1q_u8(qh + sub_off);
 
-                const uint8x16_t qh0 = vandq_u8(qhv,                       mask_lo2);
-                const uint8x16_t qh1 = vandq_u8(vshrq_n_u8(qhv, 2),        mask_lo2);
-                const uint8x16_t qh2 = vandq_u8(vshrq_n_u8(qhv, 4),        mask_lo2);
+                const uint8x16_t qh0 = vandq_u8(qhv, mask_lo2);
+                const uint8x16_t qh1 = vandq_u8(vshrq_n_u8(qhv, 2), mask_lo2);
+                const uint8x16_t qh2 = vandq_u8(vshrq_n_u8(qhv, 4), mask_lo2);
                 const uint8x16_t qh3 = vshrq_n_u8(qhv, 6);
 
                 /* Skip -32 subtract: keep q ∈ [0, 63]. */
-                const int8x16_t q0 = vreinterpretq_s8_u8(vorrq_u8(vandq_u8(ql_b0, mask_lo4),
-                                                                   vshlq_n_u8(qh0, 4)));
-                const int8x16_t q1 = vreinterpretq_s8_u8(vorrq_u8(vandq_u8(ql_b1, mask_lo4),
-                                                                   vshlq_n_u8(qh1, 4)));
-                const int8x16_t q2 = vreinterpretq_s8_u8(vorrq_u8(vshrq_n_u8(ql_b0, 4),
-                                                                   vshlq_n_u8(qh2, 4)));
-                const int8x16_t q3 = vreinterpretq_s8_u8(vorrq_u8(vshrq_n_u8(ql_b1, 4),
-                                                                   vshlq_n_u8(qh3, 4)));
+                const int8x16_t q0 = vreinterpretq_s8_u8(
+                        vorrq_u8(vandq_u8(ql_b0, mask_lo4), vshlq_n_u8(qh0, 4)));
+                const int8x16_t q1 = vreinterpretq_s8_u8(
+                        vorrq_u8(vandq_u8(ql_b1, mask_lo4), vshlq_n_u8(qh1, 4)));
+                const int8x16_t q2 =
+                        vreinterpretq_s8_u8(vorrq_u8(vshrq_n_u8(ql_b0, 4), vshlq_n_u8(qh2, 4)));
+                const int8x16_t q3 =
+                        vreinterpretq_s8_u8(vorrq_u8(vshrq_n_u8(ql_b1, 4), vshlq_n_u8(qh3, 4)));
 
-                const int8x16_t x0v = vld1q_s8(xb + sub_off +   0);
-                const int8x16_t x1v = vld1q_s8(xb + sub_off +  32);
-                const int8x16_t x2v = vld1q_s8(xb + sub_off +  64);
-                const int8x16_t x3v = vld1q_s8(xb + sub_off +  96);
+                const int8x16_t x0v = vld1q_s8(xb + sub_off + 0);
+                const int8x16_t x1v = vld1q_s8(xb + sub_off + 32);
+                const int8x16_t x2v = vld1q_s8(xb + sub_off + 64);
+                const int8x16_t x3v = vld1q_s8(xb + sub_off + 96);
 
 #if defined(GEIST_TARGET_PI5)
                 const int32x4_t dot0 = vdotq_s32(vdupq_n_s32(0), q0, x0v);
@@ -811,10 +824,10 @@ static void q6k_decode_one_row(size_t n, const struct q6k_pp_ctx *c) {
                 const int32x4_t dot3 = vdotq_s32(vdupq_n_s32(0), q3, x3v);
 
                 const int sub_idx = sub_off / 16;
-                isumv = vmlaq_n_s32(isumv, dot0, (int32_t) sc[0 + sub_idx]);
-                isumv = vmlaq_n_s32(isumv, dot1, (int32_t) sc[2 + sub_idx]);
-                isumv = vmlaq_n_s32(isumv, dot2, (int32_t) sc[4 + sub_idx]);
-                isumv = vmlaq_n_s32(isumv, dot3, (int32_t) sc[6 + sub_idx]);
+                isumv             = vmlaq_n_s32(isumv, dot0, (int32_t) sc[0 + sub_idx]);
+                isumv             = vmlaq_n_s32(isumv, dot1, (int32_t) sc[2 + sub_idx]);
+                isumv             = vmlaq_n_s32(isumv, dot2, (int32_t) sc[4 + sub_idx]);
+                isumv             = vmlaq_n_s32(isumv, dot3, (int32_t) sc[6 + sub_idx]);
 #else
                 const int32_t dot0 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q0, x0v));
                 const int32_t dot1 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q1, x1v));
@@ -822,10 +835,8 @@ static void q6k_decode_one_row(size_t n, const struct q6k_pp_ctx *c) {
                 const int32_t dot3 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q3, x3v));
 
                 const int sub_idx = sub_off / 16;
-                isum += (int32_t) sc[0 + sub_idx] * dot0
-                      + (int32_t) sc[2 + sub_idx] * dot1
-                      + (int32_t) sc[4 + sub_idx] * dot2
-                      + (int32_t) sc[6 + sub_idx] * dot3;
+                isum += (int32_t) sc[0 + sub_idx] * dot0 + (int32_t) sc[2 + sub_idx] * dot1 +
+                        (int32_t) sc[4 + sub_idx] * dot2 + (int32_t) sc[6 + sub_idx] * dot3;
 #endif
             }
             xb += 128;
@@ -840,18 +851,23 @@ static void q6k_decode_one_row(size_t n, const struct q6k_pp_ctx *c) {
 }
 #else
 static void q6k_decode_one_row(size_t n, const struct q6k_pp_ctx *c) {
-    (void)n; (void)c;
+    (void) n;
+    (void) c;
 }
 #endif
 
-void linear_q6k_w6a8_prefill_pre(const int8_t* x_q8, const float* scale_x,
-                                   size_t m,
-                                   const void* w_q6k, size_t n_in, size_t n_out,
-                                   float* y) {
+void linear_q6k_w6a8_prefill_pre(const int8_t *x_q8,
+                                 const float  *scale_x,
+                                 size_t        m,
+                                 const void   *w_q6k,
+                                 size_t        n_in,
+                                 size_t        n_out,
+                                 float        *y) {
 #if defined(__ARM_NEON)
-    if (m == 0 || m > GEIST_QUANT_M_CAP) return;
-    const struct block_q6_K_t* w = (const struct block_q6_K_t*)w_q6k;
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    if (m == 0 || m > GEIST_QUANT_M_CAP)
+        return;
+    const struct block_q6_K_t *w                = (const struct block_q6_K_t *) w_q6k;
+    const size_t               n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
 
     /* Activation packing (§10.11): pack x ONCE into block-major layout
      * packed[(b*m + t)*256 + e] so per-token reads are sequential instead of
@@ -863,13 +879,13 @@ void linear_q6k_w6a8_prefill_pre(const int8_t* x_q8, const float* scale_x,
     static int q6k_pack_act = -1;
     if (q6k_pack_act < 0) {
         const char *e = getenv("GEIST_Q6K_PACK_ACT");
-        q6k_pack_act = (e != NULL && e[0] == '0') ? 0 : 1;
+        q6k_pack_act  = (e != NULL && e[0] == '0') ? 0 : 1;
     }
     const int8_t *packed = NULL;
     if (q6k_pack_act && m >= 2) {
-        static _Thread_local int8_t *q6kpack_tl = NULL;
-        static _Thread_local size_t   q6kpack_cap = 0;
-        const size_t need = m * n_in;
+        static _Thread_local int8_t *q6kpack_tl  = NULL;
+        static _Thread_local size_t  q6kpack_cap = 0;
+        const size_t                 need        = m * n_in;
         if (need > q6kpack_cap) {
             /* Route through heap.h (AGENT.md): the buffer is fully repopulated
              * by the packing loop below before any read, so dropping the old
@@ -883,7 +899,8 @@ void linear_q6k_w6a8_prefill_pre(const int8_t* x_q8, const float* scale_x,
             for (size_t b = 0; b < n_blocks_per_row; b++)
                 for (size_t t = 0; t < m; t++)
                     memcpy(pk + (b * m + t) * Q6_K_BLOCK_ELEMS,
-                           x_q8 + t * n_in + b * Q6_K_BLOCK_ELEMS, Q6_K_BLOCK_ELEMS);
+                           x_q8 + t * n_in + b * Q6_K_BLOCK_ELEMS,
+                           Q6_K_BLOCK_ELEMS);
             packed = pk;
         }
     }
@@ -892,44 +909,62 @@ void linear_q6k_w6a8_prefill_pre(const int8_t* x_q8, const float* scale_x,
      * reconstructed q-vectors, in (half, sub_off, chunk) iteration order.
      * q-vector g maps to x[blk_off + xoff_tab[g] .. +15]. */
     static const int xoff_tab[16] = {
-          0,  32,  64,  96,   16,  48,  80, 112,   /* half 0: sub0, sub16 */
-        128, 160, 192, 224,  144, 176, 208, 240,   /* half 1: sub0, sub16 */
+            0,
+            32,
+            64,
+            96,
+            16,
+            48,
+            80,
+            112, /* half 0: sub0, sub16 */
+            128,
+            160,
+            192,
+            224,
+            144,
+            176,
+            208,
+            240, /* half 1: sub0, sub16 */
     };
 
-    /* Recon-once-per-block (Plan A §10.3): unpack a Q6_K block ONCE into a
-     * 16×int8x16 L1 scratch (QREG) + per-vector int32 scales (SREG); all m
-     * tokens then SDOT against it. Bit-identical (same integer ops + deferred
-     * fp32 scale). Uses mask_lo4/mask_lo2/bias_32 + sub_off from the caller. */
-    #define Q6K_RECON_BLOCK(BLK, QREG, SREG)                                                  \
-        do {                                                                                  \
-            int g_ = 0;                                                                       \
-            for (int half_ = 0; half_ < 2; half_++) {                                         \
-                const uint8_t* ql_ = (BLK)->ql + half_ * 64;                                  \
-                const uint8_t* qh_ = (BLK)->qh + half_ * 32;                                  \
-                const int8_t*  sc_ = (BLK)->scales + half_ * 8;                               \
-                for (int so_ = 0; so_ < 32; so_ += 16) {                                      \
-                    uint8x16_t la_ = vandq_u8(vld1q_u8(ql_ + so_ + 0),  mask_lo4);            \
-                    uint8x16_t lb_ = vshrq_n_u8(vld1q_u8(ql_ + so_ + 0), 4);                  \
-                    uint8x16_t lc_ = vandq_u8(vld1q_u8(ql_ + so_ + 32), mask_lo4);            \
-                    uint8x16_t le_ = vshrq_n_u8(vld1q_u8(ql_ + so_ + 32), 4);                 \
-                    uint8x16_t hv_ = vld1q_u8(qh_ + so_);                                     \
-                    uint8x16_t h0_ = vandq_u8(hv_, mask_lo2);                                 \
-                    uint8x16_t h1_ = vandq_u8(vshrq_n_u8(hv_, 2), mask_lo2);                  \
-                    uint8x16_t h2_ = vandq_u8(vshrq_n_u8(hv_, 4), mask_lo2);                  \
-                    uint8x16_t h3_ = vshrq_n_u8(hv_, 6);                                      \
-                    (QREG)[g_ + 0] = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(la_, vshlq_n_u8(h0_, 4))), bias_32); \
-                    (QREG)[g_ + 1] = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(lc_, vshlq_n_u8(h1_, 4))), bias_32); \
-                    (QREG)[g_ + 2] = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(lb_, vshlq_n_u8(h2_, 4))), bias_32); \
-                    (QREG)[g_ + 3] = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(le_, vshlq_n_u8(h3_, 4))), bias_32); \
-                    const int si_ = so_ / 16;                                                 \
-                    (SREG)[g_ + 0] = (int32_t) sc_[0 + si_];                                  \
-                    (SREG)[g_ + 1] = (int32_t) sc_[2 + si_];                                  \
-                    (SREG)[g_ + 2] = (int32_t) sc_[4 + si_];                                  \
-                    (SREG)[g_ + 3] = (int32_t) sc_[6 + si_];                                  \
-                    g_ += 4;                                                                  \
-                }                                                                             \
-            }                                                                                 \
-        } while (0)
+/* Recon-once-per-block (Plan A §10.3): unpack a Q6_K block ONCE into a
+ * 16×int8x16 L1 scratch (QREG) + per-vector int32 scales (SREG); all m
+ * tokens then SDOT against it. Bit-identical (same integer ops + deferred
+ * fp32 scale). Uses mask_lo4/mask_lo2/bias_32 + sub_off from the caller. */
+#define Q6K_RECON_BLOCK(BLK, QREG, SREG)                                                           \
+    do {                                                                                           \
+        int g_ = 0;                                                                                \
+        for (int half_ = 0; half_ < 2; half_++) {                                                  \
+            const uint8_t *ql_ = (BLK)->ql + half_ * 64;                                           \
+            const uint8_t *qh_ = (BLK)->qh + half_ * 32;                                           \
+            const int8_t  *sc_ = (BLK)->scales + half_ * 8;                                        \
+            for (int so_ = 0; so_ < 32; so_ += 16) {                                               \
+                uint8x16_t la_ = vandq_u8(vld1q_u8(ql_ + so_ + 0), mask_lo4);                      \
+                uint8x16_t lb_ = vshrq_n_u8(vld1q_u8(ql_ + so_ + 0), 4);                           \
+                uint8x16_t lc_ = vandq_u8(vld1q_u8(ql_ + so_ + 32), mask_lo4);                     \
+                uint8x16_t le_ = vshrq_n_u8(vld1q_u8(ql_ + so_ + 32), 4);                          \
+                uint8x16_t hv_ = vld1q_u8(qh_ + so_);                                              \
+                uint8x16_t h0_ = vandq_u8(hv_, mask_lo2);                                          \
+                uint8x16_t h1_ = vandq_u8(vshrq_n_u8(hv_, 2), mask_lo2);                           \
+                uint8x16_t h2_ = vandq_u8(vshrq_n_u8(hv_, 4), mask_lo2);                           \
+                uint8x16_t h3_ = vshrq_n_u8(hv_, 6);                                               \
+                (QREG)[g_ + 0] =                                                                   \
+                        vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(la_, vshlq_n_u8(h0_, 4))), bias_32); \
+                (QREG)[g_ + 1] =                                                                   \
+                        vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(lc_, vshlq_n_u8(h1_, 4))), bias_32); \
+                (QREG)[g_ + 2] =                                                                   \
+                        vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(lb_, vshlq_n_u8(h2_, 4))), bias_32); \
+                (QREG)[g_ + 3] =                                                                   \
+                        vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(le_, vshlq_n_u8(h3_, 4))), bias_32); \
+                const int si_  = so_ / 16;                                                         \
+                (SREG)[g_ + 0] = (int32_t) sc_[0 + si_];                                           \
+                (SREG)[g_ + 1] = (int32_t) sc_[2 + si_];                                           \
+                (SREG)[g_ + 2] = (int32_t) sc_[4 + si_];                                           \
+                (SREG)[g_ + 3] = (int32_t) sc_[6 + si_];                                           \
+                g_ += 4;                                                                           \
+            }                                                                                      \
+        }                                                                                          \
+    } while (0)
 
     const size_t n_pairs = n_out / 2;
 
@@ -938,24 +973,27 @@ void linear_q6k_w6a8_prefill_pre(const int8_t* x_q8, const float* scale_x,
      * halves activation L2->L1 traffic, which is the bound once recon is
      * amortized. qreg0/qreg1 (1 KB total) live in L1 scratch. */
 #if defined(_OPENMP)
-    #pragma omp parallel for schedule(dynamic, 2)
+#pragma omp parallel for schedule(dynamic, 2)
 #endif
     for (size_t np = 0; np < n_pairs; np++) {
-        const size_t n = np * 2;
-        const struct block_q6_K_t* row0 = w + n * n_blocks_per_row;
-        const struct block_q6_K_t* row1 = w + (n + 1) * n_blocks_per_row;
+        const size_t               n    = np * 2;
+        const struct block_q6_K_t *row0 = w + n * n_blocks_per_row;
+        const struct block_q6_K_t *row1 = w + (n + 1) * n_blocks_per_row;
 
         float accs0[GEIST_QUANT_M_CAP] __attribute__((aligned(16)));
         float accs1[GEIST_QUANT_M_CAP] __attribute__((aligned(16)));
-        for (size_t i = 0; i < m; i++) { accs0[i] = 0.0f; accs1[i] = 0.0f; }
+        for (size_t i = 0; i < m; i++) {
+            accs0[i] = 0.0f;
+            accs1[i] = 0.0f;
+        }
 
         const uint8x16_t mask_lo4 = vdupq_n_u8(0x0F);
         const uint8x16_t mask_lo2 = vdupq_n_u8(0x03);
         const int8x16_t  bias_32  = vdupq_n_s8(32);
 
         for (size_t b = 0; b < n_blocks_per_row; b++) {
-            const struct block_q6_K_t* blk0 = &row0[b];
-            const struct block_q6_K_t* blk1 = &row1[b];
+            const struct block_q6_K_t *blk0 = &row0[b];
+            const struct block_q6_K_t *blk1 = &row1[b];
             if (b + 2 < n_blocks_per_row) {
                 __builtin_prefetch(&row0[b + 2], 0, 0);
                 __builtin_prefetch(&row1[b + 2], 0, 0);
@@ -969,32 +1007,40 @@ void linear_q6k_w6a8_prefill_pre(const int8_t* x_q8, const float* scale_x,
             Q6K_RECON_BLOCK(blk0, qreg0, sreg0);
             Q6K_RECON_BLOCK(blk1, qreg1, sreg1);
 
-            const size_t blk_off = b * Q6_K_BLOCK_ELEMS;
-            const int8_t* xblk; size_t xstride;
-            if (packed) { xblk = packed + (size_t) b * m * Q6_K_BLOCK_ELEMS; xstride = Q6_K_BLOCK_ELEMS; }
-            else        { xblk = x_q8 + blk_off; xstride = n_in; }
+            const size_t  blk_off = b * Q6_K_BLOCK_ELEMS;
+            const int8_t *xblk;
+            size_t        xstride;
+            if (packed) {
+                xblk    = packed + (size_t) b * m * Q6_K_BLOCK_ELEMS;
+                xstride = Q6_K_BLOCK_ELEMS;
+            } else {
+                xblk    = x_q8 + blk_off;
+                xstride = n_in;
+            }
             size_t i = 0;
-            for (; i + 4 <= m; i += 4) {  /* MR=4 tokens × NR=2 rows */
+            for (; i + 4 <= m; i += 4) { /* MR=4 tokens × NR=2 rows */
                 int32x4_t a00 = vdupq_n_s32(0), a01 = vdupq_n_s32(0);
                 int32x4_t a02 = vdupq_n_s32(0), a03 = vdupq_n_s32(0);
                 int32x4_t a10 = vdupq_n_s32(0), a11 = vdupq_n_s32(0);
                 int32x4_t a12 = vdupq_n_s32(0), a13 = vdupq_n_s32(0);
                 for (int g = 0; g < 16; g++) {
-                    const size_t  xg = (size_t) xoff_tab[g];
+                    const size_t    xg = (size_t) xoff_tab[g];
                     const int8x16_t v0 = vld1q_s8(xblk + (i + 0) * xstride + xg);
                     const int8x16_t v1 = vld1q_s8(xblk + (i + 1) * xstride + xg);
                     const int8x16_t v2 = vld1q_s8(xblk + (i + 2) * xstride + xg);
                     const int8x16_t v3 = vld1q_s8(xblk + (i + 3) * xstride + xg);
-                    const int8x16_t q0 = qreg0[g]; const int32_t s0 = sreg0[g];
-                    const int8x16_t q1 = qreg1[g]; const int32_t s1 = sreg1[g];
-                    a00 = vmlaq_n_s32(a00, vdotq_s32(vdupq_n_s32(0), q0, v0), s0);
-                    a01 = vmlaq_n_s32(a01, vdotq_s32(vdupq_n_s32(0), q0, v1), s0);
-                    a02 = vmlaq_n_s32(a02, vdotq_s32(vdupq_n_s32(0), q0, v2), s0);
-                    a03 = vmlaq_n_s32(a03, vdotq_s32(vdupq_n_s32(0), q0, v3), s0);
-                    a10 = vmlaq_n_s32(a10, vdotq_s32(vdupq_n_s32(0), q1, v0), s1);
-                    a11 = vmlaq_n_s32(a11, vdotq_s32(vdupq_n_s32(0), q1, v1), s1);
-                    a12 = vmlaq_n_s32(a12, vdotq_s32(vdupq_n_s32(0), q1, v2), s1);
-                    a13 = vmlaq_n_s32(a13, vdotq_s32(vdupq_n_s32(0), q1, v3), s1);
+                    const int8x16_t q0 = qreg0[g];
+                    const int32_t   s0 = sreg0[g];
+                    const int8x16_t q1 = qreg1[g];
+                    const int32_t   s1 = sreg1[g];
+                    a00                = vmlaq_n_s32(a00, vdotq_s32(vdupq_n_s32(0), q0, v0), s0);
+                    a01                = vmlaq_n_s32(a01, vdotq_s32(vdupq_n_s32(0), q0, v1), s0);
+                    a02                = vmlaq_n_s32(a02, vdotq_s32(vdupq_n_s32(0), q0, v2), s0);
+                    a03                = vmlaq_n_s32(a03, vdotq_s32(vdupq_n_s32(0), q0, v3), s0);
+                    a10                = vmlaq_n_s32(a10, vdotq_s32(vdupq_n_s32(0), q1, v0), s1);
+                    a11                = vmlaq_n_s32(a11, vdotq_s32(vdupq_n_s32(0), q1, v1), s1);
+                    a12                = vmlaq_n_s32(a12, vdotq_s32(vdupq_n_s32(0), q1, v2), s1);
+                    a13                = vmlaq_n_s32(a13, vdotq_s32(vdupq_n_s32(0), q1, v3), s1);
                 }
                 accs0[i + 0] += d0 * scale_x[i + 0] * (float) vaddvq_s32(a00);
                 accs0[i + 1] += d0 * scale_x[i + 1] * (float) vaddvq_s32(a01);
@@ -1005,7 +1051,7 @@ void linear_q6k_w6a8_prefill_pre(const int8_t* x_q8, const float* scale_x,
                 accs1[i + 2] += d1 * scale_x[i + 2] * (float) vaddvq_s32(a12);
                 accs1[i + 3] += d1 * scale_x[i + 3] * (float) vaddvq_s32(a13);
             }
-            for (; i < m; i++) {  /* token remainder */
+            for (; i < m; i++) { /* token remainder */
                 int32x4_t acc0 = vdupq_n_s32(0), acc1 = vdupq_n_s32(0);
                 for (int g = 0; g < 16; g++) {
                     const int8x16_t v = vld1q_s8(xblk + i * xstride + (size_t) xoff_tab[g]);
@@ -1025,149 +1071,180 @@ void linear_q6k_w6a8_prefill_pre(const int8_t* x_q8, const float* scale_x,
     /* NR=1 tail for odd n_out (n_out=1536 is even for Gemma 4 down, so this is
      * a correctness fallback). */
     for (size_t n = n_pairs * 2; n < n_out; n++) {
-        const struct block_q6_K_t* row = w + n * n_blocks_per_row;
-        float accs[GEIST_QUANT_M_CAP] __attribute__((aligned(16)));
-        for (size_t i = 0; i < m; i++) accs[i] = 0.0f;
+        const struct block_q6_K_t *row = w + n * n_blocks_per_row;
+        float                      accs[GEIST_QUANT_M_CAP] __attribute__((aligned(16)));
+        for (size_t i = 0; i < m; i++)
+            accs[i] = 0.0f;
 
         const uint8x16_t mask_lo4 = vdupq_n_u8(0x0F);
         const uint8x16_t mask_lo2 = vdupq_n_u8(0x03);
         const int8x16_t  bias_32  = vdupq_n_s8(32);
 
         for (size_t b = 0; b < n_blocks_per_row; b++) {
-            const struct block_q6_K_t* blk = &row[b];
-            const float d = fp16_to_fp32(blk->d);
-            int8x16_t qreg[16];
-            int32_t   sreg[16] __attribute__((aligned(16)));
+            const struct block_q6_K_t *blk = &row[b];
+            const float                d   = fp16_to_fp32(blk->d);
+            int8x16_t                  qreg[16];
+            int32_t                    sreg[16] __attribute__((aligned(16)));
             Q6K_RECON_BLOCK(blk, qreg, sreg);
 
-            const size_t blk_off = b * Q6_K_BLOCK_ELEMS;
-            const int8_t* xblk; size_t xstride;
-            if (packed) { xblk = packed + (size_t) b * m * Q6_K_BLOCK_ELEMS; xstride = Q6_K_BLOCK_ELEMS; }
-            else        { xblk = x_q8 + blk_off; xstride = n_in; }
+            const size_t  blk_off = b * Q6_K_BLOCK_ELEMS;
+            const int8_t *xblk;
+            size_t        xstride;
+            if (packed) {
+                xblk    = packed + (size_t) b * m * Q6_K_BLOCK_ELEMS;
+                xstride = Q6_K_BLOCK_ELEMS;
+            } else {
+                xblk    = x_q8 + blk_off;
+                xstride = n_in;
+            }
             for (size_t i = 0; i < m; i++) {
                 int32x4_t acc = vdupq_n_s32(0);
                 for (int g = 0; g < 16; g++) {
-                    const int8_t* xb = xblk + i * xstride + (size_t) xoff_tab[g];
-                    acc = vmlaq_n_s32(acc, vdotq_s32(vdupq_n_s32(0), qreg[g], vld1q_s8(xb)), sreg[g]);
+                    const int8_t *xb = xblk + i * xstride + (size_t) xoff_tab[g];
+                    acc              = vmlaq_n_s32(
+                            acc, vdotq_s32(vdupq_n_s32(0), qreg[g], vld1q_s8(xb)), sreg[g]);
                 }
                 accs[i] += d * scale_x[i] * (float) vaddvq_s32(acc);
             }
         }
-        for (size_t i = 0; i < m; i++) y[i * n_out + n] = accs[i];
+        for (size_t i = 0; i < m; i++)
+            y[i * n_out + n] = accs[i];
     }
-    #undef Q6K_RECON_BLOCK
+#undef Q6K_RECON_BLOCK
 #else
-    (void)x_q8; (void)scale_x; (void)m;
-    (void)w_q6k; (void)n_in; (void)n_out; (void)y;
+    (void) x_q8;
+    (void) scale_x;
+    (void) m;
+    (void) w_q6k;
+    (void) n_in;
+    (void) n_out;
+    (void) y;
     fprintf(stderr, "linear_q6k_w6a8_prefill_pre: NEON required\n");
 #endif
 }
 
-void linear_q6k_w6a8_prefill_pre_accum_blocks(const int8_t* x_q8,
-                                               const float* scale_x,
-                                               size_t m,
-                                               const void* w_q6k,
-                                               size_t n_in_total,
-                                               size_t n_out,
-                                               size_t block_start,
-                                               size_t n_blocks,
-                                               float* y) {
+void linear_q6k_w6a8_prefill_pre_accum_blocks(const int8_t *x_q8,
+                                              const float  *scale_x,
+                                              size_t        m,
+                                              const void   *w_q6k,
+                                              size_t        n_in_total,
+                                              size_t        n_out,
+                                              size_t        block_start,
+                                              size_t        n_blocks,
+                                              float        *y) {
 #if defined(__ARM_NEON)
-    if (m == 0 || m > GEIST_QUANT_M_CAP || n_blocks == 0 ||
-        x_q8 == NULL || scale_x == NULL || w_q6k == NULL || y == NULL) {
+    if (m == 0 || m > GEIST_QUANT_M_CAP || n_blocks == 0 || x_q8 == NULL || scale_x == NULL ||
+        w_q6k == NULL || y == NULL) {
         return;
     }
-    const struct block_q6_K_t* w = (const struct block_q6_K_t*)w_q6k;
-    const size_t n_blocks_per_row = n_in_total / Q6_K_BLOCK_ELEMS;
-    const size_t n_in_tile = n_blocks * Q6_K_BLOCK_ELEMS;
-    if (block_start + n_blocks > n_blocks_per_row) return;
+    const struct block_q6_K_t *w                = (const struct block_q6_K_t *) w_q6k;
+    const size_t               n_blocks_per_row = n_in_total / Q6_K_BLOCK_ELEMS;
+    const size_t               n_in_tile        = n_blocks * Q6_K_BLOCK_ELEMS;
+    if (block_start + n_blocks > n_blocks_per_row)
+        return;
 
 #if defined(_OPENMP)
-    #pragma omp parallel for schedule(dynamic, 4)
+#pragma omp parallel for schedule(dynamic, 4)
 #endif
     for (size_t n = 0; n < n_out; n++) {
-        const struct block_q6_K_t* row = w + n * n_blocks_per_row + block_start;
+        const struct block_q6_K_t *row = w + n * n_blocks_per_row + block_start;
 
         float accs[GEIST_QUANT_M_CAP] __attribute__((aligned(16)));
-        for (size_t i = 0; i < m; i++) accs[i] = 0.0f;
+        for (size_t i = 0; i < m; i++)
+            accs[i] = 0.0f;
 
         for (size_t b = 0; b < n_blocks; b++) {
-            const struct block_q6_K_t* blk = &row[b];
-            const float    d  = fp16_to_fp32(blk->d);
-            const int8_t  *sc = blk->scales;
+            const struct block_q6_K_t *blk = &row[b];
+            const float                d   = fp16_to_fp32(blk->d);
+            const int8_t              *sc  = blk->scales;
 
             const uint8x16_t mask_lo4 = vdupq_n_u8(0x0F);
             const uint8x16_t mask_lo2 = vdupq_n_u8(0x03);
             const int8x16_t  bias_32  = vdupq_n_s8(32);
 
             for (int half = 0; half < 2; half++) {
-                const uint8_t* ql = blk->ql + half * 64;
-                const uint8_t* qh = blk->qh + half * 32;
-                const size_t   xb_half_off = b * Q6_K_BLOCK_ELEMS + (size_t)half * 128;
+                const uint8_t *ql          = blk->ql + half * 64;
+                const uint8_t *qh          = blk->qh + half * 32;
+                const size_t   xb_half_off = b * Q6_K_BLOCK_ELEMS + (size_t) half * 128;
 
                 for (int sub_off = 0; sub_off < 32; sub_off += 16) {
-                    uint8x16_t ql_lo  = vandq_u8(vld1q_u8(ql + sub_off + 0),  mask_lo4);
+                    uint8x16_t ql_lo  = vandq_u8(vld1q_u8(ql + sub_off + 0), mask_lo4);
                     uint8x16_t ql_hi  = vshrq_n_u8(vld1q_u8(ql + sub_off + 0), 4);
                     uint8x16_t ql_lo2 = vandq_u8(vld1q_u8(ql + sub_off + 32), mask_lo4);
                     uint8x16_t ql_hi2 = vshrq_n_u8(vld1q_u8(ql + sub_off + 32), 4);
-                    uint8x16_t qhv = vld1q_u8(qh + sub_off);
-                    uint8x16_t qh0 = vandq_u8(qhv, mask_lo2);
-                    uint8x16_t qh1 = vandq_u8(vshrq_n_u8(qhv, 2), mask_lo2);
-                    uint8x16_t qh2 = vandq_u8(vshrq_n_u8(qhv, 4), mask_lo2);
-                    uint8x16_t qh3 = vshrq_n_u8(qhv, 6);
+                    uint8x16_t qhv    = vld1q_u8(qh + sub_off);
+                    uint8x16_t qh0    = vandq_u8(qhv, mask_lo2);
+                    uint8x16_t qh1    = vandq_u8(vshrq_n_u8(qhv, 2), mask_lo2);
+                    uint8x16_t qh2    = vandq_u8(vshrq_n_u8(qhv, 4), mask_lo2);
+                    uint8x16_t qh3    = vshrq_n_u8(qhv, 6);
 
-                    int8x16_t q0 = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(ql_lo,  vshlq_n_u8(qh0, 4))), bias_32);
-                    int8x16_t q1 = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(ql_lo2, vshlq_n_u8(qh1, 4))), bias_32);
-                    int8x16_t q2 = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(ql_hi,  vshlq_n_u8(qh2, 4))), bias_32);
-                    int8x16_t q3 = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(ql_hi2, vshlq_n_u8(qh3, 4))), bias_32);
+                    int8x16_t q0 = vsubq_s8(
+                            vreinterpretq_s8_u8(vorrq_u8(ql_lo, vshlq_n_u8(qh0, 4))), bias_32);
+                    int8x16_t q1 = vsubq_s8(
+                            vreinterpretq_s8_u8(vorrq_u8(ql_lo2, vshlq_n_u8(qh1, 4))), bias_32);
+                    int8x16_t q2 = vsubq_s8(
+                            vreinterpretq_s8_u8(vorrq_u8(ql_hi, vshlq_n_u8(qh2, 4))), bias_32);
+                    int8x16_t q3 = vsubq_s8(
+                            vreinterpretq_s8_u8(vorrq_u8(ql_hi2, vshlq_n_u8(qh3, 4))), bias_32);
 
                     const int   sub_idx = sub_off / 16;
-                    const float ds0 = d * (float)sc[0 + sub_idx];
-                    const float ds1 = d * (float)sc[2 + sub_idx];
-                    const float ds2 = d * (float)sc[4 + sub_idx];
-                    const float ds3 = d * (float)sc[6 + sub_idx];
+                    const float ds0     = d * (float) sc[0 + sub_idx];
+                    const float ds1     = d * (float) sc[2 + sub_idx];
+                    const float ds2     = d * (float) sc[4 + sub_idx];
+                    const float ds3     = d * (float) sc[6 + sub_idx];
 
                     for (size_t i = 0; i < m; i++) {
-                        const int8_t* xb = x_q8 + i * n_in_tile + xb_half_off + (size_t)sub_off;
-                        accs[i] += q6k_dot4_scaled(xb, q0, q1, q2, q3,
-                                                   scale_x[i], ds0, ds1, ds2, ds3);
+                        const int8_t *xb = x_q8 + i * n_in_tile + xb_half_off + (size_t) sub_off;
+                        accs[i] +=
+                                q6k_dot4_scaled(xb, q0, q1, q2, q3, scale_x[i], ds0, ds1, ds2, ds3);
                     }
                 }
                 sc += 8;
             }
         }
-        for (size_t i = 0; i < m; i++) y[i * n_out + n] += accs[i];
+        for (size_t i = 0; i < m; i++)
+            y[i * n_out + n] += accs[i];
     }
 #else
-    (void)x_q8; (void)scale_x; (void)m; (void)w_q6k;
-    (void)n_in_total; (void)n_out; (void)block_start; (void)n_blocks; (void)y;
+    (void) x_q8;
+    (void) scale_x;
+    (void) m;
+    (void) w_q6k;
+    (void) n_in_total;
+    (void) n_out;
+    (void) block_start;
+    (void) n_blocks;
+    (void) y;
     fprintf(stderr, "linear_q6k_w6a8_prefill_pre_accum_blocks: NEON required\n");
 #endif
 }
 
-void linear_q6k_w6a8_prefill_raw_ntile4(const int8_t* x_q8,
-                                         const float* scale_x,
-                                         size_t m, const void* w_q6k,
-                                         size_t n_in, size_t n_out,
-                                         float* y) {
+void linear_q6k_w6a8_prefill_raw_ntile4(const int8_t *x_q8,
+                                        const float  *scale_x,
+                                        size_t        m,
+                                        const void   *w_q6k,
+                                        size_t        n_in,
+                                        size_t        n_out,
+                                        float        *y) {
 #if defined(__ARM_NEON)
-    if (m == 0 || m > GEIST_QUANT_M_CAP || n_out == 0 ||
-        x_q8 == NULL || scale_x == NULL || w_q6k == NULL || y == NULL) {
+    if (m == 0 || m > GEIST_QUANT_M_CAP || n_out == 0 || x_q8 == NULL || scale_x == NULL ||
+        w_q6k == NULL || y == NULL) {
         return;
     }
-    const struct block_q6_K_t* w = (const struct block_q6_K_t*)w_q6k;
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    const size_t n_tiles = (n_out + 3) / 4;
+    const struct block_q6_K_t *w                = (const struct block_q6_K_t *) w_q6k;
+    const size_t               n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    const size_t               n_tiles          = (n_out + 3) / 4;
 
 #if defined(_OPENMP)
-    #pragma omp parallel for schedule(dynamic, 4)
+#pragma omp parallel for schedule(dynamic, 4)
 #endif
     for (size_t nt = 0; nt < n_tiles; nt++) {
-        const size_t row0 = nt * 4;
+        const size_t row0     = nt * 4;
         const size_t valid_nr = (row0 + 4 <= n_out) ? 4 : (n_out - row0);
-        float acc[4][GEIST_QUANT_M_CAP] __attribute__((aligned(16)));
+        float        acc[4][GEIST_QUANT_M_CAP] __attribute__((aligned(16)));
         for (size_t nr = 0; nr < valid_nr; nr++) {
-            for (size_t i = 0; i < m; i++) acc[nr][i] = 0.0f;
+            for (size_t i = 0; i < m; i++)
+                acc[nr][i] = 0.0f;
         }
 
         const uint8x16_t mask_lo4 = vdupq_n_u8(0x0F);
@@ -1176,78 +1253,62 @@ void linear_q6k_w6a8_prefill_raw_ntile4(const int8_t* x_q8,
 
         for (size_t b = 0; b < n_blocks_per_row; b++) {
             for (int half = 0; half < 2; half++) {
-                const size_t xb_half_off =
-                    b * Q6_K_BLOCK_ELEMS + (size_t) half * 128;
+                const size_t xb_half_off = b * Q6_K_BLOCK_ELEMS + (size_t) half * 128;
 
                 for (int sub_off = 0; sub_off < 32; sub_off += 16) {
                     int8x16_t q0[4], q1[4], q2[4], q3[4];
-                    float ds0[4], ds1[4], ds2[4], ds3[4];
+                    float     ds0[4], ds1[4], ds2[4], ds3[4];
                     const int sub_idx = half * 8 + sub_off / 16;
 
                     for (size_t nr = 0; nr < valid_nr; nr++) {
-                        const struct block_q6_K_t* blk =
-                            w + (row0 + nr) * n_blocks_per_row + b;
-                        const float d = fp16_to_fp32(blk->d);
-                        const uint8_t* ql = blk->ql + half * 64;
-                        const uint8_t* qh = blk->qh + half * 32;
-                        const uint8x16_t ql0 = vld1q_u8(ql + sub_off + 0);
-                        const uint8x16_t ql1 = vld1q_u8(ql + sub_off + 32);
-                        const uint8x16_t qhv = vld1q_u8(qh + sub_off);
+                        const struct block_q6_K_t *blk = w + (row0 + nr) * n_blocks_per_row + b;
+                        const float                d   = fp16_to_fp32(blk->d);
+                        const uint8_t             *ql  = blk->ql + half * 64;
+                        const uint8_t             *qh  = blk->qh + half * 32;
+                        const uint8x16_t           ql0 = vld1q_u8(ql + sub_off + 0);
+                        const uint8x16_t           ql1 = vld1q_u8(ql + sub_off + 32);
+                        const uint8x16_t           qhv = vld1q_u8(qh + sub_off);
 
                         const uint8x16_t qh0 = vandq_u8(qhv, mask_lo2);
-                        const uint8x16_t qh1 =
-                            vandq_u8(vshrq_n_u8(qhv, 2), mask_lo2);
-                        const uint8x16_t qh2 =
-                            vandq_u8(vshrq_n_u8(qhv, 4), mask_lo2);
+                        const uint8x16_t qh1 = vandq_u8(vshrq_n_u8(qhv, 2), mask_lo2);
+                        const uint8x16_t qh2 = vandq_u8(vshrq_n_u8(qhv, 4), mask_lo2);
                         const uint8x16_t qh3 = vshrq_n_u8(qhv, 6);
 
-                        q0[nr] = vsubq_s8(
-                            vreinterpretq_s8_u8(vorrq_u8(vandq_u8(ql0, mask_lo4),
-                                                          vshlq_n_u8(qh0, 4))),
-                            bias_32);
-                        q1[nr] = vsubq_s8(
-                            vreinterpretq_s8_u8(vorrq_u8(vandq_u8(ql1, mask_lo4),
-                                                          vshlq_n_u8(qh1, 4))),
-                            bias_32);
-                        q2[nr] = vsubq_s8(
-                            vreinterpretq_s8_u8(vorrq_u8(vshrq_n_u8(ql0, 4),
-                                                          vshlq_n_u8(qh2, 4))),
-                            bias_32);
-                        q3[nr] = vsubq_s8(
-                            vreinterpretq_s8_u8(vorrq_u8(vshrq_n_u8(ql1, 4),
-                                                          vshlq_n_u8(qh3, 4))),
-                            bias_32);
+                        q0[nr] = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(vandq_u8(ql0, mask_lo4),
+                                                                       vshlq_n_u8(qh0, 4))),
+                                          bias_32);
+                        q1[nr] = vsubq_s8(vreinterpretq_s8_u8(vorrq_u8(vandq_u8(ql1, mask_lo4),
+                                                                       vshlq_n_u8(qh1, 4))),
+                                          bias_32);
+                        q2[nr] = vsubq_s8(vreinterpretq_s8_u8(
+                                                  vorrq_u8(vshrq_n_u8(ql0, 4), vshlq_n_u8(qh2, 4))),
+                                          bias_32);
+                        q3[nr] = vsubq_s8(vreinterpretq_s8_u8(
+                                                  vorrq_u8(vshrq_n_u8(ql1, 4), vshlq_n_u8(qh3, 4))),
+                                          bias_32);
 
                         const int8_t *sc = blk->scales;
-                        ds0[nr] = d * (float) sc[sub_idx + 0];
-                        ds1[nr] = d * (float) sc[sub_idx + 2];
-                        ds2[nr] = d * (float) sc[sub_idx + 4];
-                        ds3[nr] = d * (float) sc[sub_idx + 6];
+                        ds0[nr]          = d * (float) sc[sub_idx + 0];
+                        ds1[nr]          = d * (float) sc[sub_idx + 2];
+                        ds2[nr]          = d * (float) sc[sub_idx + 4];
+                        ds3[nr]          = d * (float) sc[sub_idx + 6];
                     }
 
                     for (size_t i = 0; i < m; i++) {
-                        const int8_t* xb = x_q8 + i * n_in + xb_half_off +
-                                           (size_t) sub_off;
-                        const int8x16_t x0 = vld1q_s8(xb +  0);
+                        const int8_t   *xb = x_q8 + i * n_in + xb_half_off + (size_t) sub_off;
+                        const int8x16_t x0 = vld1q_s8(xb + 0);
                         const int8x16_t x1 = vld1q_s8(xb + 32);
                         const int8x16_t x2 = vld1q_s8(xb + 64);
                         const int8x16_t x3 = vld1q_s8(xb + 96);
-                        const float sx = scale_x[i];
+                        const float     sx = scale_x[i];
 
                         for (size_t nr = 0; nr < valid_nr; nr++) {
-                            const int32_t dot0 = vaddvq_s32(
-                                vdotq_s32(vdupq_n_s32(0), q0[nr], x0));
-                            const int32_t dot1 = vaddvq_s32(
-                                vdotq_s32(vdupq_n_s32(0), q1[nr], x1));
-                            const int32_t dot2 = vaddvq_s32(
-                                vdotq_s32(vdupq_n_s32(0), q2[nr], x2));
-                            const int32_t dot3 = vaddvq_s32(
-                                vdotq_s32(vdupq_n_s32(0), q3[nr], x3));
-                            acc[nr][i] += sx *
-                                (ds0[nr] * (float) dot0 +
-                                 ds1[nr] * (float) dot1 +
-                                 ds2[nr] * (float) dot2 +
-                                 ds3[nr] * (float) dot3);
+                            const int32_t dot0 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q0[nr], x0));
+                            const int32_t dot1 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q1[nr], x1));
+                            const int32_t dot2 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q2[nr], x2));
+                            const int32_t dot3 = vaddvq_s32(vdotq_s32(vdupq_n_s32(0), q3[nr], x3));
+                            acc[nr][i] += sx * (ds0[nr] * (float) dot0 + ds1[nr] * (float) dot1 +
+                                                ds2[nr] * (float) dot2 + ds3[nr] * (float) dot3);
                         }
                     }
                 }
@@ -1262,31 +1323,40 @@ void linear_q6k_w6a8_prefill_raw_ntile4(const int8_t* x_q8,
         }
     }
 #else
-    (void)x_q8; (void)scale_x; (void)m; (void)w_q6k;
-    (void)n_in; (void)n_out; (void)y;
+    (void) x_q8;
+    (void) scale_x;
+    (void) m;
+    (void) w_q6k;
+    (void) n_in;
+    (void) n_out;
+    (void) y;
     fprintf(stderr, "linear_q6k_w6a8_prefill_raw_ntile4: NEON required\n");
 #endif
 }
 
-void linear_q6k_w6a8_prefill_predecoded_ntile4(const int8_t* x_q8,
-                                                const float* scale_x,
-                                                size_t m, const void* packed,
-                                                size_t n_in, size_t n_out,
-                                                float* y) {
+void linear_q6k_w6a8_prefill_predecoded_ntile4(const int8_t *x_q8,
+                                               const float  *scale_x,
+                                               size_t        m,
+                                               const void   *packed,
+                                               size_t        n_in,
+                                               size_t        n_out,
+                                               float        *y) {
 #if defined(__ARM_NEON)
-    if (m == 0 || m > GEIST_QUANT_M_CAP) return;
-    if (!q6k_predecode_ntile4_valid(packed, n_in, n_out)) return;
+    if (m == 0 || m > GEIST_QUANT_M_CAP)
+        return;
+    if (!q6k_predecode_ntile4_valid(packed, n_in, n_out))
+        return;
 
-    const struct q6k_predecode_block *w = q6k_predecode_ntile4_blocks(packed);
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    const size_t n_tiles = (n_out + 3) / 4;
+    const struct q6k_predecode_block *w                = q6k_predecode_ntile4_blocks(packed);
+    const size_t                      n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    const size_t                      n_tiles          = (n_out + 3) / 4;
 
 #if defined(_OPENMP)
-    #pragma omp parallel for schedule(dynamic, 4)
+#pragma omp parallel for schedule(dynamic, 4)
 #endif
     for (size_t nt = 0; nt < n_tiles; nt++) {
-        const size_t valid_nr = (nt * 4 + 4 <= n_out) ? 4 : (n_out - nt * 4);
-        const struct q6k_predecode_block *tile = w + nt * n_blocks_per_row * 4;
+        const size_t                      valid_nr = (nt * 4 + 4 <= n_out) ? 4 : (n_out - nt * 4);
+        const struct q6k_predecode_block *tile     = w + nt * n_blocks_per_row * 4;
 
         /* Recon-free deferred-int32 microkernel (Plan B §10.4): qs is already the
          * dequantized int8 weight in element order, so the dot is pure SDOT — no
@@ -1298,9 +1368,9 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4(const int8_t* x_q8,
          * valid_nr outputs are written. */
         size_t mt = 0;
         for (; mt + 2 <= m; mt += 2) {
-            const float sx0 = scale_x[mt + 0];
-            const float sx1 = scale_x[mt + 1];
-            float r0[4] = {0}, r1[4] = {0};
+            const float sx0   = scale_x[mt + 0];
+            const float sx1   = scale_x[mt + 1];
+            float       r0[4] = {0}, r1[4] = {0};
 
             for (size_t b = 0; b < n_blocks_per_row; b++) {
                 const struct q6k_predecode_block *blks = tile + b * 4;
@@ -1320,8 +1390,8 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4(const int8_t* x_q8,
                     const int8x16_t q1 = vld1q_s8(blks[1].qs + is * 16);
                     const int8x16_t q2 = vld1q_s8(blks[2].qs + is * 16);
                     const int8x16_t q3 = vld1q_s8(blks[3].qs + is * 16);
-                    const int32_t s0 = blks[0].scales[is], s1 = blks[1].scales[is];
-                    const int32_t s2 = blks[2].scales[is], s3 = blks[3].scales[is];
+                    const int32_t   s0 = blks[0].scales[is], s1 = blks[1].scales[is];
+                    const int32_t   s2 = blks[2].scales[is], s3 = blks[3].scales[is];
                     a00 = vmlaq_n_s32(a00, vdotq_s32(vdupq_n_s32(0), q0, x0), s0);
                     a01 = vmlaq_n_s32(a01, vdotq_s32(vdupq_n_s32(0), q0, x1), s0);
                     a10 = vmlaq_n_s32(a10, vdotq_s32(vdupq_n_s32(0), q1, x0), s1);
@@ -1343,21 +1413,24 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4(const int8_t* x_q8,
 
             float *y0 = y + (mt + 0) * n_out + nt * 4;
             float *y1 = y + (mt + 1) * n_out + nt * 4;
-            for (size_t nr = 0; nr < valid_nr; nr++) { y0[nr] = r0[nr]; y1[nr] = r1[nr]; }
+            for (size_t nr = 0; nr < valid_nr; nr++) {
+                y0[nr] = r0[nr];
+                y1[nr] = r1[nr];
+            }
         }
 
-        for (; mt < m; mt++) {  /* token remainder: single token, deferred int32 */
+        for (; mt < m; mt++) { /* token remainder: single token, deferred int32 */
             for (size_t nr = 0; nr < valid_nr; nr++) {
                 float acc = 0.0f;
                 for (size_t b = 0; b < n_blocks_per_row; b++) {
                     const struct q6k_predecode_block *blk = tile + b * 4 + nr;
-                    int32x4_t a = vdupq_n_s32(0);
+                    int32x4_t                         a   = vdupq_n_s32(0);
                     for (int is = 0; is < 16; is++) {
-                        const int8x16_t xb = vld1q_s8(x_q8 + mt * n_in +
-                                                      b * Q6_K_BLOCK_ELEMS + (size_t) is * 16);
+                        const int8x16_t xb = vld1q_s8(x_q8 + mt * n_in + b * Q6_K_BLOCK_ELEMS +
+                                                      (size_t) is * 16);
                         const int8x16_t qv = vld1q_s8(blk->qs + is * 16);
-                        a = vmlaq_n_s32(a, vdotq_s32(vdupq_n_s32(0), qv, xb),
-                                        (int32_t) blk->scales[is]);
+                        a                  = vmlaq_n_s32(
+                                a, vdotq_s32(vdupq_n_s32(0), qv, xb), (int32_t) blk->scales[is]);
                     }
                     acc += scale_x[mt] * blk->d * (float) vaddvq_s32(a);
                 }
@@ -1366,31 +1439,40 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4(const int8_t* x_q8,
         }
     }
 #else
-    (void)x_q8; (void)scale_x; (void)m; (void)packed;
-    (void)n_in; (void)n_out; (void)y;
+    (void) x_q8;
+    (void) scale_x;
+    (void) m;
+    (void) packed;
+    (void) n_in;
+    (void) n_out;
+    (void) y;
     fprintf(stderr, "linear_q6k_w6a8_prefill_predecoded_ntile4: NEON required\n");
 #endif
 }
 
-void linear_q6k_w6a8_prefill_predecoded_ntile8(const int8_t* x_q8,
-                                                const float* scale_x,
-                                                size_t m, const void* packed,
-                                                size_t n_in, size_t n_out,
-                                                float* y) {
+void linear_q6k_w6a8_prefill_predecoded_ntile8(const int8_t *x_q8,
+                                               const float  *scale_x,
+                                               size_t        m,
+                                               const void   *packed,
+                                               size_t        n_in,
+                                               size_t        n_out,
+                                               float        *y) {
 #if defined(__ARM_NEON)
-    if (m == 0 || m > GEIST_QUANT_M_CAP) return;
-    if (!q6k_predecode_ntile8_valid(packed, n_in, n_out)) return;
+    if (m == 0 || m > GEIST_QUANT_M_CAP)
+        return;
+    if (!q6k_predecode_ntile8_valid(packed, n_in, n_out))
+        return;
 
-    const struct q6k_predecode_block *w = q6k_predecode_ntile8_blocks(packed);
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    const size_t n_tiles = (n_out + 7) / 8;
+    const struct q6k_predecode_block *w                = q6k_predecode_ntile8_blocks(packed);
+    const size_t                      n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    const size_t                      n_tiles          = (n_out + 7) / 8;
 
 #if defined(_OPENMP)
-    #pragma omp parallel for schedule(dynamic, 4)
+#pragma omp parallel for schedule(dynamic, 4)
 #endif
     for (size_t nt = 0; nt < n_tiles; nt++) {
-        const size_t valid_nr = (nt * 8 + 8 <= n_out) ? 8 : (n_out - nt * 8);
-        const struct q6k_predecode_block *tile = w + nt * n_blocks_per_row * 8;
+        const size_t                      valid_nr = (nt * 8 + 8 <= n_out) ? 8 : (n_out - nt * 8);
+        const struct q6k_predecode_block *tile     = w + nt * n_blocks_per_row * 8;
 
         size_t mt = 0;
         for (; mt + 4 <= m; mt += 4) {
@@ -1398,35 +1480,36 @@ void linear_q6k_w6a8_prefill_predecoded_ntile8(const int8_t* x_q8,
             const float sx1 = scale_x[mt + 1];
             const float sx2 = scale_x[mt + 2];
             const float sx3 = scale_x[mt + 3];
-            float a00 = 0.0f, a01 = 0.0f, a02 = 0.0f, a03 = 0.0f;
-            float a04 = 0.0f, a05 = 0.0f, a06 = 0.0f, a07 = 0.0f;
-            float a10 = 0.0f, a11 = 0.0f, a12 = 0.0f, a13 = 0.0f;
-            float a14 = 0.0f, a15 = 0.0f, a16 = 0.0f, a17 = 0.0f;
-            float a20 = 0.0f, a21 = 0.0f, a22 = 0.0f, a23 = 0.0f;
-            float a24 = 0.0f, a25 = 0.0f, a26 = 0.0f, a27 = 0.0f;
-            float a30 = 0.0f, a31 = 0.0f, a32 = 0.0f, a33 = 0.0f;
-            float a34 = 0.0f, a35 = 0.0f, a36 = 0.0f, a37 = 0.0f;
+            float       a00 = 0.0f, a01 = 0.0f, a02 = 0.0f, a03 = 0.0f;
+            float       a04 = 0.0f, a05 = 0.0f, a06 = 0.0f, a07 = 0.0f;
+            float       a10 = 0.0f, a11 = 0.0f, a12 = 0.0f, a13 = 0.0f;
+            float       a14 = 0.0f, a15 = 0.0f, a16 = 0.0f, a17 = 0.0f;
+            float       a20 = 0.0f, a21 = 0.0f, a22 = 0.0f, a23 = 0.0f;
+            float       a24 = 0.0f, a25 = 0.0f, a26 = 0.0f, a27 = 0.0f;
+            float       a30 = 0.0f, a31 = 0.0f, a32 = 0.0f, a33 = 0.0f;
+            float       a34 = 0.0f, a35 = 0.0f, a36 = 0.0f, a37 = 0.0f;
 
             for (size_t b = 0; b < n_blocks_per_row; b++) {
                 const struct q6k_predecode_block *blks = tile + b * 8;
                 for (int is = 0; is < 16; is++) {
-                    const size_t xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
-                    const int8_t *xb0 = x_q8 + (mt + 0) * n_in + xb_off;
-                    const int8_t *xb1 = x_q8 + (mt + 1) * n_in + xb_off;
-                    const int8_t *xb2 = x_q8 + (mt + 2) * n_in + xb_off;
-                    const int8_t *xb3 = x_q8 + (mt + 3) * n_in + xb_off;
+                    const size_t  xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
+                    const int8_t *xb0    = x_q8 + (mt + 0) * n_in + xb_off;
+                    const int8_t *xb1    = x_q8 + (mt + 1) * n_in + xb_off;
+                    const int8_t *xb2    = x_q8 + (mt + 2) * n_in + xb_off;
+                    const int8_t *xb3    = x_q8 + (mt + 3) * n_in + xb_off;
 
-#define Q6K_ACC8_NR(NR, A0, A1, A2, A3) do {                                     \
-                        if ((NR) < valid_nr) {                                    \
-                            const struct q6k_predecode_block *blk = blks + (NR);  \
-                            const int8x16_t qv = vld1q_s8(blk->qs + is * 16);     \
-                            const float ds = blk->d * (float) blk->scales[is];    \
-                            (A0) += sx0 * ds * (float) dot16_i8(xb0, qv);         \
-                            (A1) += sx1 * ds * (float) dot16_i8(xb1, qv);         \
-                            (A2) += sx2 * ds * (float) dot16_i8(xb2, qv);         \
-                            (A3) += sx3 * ds * (float) dot16_i8(xb3, qv);         \
-                        }                                                         \
-                    } while (0)
+#define Q6K_ACC8_NR(NR, A0, A1, A2, A3)                                               \
+    do {                                                                              \
+        if ((NR) < valid_nr) {                                                        \
+            const struct q6k_predecode_block *blk = blks + (NR);                      \
+            const int8x16_t                   qv  = vld1q_s8(blk->qs + is * 16);      \
+            const float                       ds  = blk->d * (float) blk->scales[is]; \
+            (A0) += sx0 * ds * (float) dot16_i8(xb0, qv);                             \
+            (A1) += sx1 * ds * (float) dot16_i8(xb1, qv);                             \
+            (A2) += sx2 * ds * (float) dot16_i8(xb2, qv);                             \
+            (A3) += sx3 * ds * (float) dot16_i8(xb3, qv);                             \
+        }                                                                             \
+    } while (0)
                     Q6K_ACC8_NR(0, a00, a10, a20, a30);
                     Q6K_ACC8_NR(1, a01, a11, a21, a31);
                     Q6K_ACC8_NR(2, a02, a12, a22, a32);
@@ -1443,14 +1526,54 @@ void linear_q6k_w6a8_prefill_predecoded_ntile8(const int8_t* x_q8,
             float *y1 = y + (mt + 1) * n_out + nt * 8;
             float *y2 = y + (mt + 2) * n_out + nt * 8;
             float *y3 = y + (mt + 3) * n_out + nt * 8;
-            if (valid_nr > 0) { y0[0] = a00; y1[0] = a10; y2[0] = a20; y3[0] = a30; }
-            if (valid_nr > 1) { y0[1] = a01; y1[1] = a11; y2[1] = a21; y3[1] = a31; }
-            if (valid_nr > 2) { y0[2] = a02; y1[2] = a12; y2[2] = a22; y3[2] = a32; }
-            if (valid_nr > 3) { y0[3] = a03; y1[3] = a13; y2[3] = a23; y3[3] = a33; }
-            if (valid_nr > 4) { y0[4] = a04; y1[4] = a14; y2[4] = a24; y3[4] = a34; }
-            if (valid_nr > 5) { y0[5] = a05; y1[5] = a15; y2[5] = a25; y3[5] = a35; }
-            if (valid_nr > 6) { y0[6] = a06; y1[6] = a16; y2[6] = a26; y3[6] = a36; }
-            if (valid_nr > 7) { y0[7] = a07; y1[7] = a17; y2[7] = a27; y3[7] = a37; }
+            if (valid_nr > 0) {
+                y0[0] = a00;
+                y1[0] = a10;
+                y2[0] = a20;
+                y3[0] = a30;
+            }
+            if (valid_nr > 1) {
+                y0[1] = a01;
+                y1[1] = a11;
+                y2[1] = a21;
+                y3[1] = a31;
+            }
+            if (valid_nr > 2) {
+                y0[2] = a02;
+                y1[2] = a12;
+                y2[2] = a22;
+                y3[2] = a32;
+            }
+            if (valid_nr > 3) {
+                y0[3] = a03;
+                y1[3] = a13;
+                y2[3] = a23;
+                y3[3] = a33;
+            }
+            if (valid_nr > 4) {
+                y0[4] = a04;
+                y1[4] = a14;
+                y2[4] = a24;
+                y3[4] = a34;
+            }
+            if (valid_nr > 5) {
+                y0[5] = a05;
+                y1[5] = a15;
+                y2[5] = a25;
+                y3[5] = a35;
+            }
+            if (valid_nr > 6) {
+                y0[6] = a06;
+                y1[6] = a16;
+                y2[6] = a26;
+                y3[6] = a36;
+            }
+            if (valid_nr > 7) {
+                y0[7] = a07;
+                y1[7] = a17;
+                y2[7] = a27;
+                y3[7] = a37;
+            }
         }
 
         for (; mt < m; mt++) {
@@ -1459,12 +1582,11 @@ void linear_q6k_w6a8_prefill_predecoded_ntile8(const int8_t* x_q8,
                 for (size_t b = 0; b < n_blocks_per_row; b++) {
                     const struct q6k_predecode_block *blk = tile + b * 8 + nr;
                     for (int is = 0; is < 16; is++) {
-                        const size_t xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
-                        const int8_t *xb = x_q8 + mt * n_in + xb_off;
-                        const int8x16_t qv = vld1q_s8(blk->qs + is * 16);
-                        const int32_t dot = dot16_i8(xb, qv);
-                        acc += scale_x[mt] * blk->d *
-                               (float) blk->scales[is] * (float) dot;
+                        const size_t    xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
+                        const int8_t   *xb     = x_q8 + mt * n_in + xb_off;
+                        const int8x16_t qv     = vld1q_s8(blk->qs + is * 16);
+                        const int32_t   dot    = dot16_i8(xb, qv);
+                        acc += scale_x[mt] * blk->d * (float) blk->scales[is] * (float) dot;
                     }
                 }
                 y[mt * n_out + nt * 8 + nr] = acc;
@@ -1472,34 +1594,40 @@ void linear_q6k_w6a8_prefill_predecoded_ntile8(const int8_t* x_q8,
         }
     }
 #else
-    (void)x_q8; (void)scale_x; (void)m; (void)packed;
-    (void)n_in; (void)n_out; (void)y;
+    (void) x_q8;
+    (void) scale_x;
+    (void) m;
+    (void) packed;
+    (void) n_in;
+    (void) n_out;
+    (void) y;
     fprintf(stderr, "linear_q6k_w6a8_prefill_predecoded_ntile8: NEON required\n");
 #endif
 }
 
-void linear_q6k_w6a8_prefill_predecoded_ntile4_stream(const int8_t* x_q8,
-                                                       const float* scale_x,
-                                                       size_t m,
-                                                       const void* packed,
-                                                       size_t n_in,
-                                                       size_t n_out,
-                                                       float* y) {
+void linear_q6k_w6a8_prefill_predecoded_ntile4_stream(const int8_t *x_q8,
+                                                      const float  *scale_x,
+                                                      size_t        m,
+                                                      const void   *packed,
+                                                      size_t        n_in,
+                                                      size_t        n_out,
+                                                      float        *y) {
 #if defined(__ARM_NEON)
-    if (m == 0 || m > GEIST_QUANT_M_CAP) return;
-    if (!q6k_predecode_ntile4_stream_valid(packed, n_in, n_out)) return;
+    if (m == 0 || m > GEIST_QUANT_M_CAP)
+        return;
+    if (!q6k_predecode_ntile4_stream_valid(packed, n_in, n_out))
+        return;
 
-    const struct q6k_predecode_stream4 *w =
-        q6k_predecode_ntile4_stream_blocks(packed);
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    const size_t n_tiles = (n_out + 3) / 4;
+    const struct q6k_predecode_stream4 *w = q6k_predecode_ntile4_stream_blocks(packed);
+    const size_t                        n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+    const size_t                        n_tiles          = (n_out + 3) / 4;
 
 #if defined(_OPENMP)
-    #pragma omp parallel for schedule(dynamic, 4)
+#pragma omp parallel for schedule(dynamic, 4)
 #endif
     for (size_t nt = 0; nt < n_tiles; nt++) {
-        const size_t valid_nr = (nt * 4 + 4 <= n_out) ? 4 : (n_out - nt * 4);
-        const struct q6k_predecode_stream4 *tile = w + nt * n_blocks_per_row;
+        const size_t                        valid_nr = (nt * 4 + 4 <= n_out) ? 4 : (n_out - nt * 4);
+        const struct q6k_predecode_stream4 *tile     = w + nt * n_blocks_per_row;
 
         size_t mt = 0;
         for (; mt + 4 <= m; mt += 4) {
@@ -1507,30 +1635,31 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4_stream(const int8_t* x_q8,
             const float sx1 = scale_x[mt + 1];
             const float sx2 = scale_x[mt + 2];
             const float sx3 = scale_x[mt + 3];
-            float a00 = 0.0f, a01 = 0.0f, a02 = 0.0f, a03 = 0.0f;
-            float a10 = 0.0f, a11 = 0.0f, a12 = 0.0f, a13 = 0.0f;
-            float a20 = 0.0f, a21 = 0.0f, a22 = 0.0f, a23 = 0.0f;
-            float a30 = 0.0f, a31 = 0.0f, a32 = 0.0f, a33 = 0.0f;
+            float       a00 = 0.0f, a01 = 0.0f, a02 = 0.0f, a03 = 0.0f;
+            float       a10 = 0.0f, a11 = 0.0f, a12 = 0.0f, a13 = 0.0f;
+            float       a20 = 0.0f, a21 = 0.0f, a22 = 0.0f, a23 = 0.0f;
+            float       a30 = 0.0f, a31 = 0.0f, a32 = 0.0f, a33 = 0.0f;
 
             for (size_t b = 0; b < n_blocks_per_row; b++) {
                 const struct q6k_predecode_stream4 *blk = tile + b;
                 for (int is = 0; is < 16; is++) {
-                    const size_t xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
-                    const int8_t *xb0 = x_q8 + (mt + 0) * n_in + xb_off;
-                    const int8_t *xb1 = x_q8 + (mt + 1) * n_in + xb_off;
-                    const int8_t *xb2 = x_q8 + (mt + 2) * n_in + xb_off;
-                    const int8_t *xb3 = x_q8 + (mt + 3) * n_in + xb_off;
+                    const size_t  xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
+                    const int8_t *xb0    = x_q8 + (mt + 0) * n_in + xb_off;
+                    const int8_t *xb1    = x_q8 + (mt + 1) * n_in + xb_off;
+                    const int8_t *xb2    = x_q8 + (mt + 2) * n_in + xb_off;
+                    const int8_t *xb3    = x_q8 + (mt + 3) * n_in + xb_off;
 
-#define Q6K_STREAM4_ACC(NR, A0, A1, A2, A3) do {                                \
-                        if ((NR) < valid_nr) {                                   \
-                            const int8x16_t qv = vld1q_s8(blk->qs[is][NR]);      \
-                            const float ds = blk->ds[is][NR];                   \
-                            (A0) += sx0 * ds * (float) dot16_i8(xb0, qv);        \
-                            (A1) += sx1 * ds * (float) dot16_i8(xb1, qv);        \
-                            (A2) += sx2 * ds * (float) dot16_i8(xb2, qv);        \
-                            (A3) += sx3 * ds * (float) dot16_i8(xb3, qv);        \
-                        }                                                        \
-                    } while (0)
+#define Q6K_STREAM4_ACC(NR, A0, A1, A2, A3)                 \
+    do {                                                    \
+        if ((NR) < valid_nr) {                              \
+            const int8x16_t qv = vld1q_s8(blk->qs[is][NR]); \
+            const float     ds = blk->ds[is][NR];           \
+            (A0) += sx0 * ds * (float) dot16_i8(xb0, qv);   \
+            (A1) += sx1 * ds * (float) dot16_i8(xb1, qv);   \
+            (A2) += sx2 * ds * (float) dot16_i8(xb2, qv);   \
+            (A3) += sx3 * ds * (float) dot16_i8(xb3, qv);   \
+        }                                                   \
+    } while (0)
                     Q6K_STREAM4_ACC(0, a00, a10, a20, a30);
                     Q6K_STREAM4_ACC(1, a01, a11, a21, a31);
                     Q6K_STREAM4_ACC(2, a02, a12, a22, a32);
@@ -1543,10 +1672,30 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4_stream(const int8_t* x_q8,
             float *y1 = y + (mt + 1) * n_out + nt * 4;
             float *y2 = y + (mt + 2) * n_out + nt * 4;
             float *y3 = y + (mt + 3) * n_out + nt * 4;
-            if (valid_nr > 0) { y0[0] = a00; y1[0] = a10; y2[0] = a20; y3[0] = a30; }
-            if (valid_nr > 1) { y0[1] = a01; y1[1] = a11; y2[1] = a21; y3[1] = a31; }
-            if (valid_nr > 2) { y0[2] = a02; y1[2] = a12; y2[2] = a22; y3[2] = a32; }
-            if (valid_nr > 3) { y0[3] = a03; y1[3] = a13; y2[3] = a23; y3[3] = a33; }
+            if (valid_nr > 0) {
+                y0[0] = a00;
+                y1[0] = a10;
+                y2[0] = a20;
+                y3[0] = a30;
+            }
+            if (valid_nr > 1) {
+                y0[1] = a01;
+                y1[1] = a11;
+                y2[1] = a21;
+                y3[1] = a31;
+            }
+            if (valid_nr > 2) {
+                y0[2] = a02;
+                y1[2] = a12;
+                y2[2] = a22;
+                y3[2] = a32;
+            }
+            if (valid_nr > 3) {
+                y0[3] = a03;
+                y1[3] = a13;
+                y2[3] = a23;
+                y3[3] = a33;
+            }
         }
 
         for (; mt < m; mt++) {
@@ -1555,10 +1704,10 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4_stream(const int8_t* x_q8,
                 for (size_t b = 0; b < n_blocks_per_row; b++) {
                     const struct q6k_predecode_stream4 *blk = tile + b;
                     for (int is = 0; is < 16; is++) {
-                        const size_t xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
-                        const int8_t *xb = x_q8 + mt * n_in + xb_off;
-                        const int8x16_t qv = vld1q_s8(blk->qs[is][nr]);
-                        const int32_t dot = dot16_i8(xb, qv);
+                        const size_t    xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
+                        const int8_t   *xb     = x_q8 + mt * n_in + xb_off;
+                        const int8x16_t qv     = vld1q_s8(blk->qs[is][nr]);
+                        const int32_t   dot    = dot16_i8(xb, qv);
                         acc += scale_x[mt] * blk->ds[is][nr] * (float) dot;
                     }
                 }
@@ -1567,31 +1716,39 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4_stream(const int8_t* x_q8,
         }
     }
 #else
-    (void)x_q8; (void)scale_x; (void)m; (void)packed;
-    (void)n_in; (void)n_out; (void)y;
+    (void) x_q8;
+    (void) scale_x;
+    (void) m;
+    (void) packed;
+    (void) n_in;
+    (void) n_out;
+    (void) y;
     fprintf(stderr, "linear_q6k_w6a8_prefill_predecoded_ntile4_stream: NEON required\n");
 #endif
 }
 
-void linear_q6k_w6a8_prefill(const float* x, const void* w_q6k, size_t m,
-                              size_t n_in, size_t n_out, float* y) {
-    if (m == 0 || m > GEIST_QUANT_M_CAP) return;
-    int8_t* x_q8    = heap_alloc_array_aligned(int8_t, m * n_in);
-    float*  scale_x = heap_alloc_array_aligned(float, m);
+void linear_q6k_w6a8_prefill(
+        const float *x, const void *w_q6k, size_t m, size_t n_in, size_t n_out, float *y) {
+    if (m == 0 || m > GEIST_QUANT_M_CAP)
+        return;
+    int8_t *x_q8    = heap_alloc_array_aligned(int8_t, m *n_in);
+    float  *scale_x = heap_alloc_array_aligned(float, m);
     if (x_q8 == NULL || scale_x == NULL) {
-        safe_free((void **) &x_q8); safe_free((void **) &scale_x);
+        safe_free((void **) &x_q8);
+        safe_free((void **) &scale_x);
         return;
     }
     for (size_t i = 0; i < m; i++) {
         scale_x[i] = quantize_x_int8_sym(x + i * n_in, n_in, x_q8 + i * n_in);
     }
     linear_q6k_w6a8_prefill_pre(x_q8, scale_x, m, w_q6k, n_in, n_out, y);
-    safe_free((void **) &x_q8); safe_free((void **) &scale_x);
+    safe_free((void **) &x_q8);
+    safe_free((void **) &scale_x);
 }
 
-void linear_q6k_decode_w6a8(const float* x, const void* w_q6k,
-                             size_t n_in, size_t n_out, float* y) {
-    static _Thread_local int8_t *tl_x_q8 = NULL;
+void linear_q6k_decode_w6a8(
+        const float *x, const void *w_q6k, size_t n_in, size_t n_out, float *y) {
+    static _Thread_local int8_t *tl_x_q8     = NULL;
     static _Thread_local size_t  tl_cap_n_in = 0;
     if (n_in > tl_cap_n_in) {
         safe_free((void **) &tl_x_q8);
@@ -1606,9 +1763,9 @@ void linear_q6k_decode_w6a8(const float* x, const void* w_q6k,
     linear_q6k_decode_w6a8_pre(tl_x_q8, scale_x, w_q6k, n_in, n_out, y);
 }
 
-void linear_q6k_decode_w6a8_x8(const float* x, const void* packed,
-                                size_t n_in, size_t n_out, float* y) {
-    static _Thread_local int8_t *tl_x_q8 = NULL;
+void linear_q6k_decode_w6a8_x8(
+        const float *x, const void *packed, size_t n_in, size_t n_out, float *y) {
+    static _Thread_local int8_t *tl_x_q8     = NULL;
     static _Thread_local size_t  tl_cap_n_in = 0;
     if (n_in > tl_cap_n_in) {
         safe_free((void **) &tl_x_q8);
@@ -1623,41 +1780,43 @@ void linear_q6k_decode_w6a8_x8(const float* x, const void* packed,
     linear_q6k_decode_w6a8_x8_pre(tl_x_q8, scale_x, packed, n_in, n_out, y);
 }
 
-void linear_q6k_decode_fp32(const float* x, const void* w_q6k,
-                             size_t n_in, size_t n_out,
-                             float* y) {
-    const struct block_q6_K_t* w = (const struct block_q6_K_t*)w_q6k;
-    const size_t n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
+void linear_q6k_decode_fp32(
+        const float *x, const void *w_q6k, size_t n_in, size_t n_out, float *y) {
+    const struct block_q6_K_t *w                = (const struct block_q6_K_t *) w_q6k;
+    const size_t               n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
 
 #if defined(_OPENMP)
-    #pragma omp parallel for schedule(dynamic, 4)
+#pragma omp parallel for schedule(dynamic, 4)
 #endif
     for (size_t n = 0; n < n_out; n++) {
-        const struct block_q6_K_t* row = w + n * n_blocks_per_row;
-        float acc = 0.0f;
+        const struct block_q6_K_t *row = w + n * n_blocks_per_row;
+        float                      acc = 0.0f;
         for (size_t b = 0; b < n_blocks_per_row; b++) {
-            const struct block_q6_K_t* blk = &row[b];
-            const float d = fp16_to_fp32(blk->d);
-            const uint8_t* ql = blk->ql;
-            const uint8_t* qh = blk->qh;
-            const int8_t*  sc = blk->scales;
-            const float*   xb = x + b * Q6_K_BLOCK_ELEMS;
+            const struct block_q6_K_t *blk = &row[b];
+            const float                d   = fp16_to_fp32(blk->d);
+            const uint8_t             *ql  = blk->ql;
+            const uint8_t             *qh  = blk->qh;
+            const int8_t              *sc  = blk->scales;
+            const float               *xb  = x + b * Q6_K_BLOCK_ELEMS;
             for (size_t half = 0; half < Q6_K_BLOCK_ELEMS; half += 128) {
                 /* 4 streams of 32 elements each within this 128-element half. */
-                float a[4] = {0,0,0,0};
+                float a[4] = {0, 0, 0, 0};
                 for (int l = 0; l < 32; l++) {
-                    int is = l / 16;
-                    int8_t q1 = (int8_t)((ql[l +  0] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
-                    int8_t q2 = (int8_t)((ql[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
-                    int8_t q3 = (int8_t)((ql[l +  0] >>  4) | (((qh[l] >> 4) & 3) << 4)) - 32;
-                    int8_t q4 = (int8_t)((ql[l + 32] >>  4) | (((qh[l] >> 6) & 3) << 4)) - 32;
-                    a[0] += (float)sc[is + 0] * (float)q1 * xb[l +   0];
-                    a[1] += (float)sc[is + 2] * (float)q2 * xb[l +  32];
-                    a[2] += (float)sc[is + 4] * (float)q3 * xb[l +  64];
-                    a[3] += (float)sc[is + 6] * (float)q4 * xb[l +  96];
+                    int    is = l / 16;
+                    int8_t q1 = (int8_t) ((ql[l + 0] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
+                    int8_t q2 = (int8_t) ((ql[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
+                    int8_t q3 = (int8_t) ((ql[l + 0] >> 4) | (((qh[l] >> 4) & 3) << 4)) - 32;
+                    int8_t q4 = (int8_t) ((ql[l + 32] >> 4) | (((qh[l] >> 6) & 3) << 4)) - 32;
+                    a[0] += (float) sc[is + 0] * (float) q1 * xb[l + 0];
+                    a[1] += (float) sc[is + 2] * (float) q2 * xb[l + 32];
+                    a[2] += (float) sc[is + 4] * (float) q3 * xb[l + 64];
+                    a[3] += (float) sc[is + 6] * (float) q4 * xb[l + 96];
                 }
                 acc += d * (a[0] + a[1] + a[2] + a[3]);
-                ql += 64; qh += 32; sc += 8; xb += 128;
+                ql += 64;
+                qh += 32;
+                sc += 8;
+                xb += 128;
             }
         }
         y[n] = acc;

@@ -29,15 +29,14 @@
 
 /* Mirrors HF get_aspect_ratio_preserving_size. Returns false only on the
  * pathological 0×0 case (which HF raises on). */
-bool image_pipeline_plan(size_t in_h, size_t in_w, size_t max_soft,
-                          struct image_plan *out) {
+bool image_pipeline_plan(size_t in_h, size_t in_w, size_t max_soft, struct image_plan *out) {
     if (out == nullptr || in_h == 0 || in_w == 0 || max_soft == 0) {
         return false;
     }
 
-    const size_t patch       = VISION_PATCH_SIZE;       /* 16 */
-    const size_t pool_k      = VISION_POOL_KERNEL;      /* 3  */
-    const size_t side_mult   = patch * pool_k;          /* 48 */
+    const size_t patch       = VISION_PATCH_SIZE;  /* 16 */
+    const size_t pool_k      = VISION_POOL_KERNEL; /* 3  */
+    const size_t side_mult   = patch * pool_k;     /* 48 */
     const size_t max_patches = max_soft * pool_k * pool_k;
     const double total_px    = (double) in_h * (double) in_w;
     const double target_px   = (double) max_patches * (double) (patch * patch);
@@ -51,10 +50,12 @@ bool image_pipeline_plan(size_t in_h, size_t in_w, size_t max_soft,
      * grid stable across compiler flags. */
     const double units_h_d = (factor * (double) in_h) / (double) side_mult;
     const double units_w_d = (factor * (double) in_w) / (double) side_mult;
-    size_t units_h = (size_t) units_h_d;
-    size_t units_w = (size_t) units_w_d;
-    if (units_h_d - (double) units_h > 1.0 - 1e-6) units_h++;
-    if (units_w_d - (double) units_w > 1.0 - 1e-6) units_w++;
+    size_t       units_h   = (size_t) units_h_d;
+    size_t       units_w   = (size_t) units_w_d;
+    if (units_h_d - (double) units_h > 1.0 - 1e-6)
+        units_h++;
+    if (units_w_d - (double) units_w > 1.0 - 1e-6)
+        units_w++;
     size_t target_h = units_h * side_mult;
     size_t target_w = units_w * side_mult;
 
@@ -64,13 +65,13 @@ bool image_pipeline_plan(size_t in_h, size_t in_w, size_t max_soft,
         return false;
     }
     if (target_h == 0) {
-        target_h = side_mult;
+        target_h       = side_mult;
         size_t ratio_w = ((size_t) ((double) in_w / (double) in_h)) * side_mult;
-        target_w = ratio_w < max_side_length ? ratio_w : max_side_length;
+        target_w       = ratio_w < max_side_length ? ratio_w : max_side_length;
     } else if (target_w == 0) {
-        target_w = side_mult;
+        target_w       = side_mult;
         size_t ratio_h = ((size_t) ((double) in_h / (double) in_w)) * side_mult;
-        target_h = ratio_h < max_side_length ? ratio_h : max_side_length;
+        target_h       = ratio_h < max_side_length ? ratio_h : max_side_length;
     }
 
     if (target_h * target_w > max_patches * patch * patch) {
@@ -78,23 +79,23 @@ bool image_pipeline_plan(size_t in_h, size_t in_w, size_t max_soft,
         return false;
     }
 
-    *out = (struct image_plan){
-        .in_h        = in_h,
-        .in_w        = in_w,
-        .resized_h   = target_h,
-        .resized_w   = target_w,
-        .grid_h      = target_h / patch,
-        .grid_w      = target_w / patch,
-        .pool_h      = (target_h / patch) / pool_k,
-        .pool_w      = (target_w / patch) / pool_k,
+    *out = (struct image_plan) {
+            .in_h      = in_h,
+            .in_w      = in_w,
+            .resized_h = target_h,
+            .resized_w = target_w,
+            .grid_h    = target_h / patch,
+            .grid_w    = target_w / patch,
+            .pool_h    = (target_h / patch) / pool_k,
+            .pool_w    = (target_w / patch) / pool_k,
     };
     out->soft_tokens = out->pool_h * out->pool_w;
     return true;
 }
 
-bool image_pipeline_preprocess(const uint8_t *rgb_in,
-                                const struct image_plan *plan,
-                                float *out_patches) {
+bool image_pipeline_preprocess(const uint8_t           *rgb_in,
+                               const struct image_plan *plan,
+                               float                   *out_patches) {
     if (rgb_in == nullptr || plan == nullptr || out_patches == nullptr) {
         return false;
     }
@@ -109,7 +110,7 @@ bool image_pipeline_preprocess(const uint8_t *rgb_in,
     const size_t patch    = VISION_PATCH_SIZE;
     const size_t patch_px = patch * patch * 3;
 
-    uint8_t *resized = nullptr;
+    uint8_t       *resized = nullptr;
     const uint8_t *src;
     if (in_h == out_h && in_w == out_w) {
         src = rgb_in;
@@ -118,11 +119,18 @@ bool image_pipeline_preprocess(const uint8_t *rgb_in,
         if (resized == nullptr) {
             return false;
         }
-        void *r = stbir_resize(
-            rgb_in,  (int) in_w,  (int) in_h,  (int) (in_w * 3),
-            resized, (int) out_w, (int) out_h, (int) (out_w * 3),
-            STBIR_RGB, STBIR_TYPE_UINT8,
-            STBIR_EDGE_CLAMP, STBIR_FILTER_CATMULLROM);
+        void *r = stbir_resize(rgb_in,
+                               (int) in_w,
+                               (int) in_h,
+                               (int) (in_w * 3),
+                               resized,
+                               (int) out_w,
+                               (int) out_h,
+                               (int) (out_w * 3),
+                               STBIR_RGB,
+                               STBIR_TYPE_UINT8,
+                               STBIR_EDGE_CLAMP,
+                               STBIR_FILTER_CATMULLROM);
         if (r == nullptr) {
             safe_free((void **) &resized);
             return false;
@@ -132,23 +140,23 @@ bool image_pipeline_preprocess(const uint8_t *rgb_in,
 
     /* Patchify HWC uint8 → (n_patches, kh*16 + kw*3 + c) fp32, /255.
      * Patch index i = patch_y * grid_w + patch_x. */
-    const float inv255 = 1.0f / 255.0f;
-    const size_t grid_w = plan->grid_w;
+    const float  inv255     = 1.0f / 255.0f;
+    const size_t grid_w     = plan->grid_w;
     const size_t row_stride = out_w * 3;
 
     for (size_t py = 0; py < plan->grid_h; py++) {
         for (size_t px = 0; px < grid_w; px++) {
-            const size_t patch_idx = py * grid_w + px;
-            float *dst = out_patches + patch_idx * patch_px;
-            const uint8_t *base = src + (py * patch) * row_stride + (px * patch) * 3;
+            const size_t   patch_idx = py * grid_w + px;
+            float         *dst       = out_patches + patch_idx * patch_px;
+            const uint8_t *base      = src + (py * patch) * row_stride + (px * patch) * 3;
             for (size_t kh = 0; kh < patch; kh++) {
                 const uint8_t *row = base + kh * row_stride;
                 for (size_t kw = 0; kw < patch; kw++) {
                     const uint8_t *px3 = row + kw * 3;
-                    float *o = dst + kh * patch * 3 + kw * 3;
-                    o[0] = (float) px3[0] * inv255;
-                    o[1] = (float) px3[1] * inv255;
-                    o[2] = (float) px3[2] * inv255;
+                    float         *o   = dst + kh * patch * 3 + kw * 3;
+                    o[0]               = (float) px3[0] * inv255;
+                    o[1]               = (float) px3[1] * inv255;
+                    o[2]               = (float) px3[2] * inv255;
                 }
             }
         }
@@ -160,8 +168,7 @@ bool image_pipeline_preprocess(const uint8_t *rgb_in,
     return true;
 }
 
-void image_pipeline_position_ids(const struct image_plan *plan,
-                                  int32_t *out_pos) {
+void image_pipeline_position_ids(const struct image_plan *plan, int32_t *out_pos) {
     if (plan == nullptr || out_pos == nullptr) {
         return;
     }
@@ -172,7 +179,7 @@ void image_pipeline_position_ids(const struct image_plan *plan,
     const size_t grid_w = plan->grid_w;
     for (size_t y = 0; y < grid_h; y++) {
         for (size_t x = 0; x < grid_w; x++) {
-            const size_t i = y * grid_w + x;
+            const size_t i     = y * grid_w + x;
             out_pos[2 * i + 0] = (int32_t) x;
             out_pos[2 * i + 1] = (int32_t) y;
         }

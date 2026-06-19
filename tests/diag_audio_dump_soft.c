@@ -29,8 +29,8 @@
 #define SOFT_DIM 1536
 #define MAX_SOFT 1024
 
-static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out) {
-    FILE* f = fopen(path, "rb");
+static int16_t *read_wav_pcm(const char *path, size_t *n_samples_out) {
+    FILE *f = fopen(path, "rb");
     if (!f)
         return nullptr;
     unsigned char hdr[44];
@@ -41,8 +41,8 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out) {
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 44, SEEK_SET);
-    size_t n = (size_t) (sz - 44) / 2;
-    int16_t* pcm = malloc(n * sizeof(int16_t));
+    size_t   n   = (size_t) (sz - 44) / 2;
+    int16_t *pcm = malloc(n * sizeof(int16_t));
     if (!pcm) {
         fclose(f);
         return nullptr;
@@ -53,9 +53,9 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out) {
     return pcm;
 }
 
-static const char* find_tower(void) {
-    static const char* c[] = {"audio_bench/audio_tower.safetensors", nullptr};
-    FILE* f = fopen(c[0], "rb");
+static const char *find_tower(void) {
+    static const char *c[] = {"audio_bench/audio_tower.safetensors", nullptr};
+    FILE              *f   = fopen(c[0], "rb");
     if (f) {
         fclose(f);
         return c[0];
@@ -63,24 +63,24 @@ static const char* find_tower(void) {
     return nullptr;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     if (argc < 3) {
         printf("usage: %s <input.wav> <output.bin>\n", argv[0]);
         return GEIST_TEST_SKIP;
     }
-    const char* wav = argv[1];
-    const char* out = argv[2];
+    const char *wav = argv[1];
+    const char *out = argv[2];
 
-    const char* tower = find_tower();
+    const char *tower = find_tower();
     if (!tower)
         GEIST_SKIP("audio_tower missing");
 
-    struct AudioEncoder* enc = audio_encoder_create(tower);
+    struct AudioEncoder *enc = audio_encoder_create(tower);
     if (!enc)
         GEIST_SKIP("encoder create failed");
 
-    size_t n_samples;
-    int16_t* pcm = read_wav_pcm(wav, &n_samples);
+    size_t   n_samples;
+    int16_t *pcm = read_wav_pcm(wav, &n_samples);
     if (!pcm) {
         audio_encoder_destroy(enc);
         GEIST_SKIP("wav read failed");
@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
     audio_encoder_end_input(enc);
     free(pcm);
 
-    float* soft = calloc(MAX_SOFT * SOFT_DIM, sizeof(float));
+    float *soft   = calloc(MAX_SOFT * SOFT_DIM, sizeof(float));
     size_t n_soft = 0;
     while (!audio_encoder_segment_done(enc) && n_soft < MAX_SOFT) {
         size_t take =
@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
     }
     fprintf(stderr, "  encoded %zu soft tokens × %d dims\n", n_soft, SOFT_DIM);
 
-    FILE* fo = fopen(out, "wb");
+    FILE *fo = fopen(out, "wb");
     if (!fo) {
         free(soft);
         audio_encoder_destroy(enc);

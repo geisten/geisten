@@ -19,21 +19,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int expect_resolved(struct geist_backend* be,
-                           enum geist_dtype dtype,
-                           const char* name,
-                           bool expect_mN) {
+static int expect_resolved(struct geist_backend *be,
+                           enum geist_dtype      dtype,
+                           const char           *name,
+                           bool                  expect_mN) {
     /* Stub raw pointer — we never call the kernel here, only resolve. */
     const size_t raw_bytes =
             dtype == GEIST_DTYPE_Q4_K ? (1536 / Q4_K_BLOCK_ELEMS) * 1536 * Q4_K_BLOCK_BYTES : 64;
-    void* raw = calloc(1, raw_bytes);
+    void *raw = calloc(1, raw_bytes);
     if (raw == nullptr) {
         fprintf(stderr, "  [%s] raw stub allocation failed\n", name);
         return 1;
     }
     struct geist_weight w = {
-            .raw = raw,
-            .n_in = 1536,
+            .raw   = raw,
+            .n_in  = 1536,
             .n_out = 1536,
             .dtype = (uint16_t) dtype,
     };
@@ -54,7 +54,7 @@ static int expect_resolved(struct geist_backend* be,
         return 1;
     }
     if ((w.flags & GEIST_W_AUX_HEAP_OWNED) != 0 && w.aux_fp32 != nullptr) {
-        void* aux = (void*) w.aux_fp32;
+        void *aux = (void *) w.aux_fp32;
         free(aux);
     }
     free(raw);
@@ -62,8 +62,8 @@ static int expect_resolved(struct geist_backend* be,
 }
 
 int main(void) {
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         fprintf(stderr, "no cpu_neon backend available: %s\n", geist_last_create_error());
         return GEIST_TEST_SKIP;

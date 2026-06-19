@@ -50,8 +50,8 @@ float geist_rng_next_unit(struct geist_rng *rng) {
 /* ---- Argmax ------------------------------------------------------------- */
 
 geist_token_t geist_sampler_argmax(size_t n_vocab, const float logits[static n_vocab]) {
-    geist_token_t best_idx  = 0;
-    float         best_val  = logits[0];
+    geist_token_t best_idx = 0;
+    float         best_val = logits[0];
     for (size_t i = 1; i < n_vocab; i++) {
         if (logits[i] > best_val) {
             best_val = logits[i];
@@ -74,10 +74,10 @@ static double softmax_into(size_t n, const float *logits, float temperature, flo
         }
     }
     /* Avoid div-by-zero — caller is supposed to pass T>0 but be defensive. */
-    float inv_t = temperature > 0.0f ? 1.0f / temperature : 1.0f;
-    double sum  = 0.0;
+    float  inv_t = temperature > 0.0f ? 1.0f / temperature : 1.0f;
+    double sum   = 0.0;
     for (size_t i = 0; i < n; i++) {
-        float p = expf((logits[i] - max_logit) * inv_t);
+        float p  = expf((logits[i] - max_logit) * inv_t);
         probs[i] = p;
         sum += (double) p;
     }
@@ -87,8 +87,8 @@ static double softmax_into(size_t n, const float *logits, float temperature, flo
 /* Inverse-CDF sample over a probability vector that may not be normalized.
  * Sums prefix until it exceeds u*sum. Stable choice on rounding edge: the
  * last index that passes is returned. */
-static geist_token_t inv_cdf_sample(size_t n, const float *probs, double sum,
-                                    struct geist_rng *rng) {
+static geist_token_t
+inv_cdf_sample(size_t n, const float *probs, double sum, struct geist_rng *rng) {
     double u   = (double) geist_rng_next_unit(rng) * sum;
     double acc = 0.0;
     for (size_t i = 0; i < n; i++) {
@@ -103,8 +103,10 @@ static geist_token_t inv_cdf_sample(size_t n, const float *probs, double sum,
 
 /* ---- Temperature only --------------------------------------------------- */
 
-geist_token_t geist_sampler_temperature(size_t n_vocab, const float logits[static n_vocab],
-                                        float temperature, struct geist_rng *rng) {
+geist_token_t geist_sampler_temperature(size_t            n_vocab,
+                                        const float       logits[static n_vocab],
+                                        float             temperature,
+                                        struct geist_rng *rng) {
     if (temperature <= 0.0f) {
         return geist_sampler_argmax(n_vocab, logits);
     }
@@ -112,7 +114,7 @@ geist_token_t geist_sampler_temperature(size_t n_vocab, const float logits[stati
      * variants. Threshold of 8192 floats = 32 KB on stack — well within macOS
      * and Linux default stack limits. */
     if (n_vocab <= 8192) {
-        float probs[8192];
+        float  probs[8192];
         double sum = softmax_into(n_vocab, logits, temperature, probs);
         return inv_cdf_sample(n_vocab, probs, sum, rng);
     }
@@ -131,16 +133,18 @@ geist_token_t geist_sampler_temperature(size_t n_vocab, const float logits[stati
 
 /* ---- Workspace ---------------------------------------------------------- */
 
-[[nodiscard]] enum geist_status
-geist_sampler_workspace_init(struct geist_sampler_workspace *ws, size_t n_vocab) {
+[[nodiscard]] enum geist_status geist_sampler_workspace_init(struct geist_sampler_workspace *ws,
+                                                             size_t n_vocab) {
     if (ws == nullptr || n_vocab == 0) {
         return GEIST_E_INVALID_ARG;
     }
     ws->probs   = heap_alloc_array_aligned(float, n_vocab);
     ws->indices = heap_alloc_array_aligned(uint32_t, n_vocab);
     if (ws->probs == nullptr || ws->indices == nullptr) {
-        if (ws->probs != nullptr) safe_free((void **) &ws->probs);
-        if (ws->indices != nullptr) safe_free((void **) &ws->indices);
+        if (ws->probs != nullptr)
+            safe_free((void **) &ws->probs);
+        if (ws->indices != nullptr)
+            safe_free((void **) &ws->indices);
         ws->n_vocab = 0;
         return GEIST_E_OOM;
     }
@@ -152,8 +156,10 @@ void geist_sampler_workspace_destroy(struct geist_sampler_workspace *ws) {
     if (ws == nullptr) {
         return;
     }
-    if (ws->probs != nullptr) safe_free((void **) &ws->probs);
-    if (ws->indices != nullptr) safe_free((void **) &ws->indices);
+    if (ws->probs != nullptr)
+        safe_free((void **) &ws->probs);
+    if (ws->indices != nullptr)
+        safe_free((void **) &ws->indices);
     ws->n_vocab = 0;
 }
 
@@ -169,15 +175,18 @@ static int cmp_desc_logit(const void *a, const void *b) {
     float la = ((const struct kv_pair *) a)->logit;
     float lb = ((const struct kv_pair *) b)->logit;
     /* NaN-safe: NaN sorts to the bottom. */
-    if (la > lb) return -1;
-    if (la < lb) return  1;
+    if (la > lb)
+        return -1;
+    if (la < lb)
+        return 1;
     return 0;
 }
 
 geist_token_t geist_sampler_top_k_ws(struct geist_sampler_workspace *ws,
-                                     const float logits[static ws->n_vocab],
-                                     int top_k, float temperature,
-                                     struct geist_rng *rng) {
+                                     const float                     logits[static ws->n_vocab],
+                                     int                             top_k,
+                                     float                           temperature,
+                                     struct geist_rng               *rng) {
     const size_t n = ws->n_vocab;
     if (top_k <= 1 || temperature <= 0.0f) {
         return geist_sampler_argmax(n, logits);
@@ -189,9 +198,9 @@ geist_token_t geist_sampler_top_k_ws(struct geist_sampler_workspace *ws,
     /* Build (logit, idx) pairs in the workspace. We reuse ws->probs as a
      * scratch (storage matches: float for logit). For indices we need a
      * separate pair array — allocate on stack for typical n. */
-    struct kv_pair pairs_stack[1024];
-    struct kv_pair *pairs = pairs_stack;
-    bool pairs_on_heap = false;
+    struct kv_pair  pairs_stack[1024];
+    struct kv_pair *pairs         = pairs_stack;
+    bool            pairs_on_heap = false;
     if (n > 1024) {
         pairs = heap_alloc_array_aligned(struct kv_pair, n);
         if (pairs == nullptr) {
@@ -207,13 +216,15 @@ geist_token_t geist_sampler_top_k_ws(struct geist_sampler_workspace *ws,
     qsort(pairs, n, sizeof(struct kv_pair), cmp_desc_logit);
 
     /* Softmax over the top-k entries only. */
-    float  top_logits[8192];
-    float  top_probs[8192];
+    float top_logits[8192];
+    float top_probs[8192];
     /* top_k is capped at 8192 (stack budget). Beyond that, fall back. */
     int k = top_k;
-    if (k > 8192) k = 8192;
+    if (k > 8192)
+        k = 8192;
 
-    for (int i = 0; i < k; i++) top_logits[i] = pairs[i].logit;
+    for (int i = 0; i < k; i++)
+        top_logits[i] = pairs[i].logit;
     double sum = softmax_into((size_t) k, top_logits, temperature, top_probs);
 
     geist_token_t local_pick = inv_cdf_sample((size_t) k, top_probs, sum, rng);
@@ -225,8 +236,11 @@ geist_token_t geist_sampler_top_k_ws(struct geist_sampler_workspace *ws,
     return picked;
 }
 
-geist_token_t geist_sampler_top_k(size_t n_vocab, const float logits[static n_vocab],
-                                  int top_k, float temperature, struct geist_rng *rng) {
+geist_token_t geist_sampler_top_k(size_t            n_vocab,
+                                  const float       logits[static n_vocab],
+                                  int               top_k,
+                                  float             temperature,
+                                  struct geist_rng *rng) {
     struct geist_sampler_workspace ws = {0};
     if (geist_sampler_workspace_init(&ws, n_vocab) != GEIST_OK) {
         return geist_sampler_argmax(n_vocab, logits);
@@ -239,9 +253,10 @@ geist_token_t geist_sampler_top_k(size_t n_vocab, const float logits[static n_vo
 /* ---- Top-P -------------------------------------------------------------- */
 
 geist_token_t geist_sampler_top_p_ws(struct geist_sampler_workspace *ws,
-                                     const float logits[static ws->n_vocab],
-                                     float top_p, float temperature,
-                                     struct geist_rng *rng) {
+                                     const float                     logits[static ws->n_vocab],
+                                     float                           top_p,
+                                     float                           temperature,
+                                     struct geist_rng               *rng) {
     const size_t n = ws->n_vocab;
     if (top_p <= 0.0f || temperature <= 0.0f) {
         return geist_sampler_argmax(n, logits);
@@ -261,9 +276,9 @@ geist_token_t geist_sampler_top_p_ws(struct geist_sampler_workspace *ws,
     }
 
     /* Build (prob, idx) pairs and sort descending. Reuse stack for n<=1024. */
-    struct kv_pair pairs_stack[1024];
-    struct kv_pair *pairs = pairs_stack;
-    bool pairs_on_heap = false;
+    struct kv_pair  pairs_stack[1024];
+    struct kv_pair *pairs         = pairs_stack;
+    bool            pairs_on_heap = false;
     if (n > 1024) {
         pairs = heap_alloc_array_aligned(struct kv_pair, n);
         if (pairs == nullptr) {
@@ -278,7 +293,7 @@ geist_token_t geist_sampler_top_p_ws(struct geist_sampler_workspace *ws,
     qsort(pairs, n, sizeof(struct kv_pair), cmp_desc_logit);
 
     /* Find smallest prefix whose cumulative prob >= top_p. */
-    double cum = 0.0;
+    double cum    = 0.0;
     size_t cutoff = 0;
     for (cutoff = 0; cutoff < n; cutoff++) {
         cum += (double) pairs[cutoff].logit;
@@ -287,15 +302,16 @@ geist_token_t geist_sampler_top_p_ws(struct geist_sampler_workspace *ws,
             break;
         }
     }
-    if (cutoff < 1) cutoff = 1;
+    if (cutoff < 1)
+        cutoff = 1;
 
     /* Sample within the nucleus, renormalized. */
     double nucleus_sum = 0.0;
     for (size_t i = 0; i < cutoff; i++) {
         nucleus_sum += (double) pairs[i].logit;
     }
-    double u   = (double) geist_rng_next_unit(rng) * nucleus_sum;
-    double acc = 0.0;
+    double        u      = (double) geist_rng_next_unit(rng) * nucleus_sum;
+    double        acc    = 0.0;
     geist_token_t picked = (geist_token_t) pairs[cutoff - 1].idx;
     for (size_t i = 0; i < cutoff; i++) {
         acc += (double) pairs[i].logit;
@@ -311,8 +327,11 @@ geist_token_t geist_sampler_top_p_ws(struct geist_sampler_workspace *ws,
     return picked;
 }
 
-geist_token_t geist_sampler_top_p(size_t n_vocab, const float logits[static n_vocab],
-                                  float top_p, float temperature, struct geist_rng *rng) {
+geist_token_t geist_sampler_top_p(size_t            n_vocab,
+                                  const float       logits[static n_vocab],
+                                  float             top_p,
+                                  float             temperature,
+                                  struct geist_rng *rng) {
     struct geist_sampler_workspace ws = {0};
     if (geist_sampler_workspace_init(&ws, n_vocab) != GEIST_OK) {
         return geist_sampler_argmax(n_vocab, logits);

@@ -26,13 +26,13 @@
 int main(void) {
     /* 4 KB arena. */
     alignas(64) static unsigned char storage[4096];
-    struct frame_arena a;
+    struct frame_arena               a;
     frame_arena_init(&a, storage, sizeof storage);
 
     /* Sequential allocs of 100 bytes, default-aligned. */
-    void* p1 = frame_arena_alloc(&a, 100, 0);
-    void* p2 = frame_arena_alloc(&a, 100, 0);
-    void* p3 = frame_arena_alloc(&a, 100, 0);
+    void *p1 = frame_arena_alloc(&a, 100, 0);
+    void *p2 = frame_arena_alloc(&a, 100, 0);
+    void *p3 = frame_arena_alloc(&a, 100, 0);
     if (p1 == nullptr || p2 == nullptr || p3 == nullptr) {
         fprintf(stderr, "FAIL: small allocs returned null\n");
         return GEIST_TEST_FAIL;
@@ -51,7 +51,7 @@ int main(void) {
     }
 
     /* Cache-line align (64). */
-    void* p4 = frame_arena_alloc(&a, 32, 64);
+    void *p4 = frame_arena_alloc(&a, 32, 64);
     if (p4 == nullptr) {
         fprintf(stderr, "FAIL: cacheline alloc\n");
         return GEIST_TEST_FAIL;
@@ -62,7 +62,7 @@ int main(void) {
     }
 
     /* Exhaustion: ask for more than remains; expect nullptr. */
-    void* huge = frame_arena_alloc(&a, sizeof storage, 16);
+    void *huge = frame_arena_alloc(&a, sizeof storage, 16);
     if (huge != nullptr) {
         fprintf(stderr, "FAIL: oversize alloc didn't return null\n");
         return GEIST_TEST_FAIL;
@@ -70,7 +70,7 @@ int main(void) {
 
     /* Reset: pointer reuse. */
     frame_arena_reset(&a);
-    void* p1_again = frame_arena_alloc(&a, 100, 0);
+    void *p1_again = frame_arena_alloc(&a, 100, 0);
     if (p1_again != p1) {
         fprintf(stderr, "FAIL: reset didn't reuse base (p1=%p, again=%p)\n", p1, p1_again);
         return GEIST_TEST_FAIL;
@@ -79,7 +79,7 @@ int main(void) {
     /* Overflow guard: huge alloc on near-full arena must return null. */
     frame_arena_reset(&a);
     (void) frame_arena_alloc(&a, sizeof storage - 32, 16);
-    void* oversize = frame_arena_alloc(&a, SIZE_MAX / 2, 16);
+    void *oversize = frame_arena_alloc(&a, SIZE_MAX / 2, 16);
     if (oversize != nullptr) {
         fprintf(stderr, "FAIL: SIZE_MAX/2 alloc wasn't refused\n");
         return GEIST_TEST_FAIL;

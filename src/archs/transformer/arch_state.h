@@ -57,13 +57,13 @@
  * Gemma-specific numeric knobs (RMS eps, logit softcap, PLE scales,
  * KV-shared layer indices) have already moved to struct geist_arch_config
  * — st->config.X is the right reader. P1.4.a migrated those. */
-#define GEIST_GEMMA4_HIDDEN            1536
-#define GEIST_GEMMA4_NUM_LAYERS        35
-#define GEIST_GEMMA4_HIDDEN_PER_LAYER  256
-#define GEIST_GEMMA4_PLE_OUT           (GEIST_GEMMA4_NUM_LAYERS * GEIST_GEMMA4_HIDDEN_PER_LAYER)
-#define GEIST_GEMMA4_N_Q_HEADS         8
-#define GEIST_GEMMA4_N_KV_HEADS        1
-#define GEIST_GEMMA4_VOCAB             262144
+#define GEIST_GEMMA4_HIDDEN 1536
+#define GEIST_GEMMA4_NUM_LAYERS 35
+#define GEIST_GEMMA4_HIDDEN_PER_LAYER 256
+#define GEIST_GEMMA4_PLE_OUT (GEIST_GEMMA4_NUM_LAYERS * GEIST_GEMMA4_HIDDEN_PER_LAYER)
+#define GEIST_GEMMA4_N_Q_HEADS 8
+#define GEIST_GEMMA4_N_KV_HEADS 1
+#define GEIST_GEMMA4_VOCAB 262144
 
 /* ---- Per-layer weight bundle ------------------------------------------- */
 
@@ -87,30 +87,30 @@ struct transformer_layer_weights {
     float  layer_scalar;   /* per-layer output scale (scalar tensor) */
 
     /* ---- Norm weights (always F32 DENSE). ----------------------------- */
-    struct geist_tensor attn_norm;        /* [HIDDEN] */
-    struct geist_tensor q_norm;           /* [head_dim] */
-    struct geist_tensor k_norm;           /* [head_dim] — unused if kv_shared */
-    struct geist_tensor post_attn_norm;   /* [HIDDEN] */
-    struct geist_tensor ffn_norm;         /* [HIDDEN] */
-    struct geist_tensor post_ffw_norm;    /* [HIDDEN] */
+    struct geist_tensor attn_norm;           /* [HIDDEN] */
+    struct geist_tensor q_norm;              /* [head_dim] */
+    struct geist_tensor k_norm;              /* [head_dim] — unused if kv_shared */
+    struct geist_tensor post_attn_norm;      /* [HIDDEN] */
+    struct geist_tensor ffn_norm;            /* [HIDDEN] */
+    struct geist_tensor post_ffw_norm;       /* [HIDDEN] */
     struct geist_tensor post_per_layer_norm; /* [HIDDEN] */
     /* SubLN (BitNet b1.58): RMSNorm before o_proj input ([q_out]) and
      * before down_proj input ([intermediate]). buffer == nullptr when
      * the family doesn't use SubLN (Gemma / Llama); the forward path
      * skips the rmsnorm call in that case. */
-    struct geist_tensor attn_sub_norm;    /* [q_out] — SubLN before o_proj */
-    struct geist_tensor ffn_sub_norm;     /* [intermediate] — SubLN before down_proj */
+    struct geist_tensor attn_sub_norm; /* [q_out] — SubLN before o_proj */
+    struct geist_tensor ffn_sub_norm;  /* [intermediate] — SubLN before down_proj */
 
     /* ---- Projection weights (Q-format or F32, BLOCK_QUANTIZED/DENSE). - */
-    struct geist_tensor q_proj;           /* [q_out, HIDDEN] */
-    struct geist_tensor k_proj;           /* [kv_out, HIDDEN] — null/unused if kv_shared */
-    struct geist_tensor v_proj;           /* [kv_out, HIDDEN] — null/unused if kv_shared */
-    struct geist_tensor o_proj;           /* [HIDDEN, q_out] */
-    struct geist_tensor gate_proj;        /* [intermediate, HIDDEN] */
-    struct geist_tensor up_proj;          /* [intermediate, HIDDEN] */
-    struct geist_tensor down_proj;        /* [HIDDEN, intermediate] */
-    struct geist_tensor per_layer_gate;   /* [HIDDEN_PER_LAYER, HIDDEN] */
-    struct geist_tensor per_layer_proj;   /* [HIDDEN, HIDDEN_PER_LAYER] */
+    struct geist_tensor q_proj;         /* [q_out, HIDDEN] */
+    struct geist_tensor k_proj;         /* [kv_out, HIDDEN] — null/unused if kv_shared */
+    struct geist_tensor v_proj;         /* [kv_out, HIDDEN] — null/unused if kv_shared */
+    struct geist_tensor o_proj;         /* [HIDDEN, q_out] */
+    struct geist_tensor gate_proj;      /* [intermediate, HIDDEN] */
+    struct geist_tensor up_proj;        /* [intermediate, HIDDEN] */
+    struct geist_tensor down_proj;      /* [HIDDEN, intermediate] */
+    struct geist_tensor per_layer_gate; /* [HIDDEN_PER_LAYER, HIDDEN] */
+    struct geist_tensor per_layer_proj; /* [HIDDEN, HIDDEN_PER_LAYER] */
 
     /* ---- Pre-resolved kernel-pointer table (P1.1.c..d refactor v2). ---- *
      * Populated at load time from each projection's raw bytes via the
@@ -118,13 +118,13 @@ struct transformer_layer_weights {
      * (no vtable, no dtype switch). If linear_m1 is nullptr, the
      * backend doesn't yet support that dtype/shape; the legacy
      * v->linear() path runs as fallback.                              */
-    struct geist_weight q_proj_w;       /* P1.1.c */
-    struct geist_weight k_proj_w;       /* P1.1.d */
-    struct geist_weight v_proj_w;       /* P1.1.d */
-    struct geist_weight o_proj_w;       /* P1.1.d */
-    struct geist_weight gate_proj_w;    /* P1.1.d */
-    struct geist_weight up_proj_w;      /* P1.1.d */
-    struct geist_weight down_proj_w;    /* P1.1.d */
+    struct geist_weight q_proj_w;         /* P1.1.c */
+    struct geist_weight k_proj_w;         /* P1.1.d */
+    struct geist_weight v_proj_w;         /* P1.1.d */
+    struct geist_weight o_proj_w;         /* P1.1.d */
+    struct geist_weight gate_proj_w;      /* P1.1.d */
+    struct geist_weight up_proj_w;        /* P1.1.d */
+    struct geist_weight down_proj_w;      /* P1.1.d */
     struct geist_weight per_layer_gate_w; /* P1.1.d */
     struct geist_weight per_layer_proj_w; /* P1.1.d */
 
@@ -173,8 +173,8 @@ struct transformer_arch_session {
      *        token V + R-token FP32 residual ring (k_residual /
      *        v_residual); kivi_residual_count + kivi_drained_count
      *        shared across layers (lock-step drain). */
-    bool                  kv_int8_enabled;
-    bool                  kv_kivi_enabled;
+    bool                                 kv_int8_enabled;
+    bool                                 kv_kivi_enabled;
     struct transformer_session_exec_plan exec_plan;
     /* P1.4.c: per-layer KV slot arrays are heap-allocated at
      * session_alloc, sized to state->n_layers. Exactly one of the
@@ -228,12 +228,12 @@ struct transformer_arch_session {
     /* ---- Memory backing for the buffers above.
      * scratch_arena: per-forward frame-arena (P1.2.b), reset per layer.
      * scratch_pool: never reset, holds slices for 21 scratch buffers. */
-    void                *scratch_arena_base;
-    size_t               scratch_arena_bytes;
-    struct frame_arena   scratch_arena;
-    void                *scratch_pool_base;
-    size_t               scratch_pool_bytes;
-    size_t               scratch_pool_used;
+    void              *scratch_arena_base;
+    size_t             scratch_arena_bytes;
+    struct frame_arena scratch_arena;
+    void              *scratch_pool_base;
+    size_t             scratch_pool_bytes;
+    size_t             scratch_pool_used;
 
     /* ---- Last-decode prediction (consumed by next decode_step). */
     bool          logits_valid;
@@ -242,11 +242,11 @@ struct transformer_arch_session {
     /* ---- Sampler state.
      * temperature == 0.0 → greedy argmax; top_k>1 / top_p<1 narrow the
      * candidate set before the temperature-scaled softmax sample. */
-    float                            temperature;
-    float                            top_p;
-    int                              top_k;
-    struct geist_rng                 rng;
-    struct geist_sampler_workspace   sampler_ws;
+    float                          temperature;
+    float                          top_p;
+    int                            top_k;
+    struct geist_rng               rng;
+    struct geist_sampler_workspace sampler_ws;
 };
 
 struct transformer_runtime_flags {
@@ -257,55 +257,55 @@ struct transformer_runtime_flags {
 /* ---- Top-level state --------------------------------------------------- */
 
 struct transformer_arch_state {
-    struct geist_backend *backend;     /* not owned */
+    struct geist_backend *backend; /* not owned */
 
     /* GGUF source (kept open while the state lives: weight buffers reuploaded
      * could be re-fetched but for simplicity we just retain the handle for
      * diagnostics; mmap stays valid). */
-    struct gguf_ctx *gguf;             /* opaque; from gguf_reader.h */
+    struct gguf_ctx *gguf; /* opaque; from gguf_reader.h */
 
     /* ---- Arch family config (P1.4.a). Populated at load time; holds
      * all Gemma-specific numeric knobs (RMS eps, logit softcap, PLE
      * scales, KV-shared layer mapping). Future arch families plug in
      * by swapping the populator at state_create. */
-    struct geist_arch_config config;
+    struct geist_arch_config         config;
     struct transformer_runtime_flags runtime_flags;
 
     /* ---- Geometry (P1.4.b: structural dims as runtime fields). The
      * GEIST_GEMMA4_* macros remain in this header as Gemma-4 default
      * values + as compile-time caps on the fixed-length member arrays
      * below — runtime code reads these `st->*` fields instead. */
-    size_t n_layers;        /* Gemma 4: 35 */
-    size_t d_model;         /* Gemma 4: 1536 */
-    size_t vocab_size;      /* Gemma 4: 262144 */
-    size_t n_q_heads;       /* Gemma 4: 8 */
-    size_t n_kv_heads;      /* Gemma 4: 1 (MQA) */
-    size_t hidden_per_layer;/* Gemma 4: 256 (PLE slice per layer) */
-    size_t ple_out;         /* Gemma 4: n_layers * hidden_per_layer = 8960 */
-    size_t max_seq_len;     /* from opts, default 4096 */
-    size_t m_max;           /* prefill chunk size — scratch sized for this many
-                             * tokens; longer prompts are chunked. Default 64. */
+    size_t n_layers;         /* Gemma 4: 35 */
+    size_t d_model;          /* Gemma 4: 1536 */
+    size_t vocab_size;       /* Gemma 4: 262144 */
+    size_t n_q_heads;        /* Gemma 4: 8 */
+    size_t n_kv_heads;       /* Gemma 4: 1 (MQA) */
+    size_t hidden_per_layer; /* Gemma 4: 256 (PLE slice per layer) */
+    size_t ple_out;          /* Gemma 4: n_layers * hidden_per_layer = 8960 */
+    size_t max_seq_len;      /* from opts, default 4096 */
+    size_t m_max;            /* prefill chunk size — scratch sized for this many
+                              * tokens; longer prompts are chunked. Default 64. */
 
     /* ---- Weight arena (P1.1.g refactor v2). -------------------------- *
      * ONE heap_alloc_aligned(arena_capacity) at load time; every weight
      * tensor bump-allocates into it. Released once in
      * transformer_state_destroy. */
-    void   *weight_arena;
-    size_t  weight_arena_used;
-    size_t  weight_arena_capacity;
+    void  *weight_arena;
+    size_t weight_arena_used;
+    size_t weight_arena_capacity;
 
     /* ---- Per-layer weight blocks. P1.4.c heap-sizes this array to
      * st->n_layers (was GEIST_GEMMA4_NUM_LAYERS-sized in P1.4.b). */
-    struct transformer_layer_weights *layers;
+    struct transformer_layer_weights   *layers;
     struct transformer_layer_exec_plan *layer_plans;
 
-    struct geist_tensor embed_table;       /* [VOCAB, HIDDEN] — Q-format */
-    struct geist_tensor ple_table;         /* [VOCAB, PLE_OUT] — Q-format */
-    struct geist_tensor model_proj;        /* [PLE_OUT, HIDDEN] — Q-format */
-    struct geist_tensor model_proj_norm;   /* [HIDDEN_PER_LAYER] — F32 */
-    struct geist_tensor output_norm;       /* [HIDDEN] — F32 */
-    struct geist_weight embed_table_w;     /* P1.1.d lm_head kernels */
-    struct geist_weight model_proj_w;      /* P1.1.e F32 dense kernels */
+    struct geist_tensor embed_table;     /* [VOCAB, HIDDEN] — Q-format */
+    struct geist_tensor ple_table;       /* [VOCAB, PLE_OUT] — Q-format */
+    struct geist_tensor model_proj;      /* [PLE_OUT, HIDDEN] — Q-format */
+    struct geist_tensor model_proj_norm; /* [HIDDEN_PER_LAYER] — F32 */
+    struct geist_tensor output_norm;     /* [HIDDEN] — F32 */
+    struct geist_weight embed_table_w;   /* P1.1.d lm_head kernels */
+    struct geist_weight model_proj_w;    /* P1.1.e F32 dense kernels */
 
     /* Speculative output head (GEIST_SPEC_HEAD=1): for a large tied F16
      * lm_head, a stride-subsampled i8 "sketch" of the embedding table lets
@@ -314,18 +314,18 @@ struct transformer_arch_state {
      * ~82 MB read per token (the decode bottleneck on the BitNet-2B-4T
      * i2_s model). Lazily built on first use; nullptr/0 until then.
      * spec_state: 0 = unbuilt, 1 = built+active, -1 = ineligible/disabled. */
-    int8_t  *spec_sketch;       /* [VOCAB * spec_sketch_dim] i8 */
-    float   *spec_row_scale;    /* [VOCAB] sketch dequant scale per row */
-    int8_t  *spec_x_i8;         /* [HIDDEN] quantized activation scratch */
-    int8_t  *spec_act_sketch;   /* [spec_sketch_dim] subsampled activation */
-    float   *spec_rough;        /* [VOCAB] rough scores scratch */
-    float   *spec_row_f32;      /* [HIDDEN] dequant scratch for the exact pass
-                                 * (quantized embeddings, e.g. Gemma's Q6_K) */
-    void    *spec_heap;         /* [spec_topk] (score,idx) top-K min-heap */
-    size_t   spec_sketch_dim;
-    size_t   spec_stride;       /* sketch subsample stride (GEIST_SPEC_STRIDE) */
-    size_t   spec_topk;         /* exact-finalist count (GEIST_SPEC_TOPK) */
-    int      spec_state;
+    int8_t *spec_sketch;     /* [VOCAB * spec_sketch_dim] i8 */
+    float  *spec_row_scale;  /* [VOCAB] sketch dequant scale per row */
+    int8_t *spec_x_i8;       /* [HIDDEN] quantized activation scratch */
+    int8_t *spec_act_sketch; /* [spec_sketch_dim] subsampled activation */
+    float  *spec_rough;      /* [VOCAB] rough scores scratch */
+    float  *spec_row_f32;    /* [HIDDEN] dequant scratch for the exact pass
+                              * (quantized embeddings, e.g. Gemma's Q6_K) */
+    void  *spec_heap;        /* [spec_topk] (score,idx) top-K min-heap */
+    size_t spec_sketch_dim;
+    size_t spec_stride; /* sketch subsample stride (GEIST_SPEC_STRIDE) */
+    size_t spec_topk;   /* exact-finalist count (GEIST_SPEC_TOPK) */
+    int    spec_state;
 
     /* Owning buffer handles for the globals (mirrors layer .bufs[] pattern). */
     struct geist_buffer *global_bufs[8];
@@ -371,13 +371,13 @@ struct transformer_arch_state {
  */
 [[nodiscard]] enum geist_status
 transformer_forward_one_layer(struct transformer_arch_state *state,
-                                  int                               layer_idx,
-                                  size_t                            q_position,
-                                  size_t                            seq,
-                                  bool                              advance_kv,
-                                  struct geist_buffer              *h_in_buf,
-                                  struct geist_buffer              *per_layer_input_buf,
-                                  struct geist_buffer              *h_out_buf);
+                              int                            layer_idx,
+                              size_t                         q_position,
+                              size_t                         seq,
+                              bool                           advance_kv,
+                              struct geist_buffer           *h_in_buf,
+                              struct geist_buffer           *per_layer_input_buf,
+                              struct geist_buffer           *h_out_buf);
 
 /* Compute the PLE per-layer-input for ONE token (decode m=1) starting
  * from the residual stream `h` at this point in the pipeline.
@@ -392,9 +392,9 @@ transformer_forward_one_layer(struct transformer_arch_state *state,
  * budget — full FP32 expansion of the table would be ~9 GB). */
 [[nodiscard]] enum geist_status
 transformer_compute_per_layer_input(struct transformer_arch_state *state,
-                                        geist_token_t                     token_id,
-                                        struct geist_buffer              *h_buf,
-                                        struct geist_buffer              *per_layer_input_buf);
+                                    geist_token_t                  token_id,
+                                    struct geist_buffer           *h_buf,
+                                    struct geist_buffer           *per_layer_input_buf);
 
 /* End-to-end single-token forward + sample. Consumes the input token at
  * position state->kv_len, advances state->kv_len by 1, and returns the
@@ -404,10 +404,9 @@ transformer_compute_per_layer_input(struct transformer_arch_state *state,
  * + the PLE precompute + the softcap'd lm_head all rolled into one call.
  * Used by the prefill+decode loop in the test gate; the full decoder
  * arch_ops wiring lands once this is verified end-to-end. */
-[[nodiscard]] enum geist_status
-transformer_decode_step(struct transformer_arch_state *state,
-                            geist_token_t                     input_token,
-                            geist_token_t                    *out_token);
+[[nodiscard]] enum geist_status transformer_decode_step(struct transformer_arch_state *state,
+                                                        geist_token_t                  input_token,
+                                                        geist_token_t                 *out_token);
 
 /* Append one audio soft-token (HIDDEN floats, already produced by the
  * audio encoder) to the KV cache.
@@ -425,8 +424,7 @@ transformer_decode_step(struct transformer_arch_state *state,
  * n-soft-token audio clip; the engine's session_attach_audio takes care
  * of the encoder pipeline upstream. */
 [[nodiscard]] enum geist_status
-transformer_advance_audio_token(struct transformer_arch_state *state,
-                                    const float                      *h_in_host);
+transformer_advance_audio_token(struct transformer_arch_state *state, const float *h_in_host);
 
 /* Batched text prefill: append `n` tokens to the KV cache via the
  * seq>1 path. Processes the input in chunks of at most state->m_max
@@ -435,19 +433,16 @@ transformer_advance_audio_token(struct transformer_arch_state *state,
  * ops->decode_step to return.
  *
  * Returns GEIST_OK on success. n==0 is a no-op. */
-[[nodiscard]] enum geist_status
-transformer_prefill_text_batch(struct transformer_arch_state *state,
-                                   size_t                            n,
-                                   const geist_token_t              *ids);
+[[nodiscard]] enum geist_status transformer_prefill_text_batch(struct transformer_arch_state *state,
+                                                               size_t                         n,
+                                                               const geist_token_t           *ids);
 
 /* Batched audio prefill: append `n` soft-tokens to the KV cache via the
  * seq>1 path. Each soft-token is HIDDEN F32 values (no embed lookup,
  * no sqrt scale); PLE uses pad_token_id (0) for all positions. Same
  * chunking and side-effect semantics as the text batched prefill. */
-[[nodiscard]] enum geist_status
-transformer_prefill_audio_batch(struct transformer_arch_state *state,
-                                    size_t                            n,
-                                    const float                      *soft_tokens);
+[[nodiscard]] enum geist_status transformer_prefill_audio_batch(
+        struct transformer_arch_state *state, size_t n, const float *soft_tokens);
 
 /* Pin a prefix into the KV cache. Mirrors lm.c::lm_pin_prefix semantics:
  * truncates the cache to empty, runs a batched prefill of `ids` (no-op if
@@ -458,9 +453,7 @@ transformer_prefill_audio_batch(struct transformer_arch_state *state,
  *
  * Returns GEIST_OK on success; GEIST_E_INVALID_ARG if state is null. */
 [[nodiscard]] enum geist_status
-transformer_pin_prefix(struct transformer_arch_state *state,
-                           size_t                            n,
-                           const geist_token_t              *ids);
+transformer_pin_prefix(struct transformer_arch_state *state, size_t n, const geist_token_t *ids);
 
 /* Speculative-decode primitives.
  *
@@ -480,14 +473,12 @@ transformer_pin_prefix(struct transformer_arch_state *state,
  * positions ≥ new_len is implicitly invalid (future writes will
  * overwrite). Invalidates logits_valid. Used to undo speculative-pass
  * KV writes after a draft mismatch. */
-[[nodiscard]] enum geist_status
-transformer_verify_forward(struct transformer_arch_state *state,
-                               size_t                            k,
-                               const geist_token_t              *ids,
-                               geist_token_t                    *out_tokens);
+[[nodiscard]] enum geist_status transformer_verify_forward(struct transformer_arch_state *state,
+                                                           size_t                         k,
+                                                           const geist_token_t           *ids,
+                                                           geist_token_t *out_tokens);
 
-void transformer_kv_truncate(struct transformer_arch_state *state,
-                                 size_t                            new_len);
+void transformer_kv_truncate(struct transformer_arch_state *state, size_t new_len);
 
 /* ---- Public functions (architecture-internal) -------------------------- */
 
@@ -498,11 +489,10 @@ void transformer_kv_truncate(struct transformer_arch_state *state,
  * Returns GEIST_OK on success; on failure *out is left as nullptr and the
  * backend's error slot is populated. Caller owns *out and frees it via
  * transformer_state_destroy. */
-[[nodiscard]] enum geist_status
-transformer_state_create(struct geist_backend                *be,
-                            const char                          *gguf_path,
-                            const struct geist_session_opts     *opts,
-                            struct transformer_arch_state   **out);
+[[nodiscard]] enum geist_status transformer_state_create(struct geist_backend            *be,
+                                                         const char                      *gguf_path,
+                                                         const struct geist_session_opts *opts,
+                                                         struct transformer_arch_state  **out);
 
 /* Same, but the GGUF is already in memory (embedded blob); the buffer is
  * aliased read-only and must outlive the state. No aux files searched. */
@@ -529,8 +519,8 @@ void transformer_state_reset(struct transformer_arch_state *state);
 /* Apply per-session opts to the arch state. Called by the engine from
  * geist_session_create. Re-seeds the RNG; (re)allocates the sampler
  * workspace if the opts request a non-greedy mode. */
-void transformer_state_apply_opts(struct transformer_arch_state *state,
-                                      const struct geist_session_opts *opts);
+void transformer_state_apply_opts(struct transformer_arch_state   *state,
+                                  const struct geist_session_opts *opts);
 
 /* ---- Multi-session API (P1.2.f) --------------------------------------- *
  *
@@ -548,19 +538,18 @@ void transformer_state_apply_opts(struct transformer_arch_state *state,
  * session would require passing session_meta through every vtable call;
  * out of scope for P1.2.f. */
 [[nodiscard]] struct transformer_arch_session *
-transformer_session_alloc(struct transformer_arch_state *state,
-                              const struct geist_session_opts *opts);
+transformer_session_alloc(struct transformer_arch_state   *state,
+                          const struct geist_session_opts *opts);
 
-void transformer_session_free(struct transformer_arch_state *state,
-                                  struct transformer_arch_session *sess);
+void transformer_session_free(struct transformer_arch_state   *state,
+                              struct transformer_arch_session *sess);
 
-void transformer_session_attach(struct transformer_arch_state *state,
-                                    struct transformer_arch_session *sess);
+void transformer_session_attach(struct transformer_arch_state   *state,
+                                struct transformer_arch_session *sess);
 
 /* Internal accessor for the model's default session (the one installed
  * by transformer_state_create). Engine uses this to restore the
  * default after detaching an engine-owned session. */
-struct transformer_arch_session *
-transformer_default_session(struct transformer_arch_state *state);
+struct transformer_arch_session *transformer_default_session(struct transformer_arch_state *state);
 
 #endif /* GEIST_INTERNAL_ARCH_TRANSFORMER_STATE_V2_H */

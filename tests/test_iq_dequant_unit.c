@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void analyze(const struct gguf_tensor_t* t, const char* expect_dtype) {
+static void analyze(const struct gguf_tensor_t *t, const char *expect_dtype) {
     printf("=== %s (dtype=%d, expected=%s) ===\n", t->name, t->dtype, expect_dtype);
     printf("    dims: ");
     for (int i = 0; i < t->n_dims; i++)
@@ -30,8 +30,8 @@ static void analyze(const struct gguf_tensor_t* t, const char* expect_dtype) {
         return;
     }
 
-    float* row = (float*) malloc(row_elems * sizeof(float));
-    bool ok = gguf_dequant_row_to_fp32(t, 0, row_elems, row);
+    float *row = (float *) malloc(row_elems * sizeof(float));
+    bool   ok  = gguf_dequant_row_to_fp32(t, 0, row_elems, row);
     if (!ok) {
         printf("    dequant FAILED\n");
         free(row);
@@ -48,7 +48,7 @@ static void analyze(const struct gguf_tensor_t* t, const char* expect_dtype) {
      * for quantized weights). Catastrophic dequant bugs produce huge magnitudes
      * or all-zeros. */
     double sum = 0, sumsq = 0;
-    float vmin = row[0], vmax = row[0];
+    float  vmin = row[0], vmax = row[0];
     for (size_t i = 0; i < row_elems; i++) {
         sum += row[i];
         sumsq += (double) row[i] * row[i];
@@ -58,7 +58,7 @@ static void analyze(const struct gguf_tensor_t* t, const char* expect_dtype) {
             vmax = row[i];
     }
     double mean = sum / row_elems;
-    double var = sumsq / row_elems - mean * mean;
+    double var  = sumsq / row_elems - mean * mean;
     printf("    n=%zu  mean=%+.5f  std=%.5f  min=%+.4f  max=%+.4f\n",
            row_elems,
            mean,
@@ -69,23 +69,23 @@ static void analyze(const struct gguf_tensor_t* t, const char* expect_dtype) {
     free(row);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     setbuf(stdout, nullptr);
     setbuf(stderr, nullptr);
     fprintf(stderr, "[dbg] start\n");
     GEIST_REQUIRE_ARGS(argc, 2, "<gguf>");
-    const char* err = nullptr;
+    const char *err = nullptr;
     fprintf(stderr, "[dbg] opening %s\n", argv[1]);
-    struct gguf_ctx* ctx = gguf_open(argv[1], &err);
-    fprintf(stderr, "[dbg] opened ctx=%p err=%s\n", (void*) ctx, err ? err : "(null)");
+    struct gguf_ctx *ctx = gguf_open(argv[1], &err);
+    fprintf(stderr, "[dbg] opened ctx=%p err=%s\n", (void *) ctx, err ? err : "(null)");
     if (!ctx) {
         fprintf(stderr, "gguf_open: %s\n", err);
         return 1;
     }
 
     /* Pick representative tensors of each new dtype. */
-    const struct gguf_tensor_t* iq2s = gguf_get_tensor(ctx, "blk.0.attn_q.weight");
-    const struct gguf_tensor_t* iq3s = gguf_get_tensor(ctx, "blk.0.attn_output.weight");
+    const struct gguf_tensor_t *iq2s = gguf_get_tensor(ctx, "blk.0.attn_q.weight");
+    const struct gguf_tensor_t *iq3s = gguf_get_tensor(ctx, "blk.0.attn_output.weight");
     if (iq2s) {
         printf("attn_q: dtype=%d nbytes=%zu data=%p\n", iq2s->dtype, iq2s->nbytes, iq2s->data);
         analyze(iq2s, "IQ2_S");

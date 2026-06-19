@@ -35,15 +35,15 @@
 #define CHUNK_SIZE 12    /* Conformer attention chunk (sub-tokens) */
 #define SUB_DOWNSAMPLE 4 /* mel→sub-token stride (two stride-2 convs) */
 
-static const char* find_audio_tower(void) {
-    static const char* candidates[] = {
+static const char *find_audio_tower(void) {
+    static const char *candidates[] = {
             "audio_bench/audio_tower.safetensors",
             "../audio_bench/audio_tower.safetensors",
             "../gemma-4-E2B-it/audio_tower.safetensors",
             nullptr,
     };
     for (size_t i = 0; candidates[i] != nullptr; i++) {
-        FILE* f = fopen(candidates[i], "rb");
+        FILE *f = fopen(candidates[i], "rb");
         if (f != nullptr) {
             fclose(f);
             return candidates[i];
@@ -52,13 +52,13 @@ static const char* find_audio_tower(void) {
     return nullptr;
 }
 
-static void synth_mel(float* mel, bool* mask, size_t n_frames) {
+static void synth_mel(float *mel, bool *mask, size_t n_frames) {
     /* Deterministic broadband-ish signal: per-frame, per-bin sine mixture.
      * Keeps values bounded so the encoder doesn't hit clamp saturation. */
     for (size_t t = 0; t < n_frames; t++) {
         for (size_t b = 0; b < MEL_N_MEL; b++) {
-            float phase = (float) t * 0.07f + (float) b * 0.013f;
-            float v = 0.5f * sinf(phase) + 0.3f * sinf(2.3f * phase) - 1.0f;
+            float phase            = (float) t * 0.07f + (float) b * 0.013f;
+            float v                = 0.5f * sinf(phase) + 0.3f * sinf(2.3f * phase) - 1.0f;
             mel[t * MEL_N_MEL + b] = v;
         }
         mask[t] = true;
@@ -66,21 +66,21 @@ static void synth_mel(float* mel, bool* mask, size_t n_frames) {
 }
 
 int main(void) {
-    const char* audio_tower = find_audio_tower();
+    const char *audio_tower = find_audio_tower();
     if (audio_tower == nullptr) {
         printf("SKIP: audio_tower.safetensors not found "
                "(audio_bench/, ../audio_bench/, ../gemma-4-E2B-it/)\n");
         return GEIST_TEST_SKIP;
     }
 
-    struct AudioEncoder* enc = audio_encoder_create(audio_tower);
+    struct AudioEncoder *enc = audio_encoder_create(audio_tower);
     if (enc == nullptr) {
         fprintf(stderr, "audio_encoder_create failed\n");
         return GEIST_TEST_FAIL;
     }
 
-    float* mel = calloc((size_t) N_MEL_FRAMES * MEL_N_MEL, sizeof(float));
-    bool* mask = calloc((size_t) N_MEL_FRAMES, sizeof(bool));
+    float *mel  = calloc((size_t) N_MEL_FRAMES * MEL_N_MEL, sizeof(float));
+    bool  *mask = calloc((size_t) N_MEL_FRAMES, sizeof(bool));
     if (mel == nullptr || mask == nullptr) {
         audio_encoder_destroy(enc);
         free(mel);
@@ -90,8 +90,8 @@ int main(void) {
     synth_mel(mel, mask, N_MEL_FRAMES);
 
     /* 1. Reference: monolithic audio_encoder_run. */
-    const size_t max_sub = N_MEL_FRAMES / SUB_DOWNSAMPLE + 8;
-    float* ref_soft = calloc(max_sub * SOFT_DIM, sizeof(float));
+    const size_t max_sub  = N_MEL_FRAMES / SUB_DOWNSAMPLE + 8;
+    float       *ref_soft = calloc(max_sub * SOFT_DIM, sizeof(float));
     if (ref_soft == nullptr) {
         audio_encoder_destroy(enc);
         free(mel);
@@ -111,7 +111,7 @@ int main(void) {
 
     /* 2. Reset streaming state (audio_encoder_reset clears stream state). */
     audio_encoder_reset(enc);
-    struct audio_stream_state* state = audio_encoder_stream_state(enc);
+    struct audio_stream_state *state = audio_encoder_stream_state(enc);
     if (state == nullptr) {
         fprintf(stderr, "FAIL: stream state is null\n");
         free(ref_soft);
@@ -134,7 +134,7 @@ int main(void) {
            emit_b);
 
     const size_t n_soft_stream = audio_stream_state_n_soft(state);
-    const float* stream_soft = audio_stream_state_soft(state);
+    const float *stream_soft   = audio_stream_state_soft(state);
     printf("audio_stream_parity: streaming produced %zu soft tokens\n", n_soft_stream);
 
     if (n_soft_stream != n_soft_ref) {
@@ -152,13 +152,13 @@ int main(void) {
     /* 4. Element-wise compare. Tolerance 5e-4 — chunked attention with
      *    K/V cache reads vs. monolithic recompute can differ by a few
      *    ULP due to fp32 non-associativity in dot product summation. */
-    float max_abs = 0.0f;
-    size_t max_at = 0;
+    float  max_abs = 0.0f;
+    size_t max_at  = 0;
     for (size_t i = 0; i < n_soft_ref * SOFT_DIM; i++) {
         float d = fabsf(ref_soft[i] - stream_soft[i]);
         if (d > max_abs) {
             max_abs = d;
-            max_at = i;
+            max_at  = i;
         }
     }
     printf("audio_stream_parity: max|Δ| = %.6f at flat index %zu "

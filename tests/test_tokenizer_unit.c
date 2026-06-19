@@ -20,7 +20,7 @@
 #include <string.h>
 
 /* Same corpus as tokenizer_oracle.py — keep in sync. */
-static const char* TEST_STRINGS[] = {
+static const char *TEST_STRINGS[] = {
         "Hello, world!",
         "The quick brown fox jumps over the lazy dog.",
         "a",
@@ -56,16 +56,16 @@ static const char* TEST_STRINGS[] = {
 };
 static const size_t TEST_COUNT = sizeof(TEST_STRINGS) / sizeof(TEST_STRINGS[0]);
 
-static void print_hex(const char* s) {
-    const unsigned char* u = (const unsigned char*) s;
+static void print_hex(const char *s) {
+    const unsigned char *u = (const unsigned char *) s;
     while (*u)
         printf("%02x", *u++);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 2, "<tokenizer.bin>");
 
-    struct sp_bpe_tokenizer* tok = nullptr;
+    struct sp_bpe_tokenizer *tok = nullptr;
     if (!sp_bpe_tokenizer_load(&tok, argv[1])) {
         fprintf(stderr, "sp_bpe_tokenizer_load failed for %s\n", argv[1]);
         return 1;
@@ -82,13 +82,13 @@ int main(int argc, char** argv) {
 
     int rc = 0;
     for (size_t i = 0; i < TEST_COUNT; i++) {
-        const char* s = TEST_STRINGS[i];
+        const char *s = TEST_STRINGS[i];
         printf("INPUT: ");
         print_hex(s);
         printf("\n");
 
-        uint32_t* ids = nullptr;
-        size_t n = 0;
+        uint32_t *ids = nullptr;
+        size_t    n   = 0;
         if (!sp_bpe_tokenizer_encode(tok, s, &ids, &n)) {
             printf("  ids:        ENCODE_FAILED\n\n");
             rc = 1;

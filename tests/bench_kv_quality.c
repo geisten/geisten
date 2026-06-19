@@ -41,7 +41,7 @@
  * (KIVI_K_GROUP_SIZE=128: a drain triggers around token 128 and again
  * around 256, giving us ≥256 tokens of *drained 2-bit* attention reads
  * mixed with the residual). */
-static const char* DEFAULT_TEXT =
+static const char *DEFAULT_TEXT =
         "Raspberry Pi is a series of small single-board computers developed "
         "in the United Kingdom by the Raspberry Pi Foundation. The original "
         "model became more popular than anticipated, selling outside its "
@@ -66,14 +66,14 @@ static const char* DEFAULT_TEXT =
         "also exposes a PCI Express interface via a flat ribbon connector "
         "for high-speed peripherals such as NVMe storage.";
 
-int main(int argc, char** argv) {
-    const char* model_path = argc > 1 ? argv[1] : geist_test_find_gguf();
+int main(int argc, char **argv) {
+    const char *model_path = argc > 1 ? argv[1] : geist_test_find_gguf();
     GEIST_SKIP_IF(model_path == nullptr, "no GGUF model found — pass path or set GEIST_GGUF_PATH");
 
-    const char* text = (argc > 2) ? argv[2] : DEFAULT_TEXT;
+    const char *text = (argc > 2) ? argv[2] : DEFAULT_TEXT;
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -82,8 +82,8 @@ int main(int argc, char** argv) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "model_load(%s): %s — %s\n",
@@ -94,11 +94,11 @@ int main(int argc, char** argv) {
         return GEIST_TEST_FAIL;
     }
 
-    struct sp_bpe_tokenizer* tok = geist_model_internal_tokenizer(model);
+    struct sp_bpe_tokenizer *tok = geist_model_internal_tokenizer(model);
     GEIST_SKIP_IF(tok == nullptr, "no tokenizer.bin reachable — set GEIST_TOKENIZER_PATH");
 
-    uint32_t* ids = nullptr;
-    size_t n_ids = 0;
+    uint32_t *ids   = nullptr;
+    size_t    n_ids = 0;
     if (!sp_bpe_tokenizer_encode(tok, text, &ids, &n_ids)) {
         fprintf(stderr, "tokenizer encode failed\n");
         geist_model_destroy(model);
@@ -117,8 +117,8 @@ int main(int argc, char** argv) {
      * batched pass (using prefill chunks of m_max internally) and writes
      * argmax at each position. We don't need a session — go straight to
      * arch_ops + arch_meta. */
-    void* arch_meta = geist_model_internal_arch_meta(model);
-    const struct geist_arch_ops_decoder* ops = &geist_arch_transformer;
+    void                                *arch_meta = geist_model_internal_arch_meta(model);
+    const struct geist_arch_ops_decoder *ops       = &geist_arch_transformer;
 
     if (ops->state_reset == nullptr || ops->verify_forward == nullptr ||
         ops->kv_truncate == nullptr) {
@@ -134,8 +134,8 @@ int main(int argc, char** argv) {
     ops->state_reset(arch_meta);
     ops->kv_truncate(arch_meta, 0); /* belt-and-braces: prefix_length may be nonzero */
 
-    const size_t k = n_ids - 1; /* we predict positions 1..N-1 from inputs 0..N-2 */
-    geist_token_t* preds = (geist_token_t*) calloc(k, sizeof *preds);
+    const size_t   k     = n_ids - 1; /* we predict positions 1..N-1 from inputs 0..N-2 */
+    geist_token_t *preds = (geist_token_t *) calloc(k, sizeof *preds);
     if (preds == nullptr) {
         fprintf(stderr, "alloc preds (%zu) failed\n", k);
         free(ids);
@@ -153,12 +153,12 @@ int main(int argc, char** argv) {
      * drained-cache attention path for KIVI mode, matching what an
      * accept-only decode_step stream would do. For non-KIVI modes the
      * truncate is harmless. */
-    const size_t M_MAX = 64;
-    size_t kv_len_acc = 0;
+    const size_t M_MAX      = 64;
+    size_t       kv_len_acc = 0;
     for (size_t off = 0; off < k; off += M_MAX) {
-        const size_t chunk = (k - off > M_MAX) ? M_MAX : (k - off);
-        enum geist_status vs = ops->verify_forward(
-                arch_meta, chunk, (const geist_token_t*) ids + off, preds + off);
+        const size_t      chunk = (k - off > M_MAX) ? M_MAX : (k - off);
+        enum geist_status vs    = ops->verify_forward(
+                arch_meta, chunk, (const geist_token_t *) ids + off, preds + off);
         if (vs != GEIST_OK) {
             fprintf(stderr,
                     "verify_forward(chunk@%zu, %zu): %s\n",
@@ -183,11 +183,11 @@ int main(int argc, char** argv) {
             n_correct++;
     }
     const size_t n_eval = k - 1;
-    const double acc = n_eval > 0 ? (double) n_correct / (double) n_eval : 0.0;
+    const double acc    = n_eval > 0 ? (double) n_correct / (double) n_eval : 0.0;
 
-    const char* mode_kivi = getenv("GEIST_KV_KIVI");
-    const char* mode_int8 = getenv("GEIST_KV_INT8");
-    const char* mode_label = (mode_kivi != nullptr && mode_kivi[0] == '1')   ? "KIVI"
+    const char *mode_kivi  = getenv("GEIST_KV_KIVI");
+    const char *mode_int8  = getenv("GEIST_KV_INT8");
+    const char *mode_label = (mode_kivi != nullptr && mode_kivi[0] == '1')   ? "KIVI"
                              : (mode_int8 != nullptr && mode_int8[0] == '1') ? "INT8"
                              : (mode_int8 != nullptr && mode_int8[0] == '0')
                                      ? "FP32"

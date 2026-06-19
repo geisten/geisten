@@ -34,14 +34,14 @@
 #define N_PATCHES_SYN 2520
 #define VTH 768
 
-static void* read_full(const char* path, size_t* out_bytes) {
-    FILE* f = fopen(path, "rb");
+static void *read_full(const char *path, size_t *out_bytes) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    void* buf = malloc((size_t) sz);
+    void *buf = malloc((size_t) sz);
     if (buf == nullptr) {
         fclose(f);
         return nullptr;
@@ -56,18 +56,18 @@ static void* read_full(const char* path, size_t* out_bytes) {
     return buf;
 }
 
-static int compare_layer(const char* name,
-                         const char* geist_dir,
-                         const char* hf_basename,
-                         size_t n_floats,
-                         float eps) {
+static int compare_layer(const char *name,
+                         const char *geist_dir,
+                         const char *hf_basename,
+                         size_t      n_floats,
+                         float       eps) {
     char hf_path[512], geist_path[512];
     snprintf(hf_path, sizeof hf_path, "%s.%s.bin", hf_basename, name);
     snprintf(geist_path, sizeof geist_path, "%s/%s.bin", geist_dir, name);
 
     size_t hf_b = 0, gi_b = 0;
-    float* hf = read_full(hf_path, &hf_b);
-    float* gi = read_full(geist_path, &gi_b);
+    float *hf = read_full(hf_path, &hf_b);
+    float *gi = read_full(geist_path, &gi_b);
     if (hf == nullptr) {
         fprintf(stdout, "  %-15s SKIP (missing HF dump %s)\n", name, hf_path);
         if (gi)
@@ -90,7 +90,7 @@ static int compare_layer(const char* name,
         free(gi);
         return 1;
     }
-    float max_abs = 0.0f;
+    float  max_abs = 0.0f;
     size_t max_idx = 0;
     double sum_abs = 0.0;
     for (size_t i = 0; i < n_floats; i++) {
@@ -117,13 +117,13 @@ static int compare_layer(const char* name,
     return max_abs <= eps ? 0 : 1;
 }
 
-int main(int argc, char** argv) {
-    const char* weights_path = argc > 1 ? argv[1] : "vision_bench/vision_tower.safetensors";
-    const char* hf_basename = argc > 2 ? argv[2] : "dumps/vision/syn_320x224";
+int main(int argc, char **argv) {
+    const char *weights_path = argc > 1 ? argv[1] : "vision_bench/vision_tower.safetensors";
+    const char *hf_basename  = argc > 2 ? argv[2] : "dumps/vision/syn_320x224";
 
     /* Skip if weights or dumps missing. */
     {
-        FILE* f = fopen(weights_path, "rb");
+        FILE *f = fopen(weights_path, "rb");
         if (f == nullptr) {
             fprintf(stdout,
                     "SKIP: %s not found. Run tools/dump_vision_tower.py "
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
     {
         char p[512];
         snprintf(p, sizeof p, "%s.patches.bin", hf_basename);
-        FILE* f = fopen(p, "rb");
+        FILE *f = fopen(p, "rb");
         if (f == nullptr) {
             fprintf(stdout,
                     "SKIP: %s not found. Run "
@@ -153,37 +153,37 @@ int main(int argc, char** argv) {
     }
 
     /* Read patches + positions. */
-    char path[512];
+    char   path[512];
     size_t bytes = 0;
     snprintf(path, sizeof path, "%s.patches.bin", hf_basename);
-    float* patches = read_full(path, &bytes);
+    float *patches = read_full(path, &bytes);
     if (patches == nullptr || bytes != N_PATCHES_SYN * VTH * sizeof(float)) {
         fprintf(stderr, "bad patches file\n");
         return GEIST_TEST_ERROR;
     }
     snprintf(path, sizeof path, "%s.positions.bin", hf_basename);
-    int32_t* positions = read_full(path, &bytes);
+    int32_t *positions = read_full(path, &bytes);
     if (positions == nullptr || bytes != N_PATCHES_SYN * 2 * sizeof(int32_t)) {
         fprintf(stderr, "bad positions file\n");
         return GEIST_TEST_ERROR;
     }
 
     /* Scratch dump dir. */
-    const char* dump_dir = "build/test-tmp/vision_dump";
+    const char *dump_dir = "build/test-tmp/vision_dump";
     mkdir("build/test-tmp", 0755);
     mkdir(dump_dir, 0755);
     setenv("GEIST_VISION_DUMP_DIR", dump_dir, 1);
 
     /* Load weights + run tower. */
     fprintf(stdout, "loading %s...\n", weights_path);
-    struct VisionEncoder* enc = vision_encoder_create(weights_path);
+    struct VisionEncoder *enc = vision_encoder_create(weights_path);
     if (enc == nullptr) {
         free(patches);
         free(positions);
         return GEIST_TEST_FAIL;
     }
 
-    float* hidden_out = malloc(N_PATCHES_SYN * VTH * sizeof(float));
+    float *hidden_out = malloc(N_PATCHES_SYN * VTH * sizeof(float));
     fprintf(stdout, "running tower forward (n=%d, %d layers)...\n", N_PATCHES_SYN, 16);
     bool ok = vision_encoder_run_tower(enc, patches, positions, N_PATCHES_SYN, hidden_out);
     vision_encoder_destroy(enc);
@@ -196,8 +196,8 @@ int main(int argc, char** argv) {
     }
 
     /* Per-stage diff. */
-    const float eps = 2e-2f;
-    int fails = 0;
+    const float eps   = 2e-2f;
+    int         fails = 0;
     fprintf(stdout, "parity gate: max|Δ| <= %g\n", (double) eps);
     fails += compare_layer("patch_embed_out", dump_dir, hf_basename, N_PATCHES_SYN * VTH, eps);
     for (int li = 0; li < 16; li++) {

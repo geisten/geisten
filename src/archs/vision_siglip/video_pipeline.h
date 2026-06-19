@@ -21,12 +21,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define VIDEO_TARGET_FRAMES 32  /* per Gemma 4 video_processor.num_frames */
+#define VIDEO_TARGET_FRAMES 32 /* per Gemma 4 video_processor.num_frames */
 
 /* Plan for one video. Per-frame plan + batch dims. */
 struct video_plan {
     size_t n_frames;
-    size_t frame_h, frame_w;            /* native frame dims */
+    size_t frame_h, frame_w; /* native frame dims */
     size_t resized_h, resized_w;
     size_t grid_h, grid_w;
     size_t pool_h, pool_w;
@@ -36,16 +36,18 @@ struct video_plan {
 
 /* Compute a plan that respects the per-frame soft-token cap.
  * Returns false if frames are degenerate. */
-bool video_pipeline_plan(size_t n_frames, size_t frame_h, size_t frame_w,
-                          size_t max_soft_per_frame,
-                          struct video_plan *out);
+bool video_pipeline_plan(size_t             n_frames,
+                         size_t             frame_h,
+                         size_t             frame_w,
+                         size_t             max_soft_per_frame,
+                         struct video_plan *out);
 
 /* Preprocess n_frames into a batched fp32 patch tensor.
  *   frames_in:    (n_frames, frame_h, frame_w, 3) row-major uint8
  *   out_patches:  (n_frames * grid_h * grid_w, 3 * 16 * 16) fp32
  * P1: stub returns false. */
-bool video_pipeline_preprocess(const uint8_t *frames_in,
-                                const struct video_plan *plan,
-                                float *out_patches);
+bool video_pipeline_preprocess(const uint8_t           *frames_in,
+                               const struct video_plan *plan,
+                               float                   *out_patches);
 
 #endif

@@ -243,7 +243,10 @@ distclean:
 
 # Code formatting via clang-format. Reads .clang-format from repo root.
 # `make format` rewrites in place; `make format-check` is dry-run for CI.
-FORMAT_FILES := $(wildcard *.c *.h tests/*.c tests/*.h)
+# Covers the whole src/ tree (recursive), tests/, and any root-level *.c/*.h.
+# third_party/ is vendored and intentionally excluded.
+FORMAT_FILES := $(wildcard *.c *.h tests/*.c tests/*.h) \
+                $(shell find src -name '*.c' -o -name '*.h')
 
 format:
 	@clang-format -i $(FORMAT_FILES)

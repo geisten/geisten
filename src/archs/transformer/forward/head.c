@@ -38,47 +38,53 @@ enum head_profile_stage {
     HEAD_PROFILE_COUNT,
 };
 
-static uint64_t g_head_profile_ns[HEAD_PROFILE_COUNT];
-static uint64_t g_head_profile_calls[HEAD_PROFILE_COUNT];
-static const char * const g_head_profile_names[HEAD_PROFILE_COUNT] = {
-    "copy", "norm", "lm_head", "softcap", "sample",
+static uint64_t          g_head_profile_ns[HEAD_PROFILE_COUNT];
+static uint64_t          g_head_profile_calls[HEAD_PROFILE_COUNT];
+static const char *const g_head_profile_names[HEAD_PROFILE_COUNT] = {
+        "copy",
+        "norm",
+        "lm_head",
+        "softcap",
+        "sample",
 };
 static struct transformer_forward_profile g_head_profile = {
-    .title = "transformer head",
-    .stage_names = g_head_profile_names,
-    .stage_count = HEAD_PROFILE_COUNT,
-    .ns = g_head_profile_ns,
-    .calls = g_head_profile_calls,
+        .title       = "transformer head",
+        .stage_names = g_head_profile_names,
+        .stage_count = HEAD_PROFILE_COUNT,
+        .ns          = g_head_profile_ns,
+        .calls       = g_head_profile_calls,
 };
 
-[[nodiscard]] enum geist_status finalize_logits_one_row(
-    struct transformer_arch_state *st, size_t row_idx,
-    geist_token_t *out_token) {
+[[nodiscard]] enum geist_status finalize_logits_one_row(struct transformer_arch_state *st,
+                                                        size_t                         row_idx,
+                                                        geist_token_t                 *out_token) {
 
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
-    enum geist_status s;
-    const bool profile = transformer_profile_enabled(&g_head_profile);
-    uint64_t t0 = profile ? transformer_profile_now_ns() : 0;
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
+    enum geist_status                s;
+    const bool                       profile = transformer_profile_enabled(&g_head_profile);
+    uint64_t                         t0      = profile ? transformer_profile_now_ns() : 0;
 
     /* Copy chosen row of scratch_h_b into scratch_h_a (reuse as a clean
      * [1, HIDDEN] buffer for the output head). */
     {
-        const size_t bytes = st->d_model * sizeof(float);
-        const uint8_t *src = (const uint8_t *) v->buffer_map(st->sess->scratch_h_b);
-        uint8_t *dst = (uint8_t *) v->buffer_map(st->sess->scratch_h_a);
+        const size_t   bytes = st->d_model * sizeof(float);
+        const uint8_t *src   = (const uint8_t *) v->buffer_map(st->sess->scratch_h_b);
+        uint8_t       *dst   = (uint8_t *) v->buffer_map(st->sess->scratch_h_a);
         memcpy(dst, src + row_idx * bytes, bytes);
         v->buffer_unmap(st->sess->scratch_h_b);
         v->buffer_unmap(st->sess->scratch_h_a);
     }
     transformer_profile_add(&g_head_profile, HEAD_PROFILE_COPY, t0);
 
-    struct geist_tensor t_h_1d = view_1d(st->sess->scratch_h_a, st->d_model);
+    struct geist_tensor t_h_1d       = view_1d(st->sess->scratch_h_a, st->d_model);
     struct geist_tensor t_w_out_norm = view_1d(st->output_norm.buffer, st->d_model);
-    t0 = profile ? transformer_profile_now_ns() : 0;
+    t0                               = profile ? transformer_profile_now_ns() : 0;
     s = v->rmsnorm(be, &t_h_1d, &t_w_out_norm, st->config.rms_eps, &t_h_1d);
     transformer_profile_add(&g_head_profile, HEAD_PROFILE_NORM, t0);
-    if (s != GEIST_OK) { return s; }
+    if (s != GEIST_OK) {
+        return s;
+    }
 
     /* Speculative i8-sketch fast path (GEIST_SPEC_HEAD=1). Handles the whole
      * projection + greedy argmax when eligible; otherwise falls through to the
@@ -89,22 +95,30 @@ static struct transformer_forward_profile g_head_profile = {
         return GEIST_OK;
     }
 
-    struct geist_tensor t_h_2d = view_2d(st->sess->scratch_h_a, 1, st->d_model);
+    struct geist_tensor t_h_2d      = view_2d(st->sess->scratch_h_a, 1, st->d_model);
     struct geist_tensor t_logits_2d = view_2d(st->sess->scratch_logits, 1, st->vocab_size);
-    t0 = profile ? transformer_profile_now_ns() : 0;
-    s = linear_w_or_legacy(be, v, st->sess->scratch_h_a, st->sess->scratch_logits,
-                            &st->embed_table_w, /* seq = */ 1,
-                            &t_h_2d, &st->embed_table, &t_logits_2d);
+    t0                              = profile ? transformer_profile_now_ns() : 0;
+    s                               = linear_w_or_legacy(be,
+                                                         v,
+                                                         st->sess->scratch_h_a,
+                                                         st->sess->scratch_logits,
+                                                         &st->embed_table_w,
+                                                         /* seq = */ 1,
+                                                         &t_h_2d,
+                                                         &st->embed_table,
+                                                         &t_logits_2d);
     transformer_profile_add(&g_head_profile, HEAD_PROFILE_LM_HEAD, t0);
-    if (s != GEIST_OK) { return s; }
+    if (s != GEIST_OK) {
+        return s;
+    }
 
     /* Softcap. P1.5: family-conditional. H1: skip in greedy mode — tanh is
      * monotonic so argmax is identical with or without softcap. Saves
      * ~262 144 × tanhf calls per token (~5% of decode on Gemma 4). */
     const bool sampler_needs_softcap = st->sess->temperature > 0.0f;
     if (st->config.logit_softcap > 0.0f && sampler_needs_softcap) {
-        t0 = profile ? transformer_profile_now_ns() : 0;
-        float *p = (float *) v->buffer_map(st->sess->scratch_logits);
+        t0            = profile ? transformer_profile_now_ns() : 0;
+        float      *p = (float *) v->buffer_map(st->sess->scratch_logits);
         const float c = st->config.logit_softcap;
         for (size_t i = 0; i < (size_t) st->vocab_size; i++) {
             p[i] = tanhf(p[i] / c) * c;
@@ -119,20 +133,28 @@ static struct transformer_forward_profile g_head_profile = {
      * per-call 1 MB heap_alloc_aligned. */
     geist_token_t best_id;
     {
-        t0 = profile ? transformer_profile_now_ns() : 0;
+        t0                  = profile ? transformer_profile_now_ns() : 0;
         const float *logits = (const float *) v->buffer_map(st->sess->scratch_logits);
-        if (logits == nullptr) { return GEIST_E_BACKEND; }
+        if (logits == nullptr) {
+            return GEIST_E_BACKEND;
+        }
         if (st->sess->temperature == 0.0f) {
             best_id = geist_sampler_argmax((size_t) st->vocab_size, logits);
         } else if (st->sess->top_k > 1) {
-            best_id = geist_sampler_top_k_ws(&st->sess->sampler_ws, logits,
-                                              st->sess->top_k, st->sess->temperature, &st->sess->rng);
+            best_id = geist_sampler_top_k_ws(&st->sess->sampler_ws,
+                                             logits,
+                                             st->sess->top_k,
+                                             st->sess->temperature,
+                                             &st->sess->rng);
         } else if (st->sess->top_p > 0.0f && st->sess->top_p < 1.0f) {
-            best_id = geist_sampler_top_p_ws(&st->sess->sampler_ws, logits,
-                                              st->sess->top_p, st->sess->temperature, &st->sess->rng);
+            best_id = geist_sampler_top_p_ws(&st->sess->sampler_ws,
+                                             logits,
+                                             st->sess->top_p,
+                                             st->sess->temperature,
+                                             &st->sess->rng);
         } else {
-            best_id = geist_sampler_temperature((size_t) st->vocab_size,
-                                                 logits, st->sess->temperature, &st->sess->rng);
+            best_id = geist_sampler_temperature(
+                    (size_t) st->vocab_size, logits, st->sess->temperature, &st->sess->rng);
         }
         v->buffer_unmap(st->sess->scratch_logits);
         transformer_profile_add(&g_head_profile, HEAD_PROFILE_SAMPLE, t0);
@@ -147,38 +169,47 @@ static struct transformer_forward_profile g_head_profile = {
  * prefill kernels for the 262K-wide projection — vs k separate M=1
  * SGEMV calls that re-stream the embed_table weight rows. Writes
  * out_tokens[0..k-1] with the per-position sampled token. */
-[[nodiscard]] enum geist_status finalize_logits_batch(
-    struct transformer_arch_state *st, size_t k,
-    geist_token_t *out_tokens) {
+[[nodiscard]] enum geist_status
+finalize_logits_batch(struct transformer_arch_state *st, size_t k, geist_token_t *out_tokens) {
 
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
-    enum geist_status s;
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
+    enum geist_status                s;
 
     /* Source: scratch_h_b [k, HIDDEN]. Apply output_norm row-wise
      * (rmsnorm batches naturally over the leading dim). Reuse
      * scratch_h_a as the normed buffer so we don't trash h_b which
      * the caller may still want. */
     {
-        const size_t bytes = k * st->d_model * sizeof(float);
-        const uint8_t *src = (const uint8_t *) v->buffer_map(st->sess->scratch_h_b);
-        uint8_t *dst = (uint8_t *) v->buffer_map(st->sess->scratch_h_a);
+        const size_t   bytes = k * st->d_model * sizeof(float);
+        const uint8_t *src   = (const uint8_t *) v->buffer_map(st->sess->scratch_h_b);
+        uint8_t       *dst   = (uint8_t *) v->buffer_map(st->sess->scratch_h_a);
         memcpy(dst, src, bytes);
         v->buffer_unmap(st->sess->scratch_h_b);
         v->buffer_unmap(st->sess->scratch_h_a);
     }
-    struct geist_tensor t_h_2d = view_2d(st->sess->scratch_h_a, (int64_t) k, st->d_model);
+    struct geist_tensor t_h_2d       = view_2d(st->sess->scratch_h_a, (int64_t) k, st->d_model);
     struct geist_tensor t_w_out_norm = view_1d(st->output_norm.buffer, st->d_model);
     s = v->rmsnorm(be, &t_h_2d, &t_w_out_norm, st->config.rms_eps, &t_h_2d);
-    if (s != GEIST_OK) { return s; }
+    if (s != GEIST_OK) {
+        return s;
+    }
 
     /* Single batched linear: [k, HIDDEN] @ embed_table^T → [k, VOCAB]. */
     struct geist_tensor t_logits_2d =
-        view_2d(st->sess->scratch_logits, (int64_t) k, st->vocab_size);
-    s = linear_w_or_legacy(be, v, st->sess->scratch_h_a, st->sess->scratch_logits,
-                            &st->embed_table_w, k,
-                            &t_h_2d, &st->embed_table, &t_logits_2d);
-    if (s != GEIST_OK) { return s; }
+            view_2d(st->sess->scratch_logits, (int64_t) k, st->vocab_size);
+    s = linear_w_or_legacy(be,
+                           v,
+                           st->sess->scratch_h_a,
+                           st->sess->scratch_logits,
+                           &st->embed_table_w,
+                           k,
+                           &t_h_2d,
+                           &st->embed_table,
+                           &t_logits_2d);
+    if (s != GEIST_OK) {
+        return s;
+    }
 
     /* Per-row softcap + sampler. Softcap is monotonic, so for greedy
      * (temperature=0) argmax is identical with or without it — skip
@@ -189,10 +220,12 @@ static struct transformer_forward_profile g_head_profile = {
      * heap_alloc_aligned, no per-row memcpy. */
     {
         float *all = (float *) v->buffer_map(st->sess->scratch_logits);
-        if (all == nullptr) { return GEIST_E_BACKEND; }
-        const float c = st->config.logit_softcap;
+        if (all == nullptr) {
+            return GEIST_E_BACKEND;
+        }
+        const float c                     = st->config.logit_softcap;
         const bool  sampler_needs_softcap = st->sess->temperature > 0.0f;
-        const bool  do_softcap = c > 0.0f && sampler_needs_softcap;
+        const bool  do_softcap            = c > 0.0f && sampler_needs_softcap;
         for (size_t row = 0; row < k; row++) {
             float *p = all + row * (size_t) st->vocab_size;
             if (do_softcap) {
@@ -205,14 +238,20 @@ static struct transformer_forward_profile g_head_profile = {
             if (st->sess->temperature == 0.0f) {
                 best_id = geist_sampler_argmax((size_t) st->vocab_size, p);
             } else if (st->sess->top_k > 1) {
-                best_id = geist_sampler_top_k_ws(&st->sess->sampler_ws, p,
-                                                  st->sess->top_k, st->sess->temperature, &st->sess->rng);
+                best_id = geist_sampler_top_k_ws(&st->sess->sampler_ws,
+                                                 p,
+                                                 st->sess->top_k,
+                                                 st->sess->temperature,
+                                                 &st->sess->rng);
             } else if (st->sess->top_p > 0.0f && st->sess->top_p < 1.0f) {
-                best_id = geist_sampler_top_p_ws(&st->sess->sampler_ws, p,
-                                                  st->sess->top_p, st->sess->temperature, &st->sess->rng);
+                best_id = geist_sampler_top_p_ws(&st->sess->sampler_ws,
+                                                 p,
+                                                 st->sess->top_p,
+                                                 st->sess->temperature,
+                                                 &st->sess->rng);
             } else {
-                best_id = geist_sampler_temperature((size_t) st->vocab_size,
-                                                     p, st->sess->temperature, &st->sess->rng);
+                best_id = geist_sampler_temperature(
+                        (size_t) st->vocab_size, p, st->sess->temperature, &st->sess->rng);
             }
             out_tokens[row] = best_id;
         }
@@ -221,11 +260,13 @@ static struct transformer_forward_profile g_head_profile = {
     return GEIST_OK;
 }
 
-[[nodiscard]] enum geist_status finalize_logits_last_row(
-    struct transformer_arch_state *st, size_t seq) {
-    geist_token_t tok = -1;
-    enum geist_status s = finalize_logits_one_row(st, seq - 1, &tok);
-    if (s != GEIST_OK) { return s; }
+[[nodiscard]] enum geist_status finalize_logits_last_row(struct transformer_arch_state *st,
+                                                         size_t                         seq) {
+    geist_token_t     tok = -1;
+    enum geist_status s   = finalize_logits_one_row(st, seq - 1, &tok);
+    if (s != GEIST_OK) {
+        return s;
+    }
     st->sess->next_token_pending = tok;
     st->sess->logits_valid       = true;
     return GEIST_OK;

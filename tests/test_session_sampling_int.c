@@ -25,18 +25,18 @@
  * failing status. GEIST_E_NOT_FOUND from set_prompt means no usable tokenizer
  * (no tokenizer.bin, and the GGUF tokenizer is a non-gpt2 SPM model geist's
  * encode path doesn't implement) — the caller turns that into a clean SKIP. */
-static enum geist_status run_decode(const char* model_path,
-                                    struct geist_backend* be,
-                                    const struct geist_session_opts* opts,
-                                    geist_token_t out_tokens[static N_DECODE]) {
-    struct geist_model* model = nullptr;
-    enum geist_status s = geist_model_load(model_path, be, &model);
+static enum geist_status run_decode(const char                      *model_path,
+                                    struct geist_backend            *be,
+                                    const struct geist_session_opts *opts,
+                                    geist_token_t                    out_tokens[static N_DECODE]) {
+    struct geist_model *model = nullptr;
+    enum geist_status   s     = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_status_to_string(s));
         return s;
     }
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, opts, &sess);
+    struct geist_session *sess = nullptr;
+    s                          = geist_session_create(model, be, opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed: %s\n", geist_status_to_string(s));
         geist_model_destroy(model);
@@ -71,8 +71,8 @@ static enum geist_status run_decode(const char* model_path,
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -84,9 +84,9 @@ int main(void) {
     int fails = 0;
 
     /* ---- Test 1: greedy (temperature=0) reproduces canonical ---- */
-    geist_token_t greedy_a[N_DECODE], greedy_b[N_DECODE];
+    geist_token_t             greedy_a[N_DECODE], greedy_b[N_DECODE];
     struct geist_session_opts greedy_opts = {.temperature = 0.0f};
-    enum geist_status rc = run_decode(model_path, be, &greedy_opts, greedy_a);
+    enum geist_status         rc          = run_decode(model_path, be, &greedy_opts, greedy_a);
     if (rc == GEIST_E_NOT_FOUND) {
         printf("SKIP: no tokenizer for set_prompt path "
                "(needs tokenizer.bin or a gpt2-BPE GGUF)\n");
@@ -115,11 +115,11 @@ int main(void) {
      * to actually pick something other than argmax. The "Hello" prompt
      * has a strongly peaked distribution on 9259 so we need temperature
      * well above 1.0 to break out of it deterministically. */
-    geist_token_t sampled_a[N_DECODE], sampled_b[N_DECODE];
+    geist_token_t             sampled_a[N_DECODE], sampled_b[N_DECODE];
     struct geist_session_opts sample_opts = {
             .temperature = 10.0f,
-            .top_k = 200,
-            .top_p = 1.0f,
+            .top_k       = 200,
+            .top_p       = 1.0f,
             .random_seed = 0xDEADBEEFu,
     };
     if (run_decode(model_path, be, &sample_opts, sampled_a) != GEIST_OK) {

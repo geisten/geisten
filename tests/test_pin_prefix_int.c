@@ -29,8 +29,8 @@
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -39,8 +39,8 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
@@ -48,8 +48,8 @@ int main(void) {
     }
 
     struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed\n");
         geist_model_destroy(model);
@@ -60,9 +60,9 @@ int main(void) {
     /* Prefix and query are arbitrary but plausible token ids. Use ids
      * inside the Gemma 4 vocab to avoid OOB indices in lm_head. */
     const geist_token_t prefix_ids[] = {2, 105, 106, 107}; /* <bos>+specials */
-    const size_t prefix_n = sizeof(prefix_ids) / sizeof(prefix_ids[0]);
-    const geist_token_t query_ids[] = {1408, 236743, 244549};
-    const size_t query_n = sizeof(query_ids) / sizeof(query_ids[0]);
+    const size_t        prefix_n     = sizeof(prefix_ids) / sizeof(prefix_ids[0]);
+    const geist_token_t query_ids[]  = {1408, 236743, 244549};
+    const size_t        query_n      = sizeof(query_ids) / sizeof(query_ids[0]);
 
     s = geist_session_pin_prefix(sess, prefix_n, prefix_ids);
     if (s == GEIST_E_UNSUPPORTED) {

@@ -19,8 +19,8 @@
 
 /* Greedy-decode N tokens of a fixed prompt into `out`. Returns count, -1 on err. */
 static int
-generate(struct geist_model* model, struct geist_backend* be, geist_token_t* out, int n) {
-    struct geist_session* s = nullptr;
+generate(struct geist_model *model, struct geist_backend *be, geist_token_t *out, int n) {
+    struct geist_session *s = nullptr;
     if (geist_session_create(model, be, nullptr, &s) != GEIST_OK) {
         return -1;
     }
@@ -41,7 +41,7 @@ generate(struct geist_model* model, struct geist_backend* be, geist_token_t* out
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
+    struct geist_backend *be = nullptr;
     if (geist_backend_create("auto", nullptr, nullptr, &be) != GEIST_OK) {
         fprintf(stderr, "backend create: %s\n", geist_last_create_error());
         return GEIST_TEST_ERROR;
@@ -60,7 +60,7 @@ int main(void) {
         return GEIST_TEST_FAIL;
     }
     size_t size = (size_t) sb.st_size;
-    void* buf = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    void  *buf  = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
     if (buf == MAP_FAILED) {
         geist_backend_destroy(be);
@@ -70,9 +70,9 @@ int main(void) {
     int fail = 0;
 
     /* From-memory load + generate. */
-    struct geist_model* m_mem = nullptr;
-    geist_token_t mem_tok[N_TOK];
-    int mem_n = -1;
+    struct geist_model *m_mem = nullptr;
+    geist_token_t       mem_tok[N_TOK];
+    int                 mem_n = -1;
     if (geist_model_load_from_memory(buf, size, be, &m_mem) != GEIST_OK) {
         fprintf(stderr, "FAIL: load_from_memory: %s\n", geist_last_create_error());
         fail = 1;
@@ -82,9 +82,9 @@ int main(void) {
     }
 
     /* File load + generate (the reference). */
-    struct geist_model* m_file = nullptr;
-    geist_token_t file_tok[N_TOK];
-    int file_n = -1;
+    struct geist_model *m_file = nullptr;
+    geist_token_t       file_tok[N_TOK];
+    int                 file_n = -1;
     if (geist_model_load(model_path, be, &m_file) != GEIST_OK) {
         fprintf(stderr, "FAIL: load(path): %s\n", geist_last_create_error());
         fail = 1;

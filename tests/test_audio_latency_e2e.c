@@ -40,9 +40,9 @@
 #define REPLY_CAP 2048
 
 struct latency_case {
-    const char* wav_path;
-    const char* prompt;
-    const char* label;
+    const char *wav_path;
+    const char *prompt;
+    const char *label;
 };
 
 static struct latency_case cases[] = {
@@ -66,8 +66,8 @@ static double now_ms(void) {
     return (double) ts.tv_sec * 1e3 + (double) ts.tv_nsec / 1e6;
 }
 
-static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sample_rate_out) {
-    FILE* f = fopen(path, "rb");
+static int16_t *read_wav_pcm(const char *path, size_t *n_samples_out, int *sample_rate_out) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     unsigned char hdr[44];
@@ -86,8 +86,8 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
     fseek(f, 0, SEEK_END);
     long file_bytes = ftell(f);
     fseek(f, 44, SEEK_SET);
-    size_t n = (size_t) (file_bytes - 44) / 2;
-    int16_t* pcm = malloc(n * sizeof(int16_t));
+    size_t   n   = (size_t) (file_bytes - 44) / 2;
+    int16_t *pcm = malloc(n * sizeof(int16_t));
     if (pcm == nullptr) {
         fclose(f);
         return nullptr;
@@ -98,19 +98,19 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
         free(pcm);
         return nullptr;
     }
-    *n_samples_out = n;
+    *n_samples_out   = n;
     *sample_rate_out = (int) sr;
     return pcm;
 }
 
-static enum geist_status tokenize_drop_bos(struct geist_session* s,
-                                           const char* text,
-                                           bool drop_bos,
-                                           geist_token_t* out,
-                                           size_t cap,
-                                           size_t* n_out) {
-    geist_token_t scratch[PROMPT_CAP];
-    size_t n = 0;
+static enum geist_status tokenize_drop_bos(struct geist_session *s,
+                                           const char           *text,
+                                           bool                  drop_bos,
+                                           geist_token_t        *out,
+                                           size_t                cap,
+                                           size_t               *n_out) {
+    geist_token_t     scratch[PROMPT_CAP];
+    size_t            n  = 0;
     enum geist_status rc = geist_session_tokenize(s, text, PROMPT_CAP, scratch, &n);
     if (rc != GEIST_OK)
         return rc;
@@ -131,30 +131,30 @@ struct stage_timings {
     double t_first;  /* first-token decode */
     double t_decode; /* remaining decode */
     size_t n_decoded;
-    char reply[REPLY_CAP];
+    char   reply[REPLY_CAP];
 };
 
-static bool run_one_case(struct geist_model* model,
-                         struct geist_backend* be,
-                         const struct latency_case* tc,
-                         struct stage_timings* out) {
+static bool run_one_case(struct geist_model        *model,
+                         struct geist_backend      *be,
+                         const struct latency_case *tc,
+                         struct stage_timings      *out) {
     memset(out, 0, sizeof(*out));
 
     const double t0 = now_ms();
-    size_t n_samples;
-    int sample_rate;
-    int16_t* pcm = read_wav_pcm(tc->wav_path, &n_samples, &sample_rate);
+    size_t       n_samples;
+    int          sample_rate;
+    int16_t     *pcm = read_wav_pcm(tc->wav_path, &n_samples, &sample_rate);
     if (pcm == nullptr || sample_rate != 16000) {
         if (pcm)
             free(pcm);
         return false;
     }
     out->audio_s = (double) n_samples / 16000.0;
-    out->t_wav = now_ms() - t0;
+    out->t_wav   = now_ms() - t0;
 
     struct geist_session_opts opts = {.max_seq_len = 2048};
-    struct geist_session* sess = nullptr;
-    enum geist_status s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    enum geist_status         s    = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         free(pcm);
         return false;
@@ -162,7 +162,7 @@ static bool run_one_case(struct geist_model* model,
 
     /* Prefix (small, lump into attach measurement). */
     geist_token_t prefix[PROMPT_CAP];
-    size_t prefix_n = 0;
+    size_t        prefix_n = 0;
     s = tokenize_drop_bos(sess, "<bos><|turn>user\n<|audio>", false, prefix, PROMPT_CAP, &prefix_n);
     if (s != GEIST_OK)
         goto out_fail;
@@ -172,8 +172,8 @@ static bool run_one_case(struct geist_model* model,
 
     /* attach_audio — this is where the audio encoder runs. */
     const double t1 = now_ms();
-    s = geist_session_attach_audio(sess, n_samples, pcm, 16000);
-    out->t_attach = now_ms() - t1;
+    s               = geist_session_attach_audio(sess, n_samples, pcm, 16000);
+    out->t_attach   = now_ms() - t1;
     free(pcm);
     pcm = nullptr;
     if (s != GEIST_OK)
@@ -181,10 +181,10 @@ static bool run_one_case(struct geist_model* model,
 
     /* Suffix prefill — LM processes the chat template tail. */
     const double t2 = now_ms();
-    char suffix_text[PROMPT_CAP];
+    char         suffix_text[PROMPT_CAP];
     snprintf(suffix_text, sizeof suffix_text, "<audio|>\n%s<turn|>\n<|turn>model\n", tc->prompt);
     geist_token_t suffix[PROMPT_CAP];
-    size_t suffix_n = 0;
+    size_t        suffix_n = 0;
     s = tokenize_drop_bos(sess, suffix_text, true, suffix, PROMPT_CAP, &suffix_n);
     if (s != GEIST_OK)
         goto out_fail;
@@ -194,7 +194,7 @@ static bool run_one_case(struct geist_model* model,
     out->t_pre = now_ms() - t2;
 
     /* First token + the rest. */
-    const double t3 = now_ms();
+    const double  t3 = now_ms();
     geist_token_t tok;
     s = geist_session_decode_step(sess, &tok);
     if (s != GEIST_OK)
@@ -203,7 +203,7 @@ static bool run_one_case(struct geist_model* model,
 
     size_t reply_len = 0;
     if (tok != 1 && tok != 106) {
-        const char* t = geist_session_token_to_str(sess, tok);
+        const char *t = geist_session_token_to_str(sess, tok);
         if (t != nullptr) {
             const size_t tn = strlen(t);
             if (reply_len + tn < REPLY_CAP - 1) {
@@ -222,7 +222,7 @@ static bool run_one_case(struct geist_model* model,
             break;
         if (tok == 1 /* eos */ || tok == 106 /* turn| */)
             break;
-        const char* t = geist_session_token_to_str(sess, tok);
+        const char *t = geist_session_token_to_str(sess, tok);
         if (t == nullptr)
             continue;
         const size_t tn = strlen(t);
@@ -248,25 +248,25 @@ out_fail:
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         GEIST_SKIP("backend create failed");
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         geist_backend_destroy(be);
         GEIST_SKIP("model_load failed (set GEIST_GGUF_PATH)");
     }
     {
-        struct geist_session_opts opts = {.max_seq_len = 64};
-        struct geist_session* probe = nullptr;
+        struct geist_session_opts opts  = {.max_seq_len = 64};
+        struct geist_session     *probe = nullptr;
         if (geist_session_create(model, be, &opts, &probe) == GEIST_OK) {
-            geist_token_t t[4];
-            size_t pn = 0;
+            geist_token_t     t[4];
+            size_t            pn = 0;
             enum geist_status ps = geist_session_tokenize(probe, "x", 4, t, &pn);
             geist_session_destroy(probe);
             if (ps == GEIST_E_NOT_FOUND) {
@@ -278,7 +278,7 @@ int main(void) {
     }
 
     const size_t n_cases = sizeof(cases) / sizeof(cases[0]);
-    size_t n_runs = 0;
+    size_t       n_runs  = 0;
 
     printf("audio_latency_e2e: per-stage push-to-talk timing\n");
     printf("\n%-26s %7s | %7s %7s %7s %7s %7s | %7s | tokens\n",
@@ -301,8 +301,8 @@ int main(void) {
            "-------");
 
     for (size_t i = 0; i < n_cases; i++) {
-        const struct latency_case* tc = &cases[i];
-        struct stage_timings t;
+        const struct latency_case *tc = &cases[i];
+        struct stage_timings       t;
         if (!run_one_case(model, be, tc, &t)) {
             printf("%-26s %7s   skipped/error\n", tc->label, "?");
             continue;

@@ -37,14 +37,14 @@
 
 /* Tokenize via session, optionally dropping a leading BOS so we can
  * append a fragment without it auto-prefixing each call. */
-static enum geist_status tokenize_fragment(struct geist_session* s,
-                                           const char* text,
-                                           bool drop_leading_bos,
-                                           geist_token_t* out_ids,
-                                           size_t out_cap,
-                                           size_t* out_n) {
-    geist_token_t scratch[PROMPT_CAP];
-    size_t n = 0;
+static enum geist_status tokenize_fragment(struct geist_session *s,
+                                           const char           *text,
+                                           bool                  drop_leading_bos,
+                                           geist_token_t        *out_ids,
+                                           size_t                out_cap,
+                                           size_t               *out_n) {
+    geist_token_t     scratch[PROMPT_CAP];
+    size_t            n  = 0;
     enum geist_status rc = geist_session_tokenize(s, text, PROMPT_CAP, scratch, &n);
     if (rc != GEIST_OK)
         return rc;
@@ -62,9 +62,9 @@ static enum geist_status tokenize_fragment(struct geist_session* s,
 }
 
 /* Resolve EOT (<turn|>) at runtime by tokenizing a tiny known string. */
-static geist_token_t find_eot_token(struct geist_session* s) {
-    geist_token_t ids[8];
-    size_t n = 0;
+static geist_token_t find_eot_token(struct geist_session *s) {
+    geist_token_t     ids[8];
+    size_t            n  = 0;
     enum geist_status rc = geist_session_tokenize(s, "<turn|>", 8, ids, &n);
     if (rc != GEIST_OK || n == 0)
         return -1;
@@ -72,13 +72,13 @@ static geist_token_t find_eot_token(struct geist_session* s) {
     return ids[n - 1];
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    const char* img_path = "vision_bench/syn_320x224.png";
-    const char* question = "What do you see in this image?";
-    size_t max_tokens = 80;
-    bool no_image = false;
+    const char *img_path   = "vision_bench/syn_320x224.png";
+    const char *question   = "What do you see in this image?";
+    size_t      max_tokens = 80;
+    bool        no_image   = false;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--image") == 0 && i + 1 < argc)
             img_path = argv[++i];
@@ -90,8 +90,8 @@ int main(int argc, char** argv) {
             no_image = true;
     }
 
-    int w = 0, h = 0, c = 0;
-    uint8_t* rgb = stbi_load(img_path, &w, &h, &c, 3);
+    int      w = 0, h = 0, c = 0;
+    uint8_t *rgb = stbi_load(img_path, &w, &h, &c, 3);
     if (rgb == nullptr) {
         GEIST_SKIP(
                 "could not decode image (use --image PATH; default vision_bench/syn_320x224.png)");
@@ -99,8 +99,8 @@ int main(int argc, char** argv) {
     printf("image: %s (%dx%d RGB)\n", img_path, h, w);
     printf("question: %s\n", question);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
@@ -109,8 +109,8 @@ int main(int argc, char** argv) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
@@ -119,8 +119,8 @@ int main(int argc, char** argv) {
     }
 
     struct geist_session_opts opts = {.max_seq_len = 2048};
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed\n");
         geist_model_destroy(model);
@@ -133,8 +133,8 @@ int main(int argc, char** argv) {
      * mid-stream. Tokenize a trivial string and see what comes back. */
     {
         geist_token_t probe[4];
-        size_t pn = 0;
-        s = geist_session_tokenize(sess, "x", 4, probe, &pn);
+        size_t        pn = 0;
+        s                = geist_session_tokenize(sess, "x", 4, probe, &pn);
         if (s == GEIST_E_NOT_FOUND) {
             printf("SKIP: no tokenizer loaded — set "
                    "GEIST_TOKENIZER_PATH=gemma-4-E2B-it/tokenizer.bin or "
@@ -152,14 +152,14 @@ int main(int argc, char** argv) {
 
     /* --- Prefix: <bos><|turn>user\n[<|image>] ----------------------- */
     geist_token_t prefix[PROMPT_CAP];
-    size_t prefix_n = 0;
-    const char* prefix_text = no_image ? "<bos><|turn>user\n" : "<bos><|turn>user\n<|image>";
-    s = tokenize_fragment(sess,
-                          prefix_text,
-                          /*drop_bos=*/false,
-                          prefix,
-                          PROMPT_CAP,
-                          &prefix_n);
+    size_t        prefix_n    = 0;
+    const char   *prefix_text = no_image ? "<bos><|turn>user\n" : "<bos><|turn>user\n<|image>";
+    s                         = tokenize_fragment(sess,
+                                                  prefix_text,
+                                                  /*drop_bos=*/false,
+                                                  prefix,
+                                                  PROMPT_CAP,
+                                                  &prefix_n);
     if (s != GEIST_OK) {
         fprintf(stderr, "tokenize prefix failed: %s\n", geist_status_to_string(s));
         goto teardown_fail;
@@ -202,7 +202,7 @@ int main(int argc, char** argv) {
 
     /* --- Suffix: [<image|>\n]{question}<turn|>\n<|turn>model\n ------ */
     char suffix_text[PROMPT_CAP];
-    int sn =
+    int  sn =
             snprintf(suffix_text,
                      sizeof suffix_text,
                      no_image ? "%s<turn|>\n<|turn>model\n" : "<image|>\n%s<turn|>\n<|turn>model\n",
@@ -212,13 +212,13 @@ int main(int argc, char** argv) {
         goto teardown_fail;
     }
     geist_token_t suffix[PROMPT_CAP];
-    size_t suffix_n = 0;
-    s = tokenize_fragment(sess,
-                          suffix_text,
-                          /*drop_bos=*/true,
-                          suffix,
-                          PROMPT_CAP,
-                          &suffix_n);
+    size_t        suffix_n = 0;
+    s                      = tokenize_fragment(sess,
+                                               suffix_text,
+                                               /*drop_bos=*/true,
+                                               suffix,
+                                               PROMPT_CAP,
+                                               &suffix_n);
     if (s != GEIST_OK) {
         fprintf(stderr, "tokenize suffix failed: %s\n", geist_status_to_string(s));
         goto teardown_fail;
@@ -248,7 +248,7 @@ int main(int argc, char** argv) {
         if (tok == 1 /* <eos> */ || (eot >= 0 && tok == eot)) {
             break;
         }
-        const char* t = geist_session_token_to_str(sess, tok);
+        const char *t = geist_session_token_to_str(sess, tok);
         if (t != nullptr) {
             fputs(t, stdout);
             fflush(stdout);

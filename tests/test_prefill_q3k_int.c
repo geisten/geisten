@@ -12,22 +12,22 @@ typedef enum CBLAS_TRANSPOSE { CblasNoTrans = 111, CblasTrans = 112 } CBLAS_TRAN
 extern void cblas_sgemm(CBLAS_ORDER,
                         CBLAS_TRANSPOSE,
                         CBLAS_TRANSPOSE,
-                        int M,
-                        int N,
-                        int K,
-                        float alpha,
-                        const float* A,
-                        int lda,
-                        const float* B,
-                        int ldb,
-                        float beta,
-                        float* C,
-                        int ldc);
+                        int          M,
+                        int          N,
+                        int          K,
+                        float        alpha,
+                        const float *A,
+                        int          lda,
+                        const float *B,
+                        int          ldb,
+                        float        beta,
+                        float       *C,
+                        int          ldc);
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 2, "<gguf>");
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(argv[1], &err);
+    const char      *err = nullptr;
+    struct gguf_ctx *ctx = gguf_open(argv[1], &err);
     if (!ctx) {
         fprintf(stderr, "%s\n", err);
         return 1;
@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
 
     int n_tested = 0, n_bad = 0;
     for (size_t ti = 0; ti < gguf_tensor_count(ctx); ti++) {
-        const struct gguf_tensor_t* t = gguf_tensor_at(ctx, ti);
+        const struct gguf_tensor_t *t = gguf_tensor_at(ctx, ti);
         if (t->dtype != GGUF_TYPE_Q3_K || t->n_dims != 2)
             continue;
         if (t->dims[0] % Q3_K_BLOCK_ELEMS != 0)
@@ -44,12 +44,12 @@ int main(int argc, char** argv) {
         const size_t nin = (size_t) t->dims[0], nout = (size_t) t->dims[1];
         const size_t M = 22;
         srand(42 + (int) ti);
-        float* xx = (float*) malloc(M * nin * sizeof(float));
+        float *xx = (float *) malloc(M * nin * sizeof(float));
         for (size_t i = 0; i < M * nin; i++)
             xx[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
 
-        float* W_fp32 = gguf_dequant_to_fp32(t);
-        float* yref = (float*) calloc(M * nout, sizeof(float));
+        float *W_fp32 = gguf_dequant_to_fp32(t);
+        float *yref   = (float *) calloc(M * nout, sizeof(float));
         cblas_sgemm(CblasRowMajor,
                     CblasNoTrans,
                     CblasTrans,
@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
                     yref,
                     (int) nout);
 
-        float* yfast = (float*) calloc(M * nout, sizeof(float));
+        float *yfast = (float *) calloc(M * nout, sizeof(float));
         linear_q3k_w3a8_prefill(xx, t->data, M, nin, nout, yfast);
 
         double sse = 0, refsq = 0, fastsq = 0, dotrf = 0;
@@ -76,10 +76,10 @@ int main(int argc, char** argv) {
             fastsq += (double) yfast[i] * yfast[i];
             dotrf += (double) yref[i] * yfast[i];
         }
-        double rmse = sqrt(sse / ((double) M * (double) nout));
+        double rmse    = sqrt(sse / ((double) M * (double) nout));
         double rms_ref = sqrt(refsq / ((double) M * (double) nout));
         double cos_sim = dotrf / (sqrt(refsq) * sqrt(fastsq));
-        double rel = 100.0 * rmse / rms_ref;
+        double rel     = 100.0 * rmse / rms_ref;
         printf("%-40s  (%5zu, %5zu) rel=%.3f%%  cos=%.6f%s\n",
                t->name,
                nin,

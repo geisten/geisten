@@ -33,8 +33,10 @@ struct vision_siglip_state {
 
 /* Mirrors audio_conformer's find_file. Kept arch-local for now —
  * promotion to a shared helper waits for the third encoder. */
-static char *find_file(const char *env_name, const char *aux_root,
-                        const char *basename, const char *const *fallbacks) {
+static char *find_file(const char        *env_name,
+                       const char        *aux_root,
+                       const char        *basename,
+                       const char *const *fallbacks) {
     const char *env = env_name != nullptr ? getenv(env_name) : nullptr;
     if (env != nullptr && env[0] != '\0') {
         FILE *f = fopen(env, "rb");
@@ -72,13 +74,13 @@ static void *vision_siglip_state_create(struct geist_backend *be, const char *au
     (void) be; /* P3+: tower weights will route through backend buffers. */
 
     static const char *vision_fallbacks[] = {
-        "./vision_bench/vision_tower.safetensors",
-        "../gemma-4-E2B-it/vision_tower.safetensors",
-        "vision_tower.safetensors",
-        nullptr,
+            "./vision_bench/vision_tower.safetensors",
+            "../gemma-4-E2B-it/vision_tower.safetensors",
+            "vision_tower.safetensors",
+            nullptr,
     };
-    char *path = find_file("GEIST_VISION_MODEL_PATH", aux_root,
-                            "vision_tower.safetensors", vision_fallbacks);
+    char *path = find_file(
+            "GEIST_VISION_MODEL_PATH", aux_root, "vision_tower.safetensors", vision_fallbacks);
     if (path == nullptr) {
         return nullptr;
     }
@@ -88,12 +90,12 @@ static void *vision_siglip_state_create(struct geist_backend *be, const char *au
         return nullptr;
     }
     struct vision_siglip_state *st =
-        heap_alloc_aligned(sizeof(*st), alignof(struct vision_siglip_state));
+            heap_alloc_aligned(sizeof(*st), alignof(struct vision_siglip_state));
     if (st == nullptr) {
         vision_encoder_destroy(enc);
         return nullptr;
     }
-    *st = (struct vision_siglip_state){.enc = enc};
+    *st = (struct vision_siglip_state) {.enc = enc};
     return st;
 }
 
@@ -108,12 +110,14 @@ static void vision_siglip_state_destroy(void *encoder_state) {
     safe_free(&encoder_state);
 }
 
-static size_t vision_siglip_encode_image(void *encoder_state,
-                                          const uint8_t *rgb,
-                                          size_t height, size_t width,
-                                          float *out_soft, size_t max_soft) {
-    if (encoder_state == nullptr || rgb == nullptr || out_soft == nullptr ||
-        max_soft == 0 || height == 0 || width == 0) {
+static size_t vision_siglip_encode_image(void          *encoder_state,
+                                         const uint8_t *rgb,
+                                         size_t         height,
+                                         size_t         width,
+                                         float         *out_soft,
+                                         size_t         max_soft) {
+    if (encoder_state == nullptr || rgb == nullptr || out_soft == nullptr || max_soft == 0 ||
+        height == 0 || width == 0) {
         return 0;
     }
     struct vision_siglip_state *st = encoder_state;
@@ -124,17 +128,19 @@ static size_t vision_siglip_encode_image(void *encoder_state,
     return n_soft;
 }
 
-static size_t vision_siglip_encode_video(void *encoder_state,
-                                          const uint8_t *frames,
-                                          size_t n_frames, size_t height, size_t width,
-                                          float *out_soft, size_t max_soft) {
-    if (encoder_state == nullptr || frames == nullptr || out_soft == nullptr ||
-        max_soft == 0 || n_frames == 0 || height == 0 || width == 0) {
+static size_t vision_siglip_encode_video(void          *encoder_state,
+                                         const uint8_t *frames,
+                                         size_t         n_frames,
+                                         size_t         height,
+                                         size_t         width,
+                                         float         *out_soft,
+                                         size_t         max_soft) {
+    if (encoder_state == nullptr || frames == nullptr || out_soft == nullptr || max_soft == 0 ||
+        n_frames == 0 || height == 0 || width == 0) {
         return 0;
     }
     struct vision_siglip_state *st = encoder_state;
-    size_t n_soft = vision_encoder_run_video(st->enc, frames, n_frames,
-                                              height, width, out_soft);
+    size_t n_soft = vision_encoder_run_video(st->enc, frames, n_frames, height, width, out_soft);
     if (n_soft > max_soft) {
         return 0;
     }
@@ -147,10 +153,10 @@ static size_t vision_siglip_soft_token_dim(const void *encoder_state) {
 }
 
 const struct geist_arch_ops_vision geist_arch_vision_siglip = {
-    .name           = "vision_siglip",
-    .state_create   = vision_siglip_state_create,
-    .state_destroy  = vision_siglip_state_destroy,
-    .encode_image   = vision_siglip_encode_image,
-    .encode_video   = vision_siglip_encode_video,
-    .soft_token_dim = vision_siglip_soft_token_dim,
+        .name           = "vision_siglip",
+        .state_create   = vision_siglip_state_create,
+        .state_destroy  = vision_siglip_state_destroy,
+        .encode_image   = vision_siglip_encode_image,
+        .encode_video   = vision_siglip_encode_video,
+        .soft_token_dim = vision_siglip_soft_token_dim,
 };

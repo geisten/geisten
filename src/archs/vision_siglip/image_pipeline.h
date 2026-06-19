@@ -33,9 +33,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define VISION_PATCH_SIZE   16
-#define VISION_POOL_KERNEL  3
-#define VISION_MAX_PATCHES  (VISION_PATCH_SIZE * VISION_PATCH_SIZE)  /* sanity bound */
+#define VISION_PATCH_SIZE 16
+#define VISION_POOL_KERNEL 3
+#define VISION_MAX_PATCHES (VISION_PATCH_SIZE * VISION_PATCH_SIZE) /* sanity bound */
 
 /* Plan for one image. Filled by image_pipeline_plan(). Mirrors HF's
  * get_aspect_ratio_preserving_size — target dims are the largest that:
@@ -44,18 +44,17 @@
  * Inputs in pixels (in_h, in_w); outputs in pixels (resized_h/w), patches
  * (grid_h/w), and pooled tokens (pool_h/w). */
 struct image_plan {
-    size_t in_h, in_w;            /* native input dims (pixels) */
-    size_t resized_h, resized_w;  /* multiples of 48 (= grid_*  * 16) */
-    size_t grid_h, grid_w;        /* patch grid = resized_* / 16 */
-    size_t pool_h, pool_w;        /* pooled grid = grid_*  / 3   */
-    size_t soft_tokens;           /* pool_h * pool_w (always <= max_soft) */
+    size_t in_h, in_w;           /* native input dims (pixels) */
+    size_t resized_h, resized_w; /* multiples of 48 (= grid_*  * 16) */
+    size_t grid_h, grid_w;       /* patch grid = resized_* / 16 */
+    size_t pool_h, pool_w;       /* pooled grid = grid_*  / 3   */
+    size_t soft_tokens;          /* pool_h * pool_w (always <= max_soft) */
 };
 
 /* Compute a plan. max_soft must be one of {70, 140, 280, 560, 1120}
  * (HF Gemma4 constraint; default 280). Returns false if the image is
  * degenerate (one dim rounds to zero with the other already at max). */
-bool image_pipeline_plan(size_t in_h, size_t in_w, size_t max_soft,
-                          struct image_plan *out);
+bool image_pipeline_plan(size_t in_h, size_t in_w, size_t max_soft, struct image_plan *out);
 
 /* Preprocess RGB uint8 → fp32 patches.
  *   rgb_in:      (in_h, in_w, 3) row-major uint8
@@ -69,9 +68,9 @@ bool image_pipeline_plan(size_t in_h, size_t in_w, size_t max_soft,
  * PIL bicubic) → /255 → CHW-equivalent patchify (yields HWC inside
  * each patch as HF's reshape+permute does).
  * Returns false on bad input. */
-bool image_pipeline_preprocess(const uint8_t *rgb_in,
-                                const struct image_plan *plan,
-                                float *out_patches);
+bool image_pipeline_preprocess(const uint8_t           *rgb_in,
+                               const struct image_plan *plan,
+                               float                   *out_patches);
 
 /* Fill (x, y) int32 position-id pairs in row-major patch order matching
  * HF np.meshgrid(arange(pw), arange(ph), indexing='xy'):
@@ -81,7 +80,6 @@ bool image_pipeline_preprocess(const uint8_t *rgb_in,
  *       out_pos[i*2 + 1] = patch_y
  * These (x, y) pairs index the learned (2, position_embedding_size,
  * hidden) pos-embed table directly. */
-void image_pipeline_position_ids(const struct image_plan *plan,
-                                  int32_t *out_pos);
+void image_pipeline_position_ids(const struct image_plan *plan, int32_t *out_pos);
 
 #endif

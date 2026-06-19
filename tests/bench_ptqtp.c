@@ -33,32 +33,32 @@ static double now_ms(void) {
 /* Kernel variants for A/B comparison. */
 typedef enum { KERNEL_FP32_ALPHA, KERNEL_FP16_ALPHA } kernel_variant_t;
 
-static void bench_one(const struct ptqtp_ctx* ctx,
-                      const char* name,
-                      double target_sec,
-                      kernel_variant_t variant) {
-    const struct ptqtp_tensor_t* t = ptqtp_get_tensor(ctx, name);
+static void bench_one(const struct ptqtp_ctx *ctx,
+                      const char             *name,
+                      double                  target_sec,
+                      kernel_variant_t        variant) {
+    const struct ptqtp_tensor_t *t = ptqtp_get_tensor(ctx, name);
     if (!t) {
         fprintf(stderr, "  %-32s NOT FOUND\n", name);
         return;
     }
-    const uint32_t gs = ptqtp_group_size(ctx);
-    const size_t n_in = t->n_in;
-    const size_t n_out = t->n_out;
-    const size_t trit_bytes = (size_t) n_out * n_in / 2;
-    const size_t alpha_elem_size =
+    const uint32_t gs         = ptqtp_group_size(ctx);
+    const size_t   n_in       = t->n_in;
+    const size_t   n_out      = t->n_out;
+    const size_t   trit_bytes = (size_t) n_out * n_in / 2;
+    const size_t   alpha_elem_size =
             (variant == KERNEL_FP16_ALPHA) ? sizeof(uint16_t) : sizeof(float);
-    const size_t alpha_bytes = (size_t) n_out * t->n_groups * 2 * alpha_elem_size;
+    const size_t alpha_bytes    = (size_t) n_out * t->n_groups * 2 * alpha_elem_size;
     const size_t bytes_per_call = trit_bytes + alpha_bytes;
-    const double mb_per_call = (double) bytes_per_call / (1024.0 * 1024.0);
+    const double mb_per_call    = (double) bytes_per_call / (1024.0 * 1024.0);
 
-    int8_t* x_q8 = (int8_t*) aligned_alloc(64, n_in * sizeof(int8_t));
-    float* y = (float*) aligned_alloc(64, n_out * sizeof(float));
+    int8_t *x_q8 = (int8_t *) aligned_alloc(64, n_in * sizeof(int8_t));
+    float  *y    = (float *) aligned_alloc(64, n_out * sizeof(float));
     if (!x_q8 || !y) {
         fprintf(stderr, "  alloc fail\n");
         return;
     }
-    float* x = (float*) aligned_alloc(64, n_in * sizeof(float));
+    float *x = (float *) aligned_alloc(64, n_in * sizeof(float));
     for (size_t i = 0; i < n_in; i++)
         x[i] = ((float) i * 0.0137f) - 7.3f;
     float scale_x = quantize_x_int8_sym(x, n_in, x_q8);
@@ -76,7 +76,7 @@ static void bench_one(const struct ptqtp_ctx* ctx,
     const double tw = now_ms();
     CALL_KERNEL();
     const double single_ms = now_ms() - tw;
-    int n_iter = (int) ((target_sec * 1000.0) / (single_ms + 0.001)) + 5;
+    int          n_iter    = (int) ((target_sec * 1000.0) / (single_ms + 0.001)) + 5;
     if (n_iter < 3)
         n_iter = 3;
     if (n_iter > 100000)
@@ -86,8 +86,8 @@ static void bench_one(const struct ptqtp_ctx* ctx,
     for (int it = 0; it < n_iter; it++)
         CALL_KERNEL();
     const double dt_ms_total = now_ms() - t0;
-    const double dt_ms = dt_ms_total / n_iter;
-    const double gbps = (double) bytes_per_call / (dt_ms * 1e6);
+    const double dt_ms       = dt_ms_total / n_iter;
+    const double gbps        = (double) bytes_per_call / (dt_ms * 1e6);
 
     printf("  [%s] %-32s n_out=%6zu n_in=%5zu  %7.1f MB  %7.2f ms/call  %5.2f GB/s  (%d it, "
            "%.1fs)\n",
@@ -109,13 +109,13 @@ static void bench_one(const struct ptqtp_ctx* ctx,
     free(y);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     if (argc < 2 || argc > 3) {
         fprintf(stderr, "Usage: %s <ptqtp.bin> [<tensor_name>|ALL]\n", argv[0]);
         return 2;
     }
-    const char* err = nullptr;
-    struct ptqtp_ctx* ctx = ptqtp_open(argv[1], &err);
+    const char       *err = nullptr;
+    struct ptqtp_ctx *ctx = ptqtp_open(argv[1], &err);
     if (!ctx) {
         fprintf(stderr, "ptqtp_open: %s\n", err ? err : "?");
         return 1;
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
 
     /* Default target wall for the hot loop — 5 sec gives perf >5000 samples
      * at -F 999. Sweep mode uses 1.5 sec each to stay quick. */
-    const char* target_name = (argc == 3) ? argv[2] : "blk.0.ffn_gate.weight";
+    const char *target_name = (argc == 3) ? argv[2] : "blk.0.ffn_gate.weight";
 
     printf("bench_ptqtp — PTQTP 2-plane GEMV throughput on %s\n", argv[1]);
     printf("(OMP_NUM_THREADS=%s)\n",
@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
            "bandwidth\n");
 
     if (target_name && strcmp(target_name, "ALL") == 0) {
-        static const char* shapes[] = {
+        static const char *shapes[] = {
                 "blk.0.attn_q.weight",
                 "blk.0.ffn_gate.weight",
                 "blk.0.ffn_down.weight",

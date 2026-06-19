@@ -15,11 +15,11 @@ static double now_us(void) {
     return (double) ts.tv_sec * 1e6 + (double) ts.tv_nsec / 1e3;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 3, "<model.gguf> <tensor_name>");
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(argv[1], &err);
-    const struct gguf_tensor_t* t = gguf_get_tensor(ctx, argv[2]);
+    const char                 *err = nullptr;
+    struct gguf_ctx            *ctx = gguf_open(argv[1], &err);
+    const struct gguf_tensor_t *t   = gguf_get_tensor(ctx, argv[2]);
     if (!t || t->dtype != GGUF_TYPE_Q4_K) {
         fprintf(stderr, "tensor not Q4_K\n");
         return 1;
@@ -28,15 +28,15 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Tensor %s: Q4_K (n_in=%zu, n_out=%zu)\n", argv[2], n_in, n_out);
 
     /* Random input */
-    float* x = (float*) malloc(n_in * sizeof(float));
+    float *x = (float *) malloc(n_in * sizeof(float));
     for (size_t i = 0; i < n_in; i++)
         x[i] = ((float) rand() / (float) RAND_MAX) * 2.0f - 1.0f;
 
     /* Method A: dequant whole tensor then sgemv */
-    float* w_fp32 = gguf_dequant_to_fp32(t);
-    float* y_a = (float*) malloc(n_out * sizeof(float));
-    int n_iter = 5;
-    double t0 = now_us();
+    float *w_fp32 = gguf_dequant_to_fp32(t);
+    float *y_a    = (float *) malloc(n_out * sizeof(float));
+    int    n_iter = 5;
+    double t0     = now_us();
     for (int it = 0; it < n_iter; it++) {
         linear_fp32(x, w_fp32, nullptr, 1, n_in, n_out, y_a);
     }
@@ -44,8 +44,8 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Method A (sgemv on FP32): %.2f ms/call\n", t_a / 1000.0);
 
     /* Method B: on-the-fly Q4_K decode (FP32 NEON) */
-    float* y_b = (float*) malloc(n_out * sizeof(float));
-    t0 = now_us();
+    float *y_b = (float *) malloc(n_out * sizeof(float));
+    t0         = now_us();
     for (int it = 0; it < n_iter; it++) {
         linear_q4k_decode_fp32(x, t->data, n_in, n_out, y_b);
     }
@@ -54,8 +54,8 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Speedup B/A: %.2fx\n", t_a / t_b);
 
     /* Method C: W4A8 — int8 activations × Q4_K weights via vdotq_s32 */
-    float* y_c = (float*) malloc(n_out * sizeof(float));
-    t0 = now_us();
+    float *y_c = (float *) malloc(n_out * sizeof(float));
+    t0         = now_us();
     for (int it = 0; it < n_iter; it++) {
         linear_q4k_decode_w4a8(x, t->data, n_in, n_out, y_c);
     }
@@ -66,19 +66,19 @@ int main(int argc, char** argv) {
     /* Method D: predecoded Q4_K W4A8. This is the backend-owned layout
      * used by cpu_neon resolve_weight on Apple. */
     const size_t packed_bytes = q4k_predecode_size_bytes(n_in, n_out);
-    void* packed = malloc(packed_bytes);
+    void        *packed       = malloc(packed_bytes);
     if (packed == nullptr || q4k_predecode_pack(t->data, n_in, n_out, packed) != 0) {
         fprintf(stderr, "Q4_K predecode pack failed\n");
         return 1;
     }
     const size_t packed_nt_bytes = q4k_predecode_ntile4_size_bytes(n_in, n_out);
-    void* packed_nt = malloc(packed_nt_bytes);
+    void        *packed_nt       = malloc(packed_nt_bytes);
     if (packed_nt == nullptr || q4k_predecode_ntile4_pack(t->data, n_in, n_out, packed_nt) != 0) {
         fprintf(stderr, "Q4_K ntile4 predecode pack failed\n");
         return 1;
     }
-    float* y_d = (float*) malloc(n_out * sizeof(float));
-    t0 = now_us();
+    float *y_d = (float *) malloc(n_out * sizeof(float));
+    t0         = now_us();
     for (int it = 0; it < n_iter; it++) {
         linear_q4k_decode_w4a8_predecoded(x, packed, n_in, n_out, y_d);
     }
@@ -86,21 +86,21 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Method D (Q4_K predecoded W4A8): %.2f ms/call\n", t_d / 1000.0);
     fprintf(stderr, "Speedup D/C: %.2fx\n", t_c / t_d);
 
-    const size_t m_test = 8;
-    float* xm = (float*) malloc(m_test * n_in * sizeof(float));
-    int8_t* xm_q8 = (int8_t*) malloc(m_test * n_in);
-    int32_t* sum32 = (int32_t*) malloc(m_test * (n_in / 32) * sizeof(int32_t));
-    float* scale_x = (float*) malloc(m_test * sizeof(float));
-    float* scale_blocks = (float*) malloc(m_test * (n_in / Q4_K_BLOCK_ELEMS) * sizeof(float));
-    float* y_pd = (float*) malloc(m_test * n_out * sizeof(float));
-    float* y_mt = (float*) malloc(m_test * n_out * sizeof(float));
-    float* y_nt = (float*) malloc(m_test * n_out * sizeof(float));
-    float* y_np = (float*) malloc(m_test * n_out * sizeof(float));
-    float* y_pair0 = (float*) malloc(m_test * n_out * sizeof(float));
-    float* y_pair1 = (float*) malloc(m_test * n_out * sizeof(float));
-    float* y_up_single = (float*) malloc(m_test * n_out * sizeof(float));
-    float* y_bq = (float*) malloc(m_test * n_out * sizeof(float));
-    float* y_ref_m = (float*) malloc(m_test * n_out * sizeof(float));
+    const size_t m_test  = 8;
+    float       *xm      = (float *) malloc(m_test * n_in * sizeof(float));
+    int8_t      *xm_q8   = (int8_t *) malloc(m_test * n_in);
+    int32_t     *sum32   = (int32_t *) malloc(m_test * (n_in / 32) * sizeof(int32_t));
+    float       *scale_x = (float *) malloc(m_test * sizeof(float));
+    float *scale_blocks  = (float *) malloc(m_test * (n_in / Q4_K_BLOCK_ELEMS) * sizeof(float));
+    float *y_pd          = (float *) malloc(m_test * n_out * sizeof(float));
+    float *y_mt          = (float *) malloc(m_test * n_out * sizeof(float));
+    float *y_nt          = (float *) malloc(m_test * n_out * sizeof(float));
+    float *y_np          = (float *) malloc(m_test * n_out * sizeof(float));
+    float *y_pair0       = (float *) malloc(m_test * n_out * sizeof(float));
+    float *y_pair1       = (float *) malloc(m_test * n_out * sizeof(float));
+    float *y_up_single   = (float *) malloc(m_test * n_out * sizeof(float));
+    float *y_bq          = (float *) malloc(m_test * n_out * sizeof(float));
+    float *y_ref_m       = (float *) malloc(m_test * n_out * sizeof(float));
     if (!xm || !xm_q8 || !sum32 || !scale_x || !scale_blocks || !y_pd || !y_mt || !y_nt || !y_np ||
         !y_pair0 || !y_pair1 || !y_up_single || !y_bq || !y_ref_m) {
         fprintf(stderr, "alloc failed for mtile check\n");
@@ -116,7 +116,7 @@ int main(int argc, char** argv) {
     linear_q4k_w4a8_prefill_predecoded(xm_q8, scale_x, sum32, m_test, packed, n_in, n_out, y_pd);
     linear_q4k_w4a8_prefill_predecoded_mtile4(
             xm_q8, scale_x, sum32, m_test, packed, n_in, n_out, y_mt);
-    float* y_mt8 = (float*) malloc(m_test * n_out * sizeof(float));
+    float *y_mt8 = (float *) malloc(m_test * n_out * sizeof(float));
     if (!y_mt8) {
         fprintf(stderr, "alloc failed for y_mt8\n");
         return 1;
@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
     linear_q4k_w4a8_prefill_predecoded_mtile4_ntile4_packed(
             xm_q8, scale_x, sum32, m_test, packed_nt, n_in, n_out, y_np);
     /* mtile8_ntile4: same packed format, wider M-tile */
-    float* y_np8 = (float*) malloc(m_test * n_out * sizeof(float));
+    float *y_np8 = (float *) malloc(m_test * n_out * sizeof(float));
     if (!y_np8) {
         fprintf(stderr, "alloc failed for y_np8\n");
         return 1;
@@ -189,19 +189,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const char* gate_suffix = "ffn_gate.weight";
-    const char* gate_pos = strstr(argv[2], gate_suffix);
+    const char *gate_suffix = "ffn_gate.weight";
+    const char *gate_pos    = strstr(argv[2], gate_suffix);
     if (gate_pos != nullptr) {
-        char up_name[256];
+        char         up_name[256];
         const size_t prefix_len = (size_t) (gate_pos - argv[2]);
         if (prefix_len + strlen("ffn_up.weight") < sizeof(up_name)) {
             memcpy(up_name, argv[2], prefix_len);
             strcpy(up_name + prefix_len, "ffn_up.weight");
-            const struct gguf_tensor_t* t_up = gguf_get_tensor(ctx, up_name);
+            const struct gguf_tensor_t *t_up = gguf_get_tensor(ctx, up_name);
             if (t_up != nullptr && t_up->dtype == GGUF_TYPE_Q4_K && t_up->dims[0] == n_in &&
                 t_up->dims[1] == n_out) {
                 const size_t packed_up_bytes = q4k_predecode_ntile4_size_bytes(n_in, n_out);
-                void* packed_up = malloc(packed_up_bytes);
+                void        *packed_up       = malloc(packed_up_bytes);
                 if (packed_up == nullptr ||
                     q4k_predecode_ntile4_pack(t_up->data, n_in, n_out, packed_up) != 0) {
                     fprintf(stderr, "Q4_K pair ntile4 predecode pack failed\n");
@@ -278,30 +278,30 @@ int main(int argc, char** argv) {
      * outputs differ by the activation-quant error, which is bounded by
      * the per-row scale of x_q8. */
     {
-        extern void cblas_sgemm(int,
-                                int,
-                                int,
-                                int,
-                                int,
-                                int,
-                                float,
-                                const float*,
-                                int,
-                                const float*,
-                                int,
-                                float,
-                                float*,
-                                int);
-        extern void dequant_q4_K_row(const void*, float*, size_t);
-        const int Cb_RowMajor = 101, Cb_NoTrans = 111, Cb_Trans = 112;
+        extern void  cblas_sgemm(int,
+                                 int,
+                                 int,
+                                 int,
+                                 int,
+                                 int,
+                                 float,
+                                 const float *,
+                                 int,
+                                 const float *,
+                                 int,
+                                 float,
+                                 float *,
+                                 int);
+        extern void  dequant_q4_K_row(const void *, float *, size_t);
+        const int    Cb_RowMajor = 101, Cb_NoTrans = 111, Cb_Trans = 112;
         const size_t DEQ_TILE = 32;
-        float* y_sg = (float*) malloc(m_test * n_out * sizeof(float));
-        float* tile = (float*) malloc(DEQ_TILE * n_in * sizeof(float));
+        float       *y_sg     = (float *) malloc(m_test * n_out * sizeof(float));
+        float       *tile     = (float *) malloc(DEQ_TILE * n_in * sizeof(float));
         if (y_sg != nullptr && tile != nullptr) {
             const size_t blk_bytes = (n_in / Q4_K_BLOCK_ELEMS) * 144;
             for (size_t r0 = 0; r0 < n_out; r0 += DEQ_TILE) {
                 const size_t tr = (n_out - r0 < DEQ_TILE) ? (n_out - r0) : DEQ_TILE;
-                dequant_q4_K_row((const uint8_t*) t->data + r0 * blk_bytes, tile, tr * n_in);
+                dequant_q4_K_row((const uint8_t *) t->data + r0 * blk_bytes, tile, tr * n_in);
                 cblas_sgemm(Cb_RowMajor,
                             Cb_NoTrans,
                             Cb_Trans,
@@ -344,9 +344,9 @@ int main(int argc, char** argv) {
     }
     linear_q4k_w4a8_prefill_predecoded_mtile4_bscale(
             xm_q8, scale_blocks, sum32, m_test, packed, n_in, n_out, y_bq);
-    double max_bq = 0.0;
-    double sum_ref2 = 0.0;
-    double sum_bq2 = 0.0;
+    double max_bq     = 0.0;
+    double sum_ref2   = 0.0;
+    double sum_bq2    = 0.0;
     double sum_ref_bq = 0.0;
     for (size_t i = 0; i < m_test * n_out; i++) {
         const double d = (double) y_ref_m[i] - (double) y_bq[i];

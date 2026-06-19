@@ -34,8 +34,8 @@ static double monotonic_ms(void) {
 /* Workload sizes are env-overridable so the run can be matched exactly to an
  * external reference (e.g. `llama-bench -p 512 -n 128`): set GEIST_BENCH_PP and
  * GEIST_BENCH_TG. Defaults keep the historical 200/50 workload. */
-static size_t env_size(const char* name, size_t fallback) {
-    const char* raw = getenv(name);
+static size_t env_size(const char *name, size_t fallback) {
+    const char *raw = getenv(name);
     if (raw == nullptr || raw[0] == '\0')
         return fallback;
     long v = atol(raw);
@@ -46,8 +46,8 @@ int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
     /* ---- Setup ---- */
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -56,10 +56,10 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    double t0 = monotonic_ms();
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
-    double t_load = monotonic_ms() - t0;
+    double              t0    = monotonic_ms();
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
+    double t_load             = monotonic_ms() - t0;
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
@@ -67,8 +67,8 @@ int main(void) {
     }
 
     struct geist_session_opts opts = {.max_seq_len = 2048, .temperature = 0.0f};
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed\n");
         geist_model_destroy(model);
@@ -77,8 +77,8 @@ int main(void) {
     }
 
     /* ---- Warm-up: prefill 64 tokens ---- */
-    const size_t warm_n = 64;
-    geist_token_t* warm_ids = malloc(warm_n * sizeof(geist_token_t));
+    const size_t   warm_n   = 64;
+    geist_token_t *warm_ids = malloc(warm_n * sizeof(geist_token_t));
     for (size_t i = 0; i < warm_n; i++) {
         warm_ids[i] = 2 + (geist_token_t) (i & 0xff);
     }
@@ -96,13 +96,13 @@ int main(void) {
     }
 
     /* ---- Measured: prefill (GEIST_BENCH_PP, default 200) ---- */
-    const size_t prefill_n = env_size("GEIST_BENCH_PP", 200);
-    geist_token_t* prefill_ids = malloc(prefill_n * sizeof(geist_token_t));
+    const size_t   prefill_n   = env_size("GEIST_BENCH_PP", 200);
+    geist_token_t *prefill_ids = malloc(prefill_n * sizeof(geist_token_t));
     for (size_t i = 0; i < prefill_n; i++) {
         prefill_ids[i] = 2 + (geist_token_t) ((i * 37) & 0xff);
     }
-    t0 = monotonic_ms();
-    s = geist_session_prefill_tokens(sess, prefill_n, prefill_ids);
+    t0               = monotonic_ms();
+    s                = geist_session_prefill_tokens(sess, prefill_n, prefill_ids);
     double t_prefill = monotonic_ms() - t0;
     if (s != GEIST_OK) {
         fprintf(stderr, "prefill failed: %s\n", geist_session_errmsg(sess));
@@ -112,9 +112,9 @@ int main(void) {
     free(prefill_ids);
 
     /* ---- Measured: decode (GEIST_BENCH_TG, default 50) ---- */
-    const int decode_n = (int) env_size("GEIST_BENCH_TG", 50);
-    geist_token_t tok = 0;
-    t0 = monotonic_ms();
+    const int     decode_n = (int) env_size("GEIST_BENCH_TG", 50);
+    geist_token_t tok      = 0;
+    t0                     = monotonic_ms();
     for (int i = 0; i < decode_n; i++) {
         s = geist_session_decode_step(sess, &tok);
         if (s != GEIST_OK) {
@@ -145,7 +145,8 @@ int main(void) {
      * directly comparable to `llama-bench -pg PP,TG`. */
     const double t_total = t_prefill + t_decode;
     const size_t n_total = prefill_n + (size_t) decode_n;
-    printf("  total   (%zu tok):  %8.1f ms  =  %5.2f ms/tok  =  %6.1f tok/s  (pp%zu+tg%d, user-facing)\n",
+    printf("  total   (%zu tok):  %8.1f ms  =  %5.2f ms/tok  =  %6.1f tok/s  (pp%zu+tg%d, "
+           "user-facing)\n",
            n_total,
            t_total,
            t_total / (double) n_total,

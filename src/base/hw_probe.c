@@ -55,14 +55,18 @@
 static bool sysctl_bool(const char *name, bool fallback) {
     int    value = 0;
     size_t len   = sizeof(value);
-    if (sysctlbyname(name, &value, &len, nullptr, 0) != 0) { return fallback; }
+    if (sysctlbyname(name, &value, &len, nullptr, 0) != 0) {
+        return fallback;
+    }
     return value != 0;
 }
 #endif
 
 void geist_hw_probe_fill(struct geist_hw_probe *out) {
-    if (out == nullptr) { return; }
-    *out = (struct geist_hw_probe){0};
+    if (out == nullptr) {
+        return;
+    }
+    *out = (struct geist_hw_probe) {0};
 
     /* ----- OS ------------------------------------------------------- */
 #if defined(__APPLE__)
@@ -97,19 +101,27 @@ void geist_hw_probe_fill(struct geist_hw_probe *out) {
         /* HWCAP_ASIMD covers the NEON ISA; every aarch64 has it but we
          * still record it to keep the contract honest. */
 #ifdef HWCAP_ASIMD
-        if ((hw & HWCAP_ASIMD) != 0) { out->has_neon = true; }
+        if ((hw & HWCAP_ASIMD) != 0) {
+            out->has_neon = true;
+        }
 #else
         out->has_neon = true; /* aarch64 baseline */
 #endif
 #ifdef HWCAP_ASIMDDP
-        if ((hw & HWCAP_ASIMDDP) != 0) { out->has_dotprod = true; }
+        if ((hw & HWCAP_ASIMDDP) != 0) {
+            out->has_dotprod = true;
+        }
 #endif
 #ifdef HWCAP_FPHP
-        if ((hw & HWCAP_FPHP) != 0) { out->has_fp16 = true; }
+        if ((hw & HWCAP_FPHP) != 0) {
+            out->has_fp16 = true;
+        }
 #endif
 #ifdef HWCAP_ASIMDHP
         /* Either of FPHP or ASIMDHP indicates hardware fp16 arithmetic. */
-        if ((hw & HWCAP_ASIMDHP) != 0) { out->has_fp16 = true; }
+        if ((hw & HWCAP_ASIMDHP) != 0) {
+            out->has_fp16 = true;
+        }
 #endif
     }
 #elif defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
@@ -118,7 +130,7 @@ void geist_hw_probe_fill(struct geist_hw_probe *out) {
      * lookup (e.g. SME / SVE) lands here uniformly. */
     out->has_neon    = true; /* baseline */
     out->has_dotprod = sysctl_bool("hw.optional.arm.FEAT_DotProd", true);
-    out->has_fp16    = sysctl_bool("hw.optional.arm.FEAT_FP16",    true);
+    out->has_fp16    = sysctl_bool("hw.optional.arm.FEAT_FP16", true);
 #elif defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
     /* x86_64 via compiler builtins. NEON / dotprod are ARM-only; record
      * them as false so any consumer that checks them on x86 fails-closed. */
@@ -164,26 +176,37 @@ void geist_hw_probe_fill(struct geist_hw_probe *out) {
 #elif defined(_SC_NPROCESSORS_ONLN)
     {
         long n = sysconf(_SC_NPROCESSORS_ONLN);
-        if (n > 0) { out->logical_cores = (size_t) n; }
+        if (n > 0) {
+            out->logical_cores = (size_t) n;
+        }
     }
 #endif
 }
 
 const char *geist_hw_os_name(enum geist_hw_os os) {
     switch (os) {
-    case GEIST_HW_OS_MACOS:   return "macos";
-    case GEIST_HW_OS_LINUX:   return "linux";
-    case GEIST_HW_OS_WINDOWS: return "windows";
-    default:                  return "unknown";
+    case GEIST_HW_OS_MACOS:
+        return "macos";
+    case GEIST_HW_OS_LINUX:
+        return "linux";
+    case GEIST_HW_OS_WINDOWS:
+        return "windows";
+    default:
+        return "unknown";
     }
 }
 
 const char *geist_hw_cpu_name(enum geist_hw_cpu cpu) {
     switch (cpu) {
-    case GEIST_HW_CPU_ARM64_GENERIC:    return "arm64";
-    case GEIST_HW_CPU_ARM64_CORTEX_A76: return "cortex-a76";
-    case GEIST_HW_CPU_APPLE_SILICON:    return "apple-silicon";
-    case GEIST_HW_CPU_X86_64_GENERIC:   return "x86_64";
-    default:                            return "unknown";
+    case GEIST_HW_CPU_ARM64_GENERIC:
+        return "arm64";
+    case GEIST_HW_CPU_ARM64_CORTEX_A76:
+        return "cortex-a76";
+    case GEIST_HW_CPU_APPLE_SILICON:
+        return "apple-silicon";
+    case GEIST_HW_CPU_X86_64_GENERIC:
+        return "x86_64";
+    default:
+        return "unknown";
     }
 }

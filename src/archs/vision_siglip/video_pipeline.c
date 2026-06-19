@@ -18,9 +18,11 @@
 
 #include <stddef.h>
 
-bool video_pipeline_plan(size_t n_frames, size_t frame_h, size_t frame_w,
-                          size_t max_soft_per_frame,
-                          struct video_plan *out) {
+bool video_pipeline_plan(size_t             n_frames,
+                         size_t             frame_h,
+                         size_t             frame_w,
+                         size_t             max_soft_per_frame,
+                         struct video_plan *out) {
     if (out == nullptr || n_frames == 0 || frame_h == 0 || frame_w == 0 ||
         max_soft_per_frame == 0) {
         return false;
@@ -29,46 +31,46 @@ bool video_pipeline_plan(size_t n_frames, size_t frame_h, size_t frame_w,
     if (!image_pipeline_plan(frame_h, frame_w, max_soft_per_frame, &per_frame)) {
         return false;
     }
-    *out = (struct video_plan){
-        .n_frames             = n_frames,
-        .frame_h              = frame_h,
-        .frame_w              = frame_w,
-        .resized_h            = per_frame.resized_h,
-        .resized_w            = per_frame.resized_w,
-        .grid_h               = per_frame.grid_h,
-        .grid_w               = per_frame.grid_w,
-        .pool_h               = per_frame.pool_h,
-        .pool_w               = per_frame.pool_w,
-        .soft_tokens_per_frame= per_frame.soft_tokens,
-        .soft_tokens_total    = per_frame.soft_tokens * n_frames,
+    *out = (struct video_plan) {
+            .n_frames              = n_frames,
+            .frame_h               = frame_h,
+            .frame_w               = frame_w,
+            .resized_h             = per_frame.resized_h,
+            .resized_w             = per_frame.resized_w,
+            .grid_h                = per_frame.grid_h,
+            .grid_w                = per_frame.grid_w,
+            .pool_h                = per_frame.pool_h,
+            .pool_w                = per_frame.pool_w,
+            .soft_tokens_per_frame = per_frame.soft_tokens,
+            .soft_tokens_total     = per_frame.soft_tokens * n_frames,
     };
     return true;
 }
 
-bool video_pipeline_preprocess(const uint8_t *frames_in,
-                                const struct video_plan *plan,
-                                float *out_patches) {
+bool video_pipeline_preprocess(const uint8_t           *frames_in,
+                               const struct video_plan *plan,
+                               float                   *out_patches) {
     if (frames_in == nullptr || plan == nullptr || out_patches == nullptr) {
         return false;
     }
     struct image_plan per_frame = {
-        .in_h        = plan->frame_h,
-        .in_w        = plan->frame_w,
-        .resized_h   = plan->resized_h,
-        .resized_w   = plan->resized_w,
-        .grid_h      = plan->grid_h,
-        .grid_w      = plan->grid_w,
-        .pool_h      = plan->pool_h,
-        .pool_w      = plan->pool_w,
-        .soft_tokens = plan->soft_tokens_per_frame,
+            .in_h        = plan->frame_h,
+            .in_w        = plan->frame_w,
+            .resized_h   = plan->resized_h,
+            .resized_w   = plan->resized_w,
+            .grid_h      = plan->grid_h,
+            .grid_w      = plan->grid_w,
+            .pool_h      = plan->pool_h,
+            .pool_w      = plan->pool_w,
+            .soft_tokens = plan->soft_tokens_per_frame,
     };
     const size_t frame_stride_in  = plan->frame_h * plan->frame_w * 3;
     const size_t patch_px         = 16 * 16 * 3;
     const size_t frame_stride_out = plan->grid_h * plan->grid_w * patch_px;
     for (size_t f = 0; f < plan->n_frames; f++) {
         if (!image_pipeline_preprocess(frames_in + f * frame_stride_in,
-                                        &per_frame,
-                                        out_patches + f * frame_stride_out)) {
+                                       &per_frame,
+                                       out_patches + f * frame_stride_out)) {
             return false;
         }
     }

@@ -31,23 +31,23 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void bench_one(const struct gguf_tensor_t* t, const char* name) {
-    const size_t n_in = t->dims[0];
+static void bench_one(const struct gguf_tensor_t *t, const char *name) {
+    const size_t n_in  = t->dims[0];
     const size_t n_out = t->dims[1];
-    size_t bytes_per_call;
-    const char* kind;
+    size_t       bytes_per_call;
+    const char  *kind;
     switch (t->dtype) {
     case GGUF_TYPE_Q4_K:
         if (n_in % Q4_K_BLOCK_ELEMS != 0)
             goto skip_align;
         bytes_per_call = (n_out * n_in / Q4_K_BLOCK_ELEMS) * Q4_K_BLOCK_BYTES;
-        kind = "Q4_K W4A8";
+        kind           = "Q4_K W4A8";
         break;
     case GGUF_TYPE_Q6_K:
         if (n_in % Q6_K_BLOCK_ELEMS != 0)
             goto skip_align;
         bytes_per_call = (n_out * n_in / Q6_K_BLOCK_ELEMS) * Q6_K_BLOCK_BYTES;
-        kind = "Q6_K fp32 ";
+        kind           = "Q6_K fp32 ";
         break;
     default:
         fprintf(stderr, "  %-32s SKIP (dtype %d)\n", name, t->dtype);
@@ -55,10 +55,10 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
     }
 
     /* Allocate workspace. Q4_K path also needs pre-quantized x; Q6_K is FP32-in. */
-    float* x = (float*) aligned_alloc(64, n_in * sizeof(float));
-    int8_t* x_q8 = (int8_t*) aligned_alloc(64, n_in * sizeof(int8_t));
-    int32_t* sum32 = (int32_t*) aligned_alloc(64, (n_in / 32) * sizeof(int32_t));
-    float* y = (float*) aligned_alloc(64, n_out * sizeof(float));
+    float   *x     = (float *) aligned_alloc(64, n_in * sizeof(float));
+    int8_t  *x_q8  = (int8_t *) aligned_alloc(64, n_in * sizeof(int8_t));
+    int32_t *sum32 = (int32_t *) aligned_alloc(64, (n_in / 32) * sizeof(int32_t));
+    float   *y     = (float *) aligned_alloc(64, n_out * sizeof(float));
     if (!x || !x_q8 || !sum32 || !y) {
         fprintf(stderr, "  %-32s SKIP (alloc fail)\n", name);
         free(x);
@@ -85,7 +85,7 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
     const double t_warm = now_ms();
     CALL_KERNEL();
     const double single_ms = now_ms() - t_warm;
-    int n_iter = (int) (200.0 / (single_ms + 0.001)) + 5;
+    int          n_iter    = (int) (200.0 / (single_ms + 0.001)) + 5;
     if (n_iter > 5000)
         n_iter = 5000;
     if (n_iter < 3)
@@ -95,8 +95,8 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
     const double t0 = now_ms();
     for (int it = 0; it < n_iter; it++)
         CALL_KERNEL();
-    const double dt_ms = (now_ms() - t0) / n_iter;
-    const double gbps = (double) bytes_per_call / (dt_ms * 1e6);
+    const double dt_ms       = (now_ms() - t0) / n_iter;
+    const double gbps        = (double) bytes_per_call / (dt_ms * 1e6);
     const double mb_per_call = (double) bytes_per_call / (1024.0 * 1024.0);
 
     printf("  %-32s [%s] n_out=%6zu n_in=%5zu %7.1f MB  %7.2f ms  %5.2f GB/s  (%d it)\n",
@@ -121,21 +121,21 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
     if (t->dtype == GGUF_TYPE_Q4_K) {
         const size_t M_BENCH =
                 (getenv("GEIST_BENCH_M") != NULL) ? (size_t) atoi(getenv("GEIST_BENCH_M")) : 8;
-        const size_t n_chunks = n_in / 32;
-        const size_t pd_bytes = q4k_predecode_size_bytes(n_in, n_out);
+        const size_t n_chunks    = n_in / 32;
+        const size_t pd_bytes    = q4k_predecode_size_bytes(n_in, n_out);
         const size_t pd_nt_bytes = q4k_predecode_ntile4_size_bytes(n_in, n_out);
-        void* packed = malloc(pd_bytes);
-        void* packed_nt = malloc(pd_nt_bytes);
-        int8_t* xm_q8 = (int8_t*) malloc(M_BENCH * n_in * sizeof(int8_t));
-        int32_t* xm_sum = (int32_t*) malloc(M_BENCH * n_chunks * sizeof(int32_t));
-        float* xm_sx = (float*) malloc(M_BENCH * sizeof(float));
-        float* ym4 = (float*) malloc(M_BENCH * n_out * sizeof(float));
-        float* ym8 = (float*) malloc(M_BENCH * n_out * sizeof(float));
-        float* ymn84 = (float*) malloc(M_BENCH * n_out * sizeof(float));
-        int pack_rc = 1;
-        int pack_nt_rc = 1;
+        void        *packed      = malloc(pd_bytes);
+        void        *packed_nt   = malloc(pd_nt_bytes);
+        int8_t      *xm_q8       = (int8_t *) malloc(M_BENCH * n_in * sizeof(int8_t));
+        int32_t     *xm_sum      = (int32_t *) malloc(M_BENCH * n_chunks * sizeof(int32_t));
+        float       *xm_sx       = (float *) malloc(M_BENCH * sizeof(float));
+        float       *ym4         = (float *) malloc(M_BENCH * n_out * sizeof(float));
+        float       *ym8         = (float *) malloc(M_BENCH * n_out * sizeof(float));
+        float       *ymn84       = (float *) malloc(M_BENCH * n_out * sizeof(float));
+        int          pack_rc     = 1;
+        int          pack_nt_rc  = 1;
         if (packed && packed_nt && xm_q8 && xm_sum && xm_sx && ym4 && ym8 && ymn84) {
-            pack_rc = q4k_predecode_pack(t->data, n_in, n_out, packed);
+            pack_rc    = q4k_predecode_pack(t->data, n_in, n_out, packed);
             pack_nt_rc = q4k_predecode_ntile4_pack(t->data, n_in, n_out, packed_nt);
         } else {
             fprintf(stderr,
@@ -143,12 +143,12 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                     "ym4=%p ym8=%p)\n",
                     name,
                     M_BENCH,
-                    (void*) packed,
-                    (void*) xm_q8,
-                    (void*) xm_sum,
-                    (void*) xm_sx,
-                    (void*) ym4,
-                    (void*) ym8);
+                    (void *) packed,
+                    (void *) xm_q8,
+                    (void *) xm_sum,
+                    (void *) xm_sx,
+                    (void *) ym4,
+                    (void *) ym8);
         }
         if (pack_rc != 0) {
             fprintf(stderr, "  %-32s [Q4_K m=%zu] predecode_pack rc=%d\n", name, M_BENCH, pack_rc);
@@ -163,8 +163,8 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
             const double tw4 = now_ms();
             linear_q4k_w4a8_prefill_predecoded_mtile4(
                     xm_q8, xm_sx, xm_sum, M_BENCH, packed, n_in, n_out, ym4);
-            const double s4 = now_ms() - tw4;
-            int it4 = (int) (200.0 / (s4 + 0.001)) + 3;
+            const double s4  = now_ms() - tw4;
+            int          it4 = (int) (200.0 / (s4 + 0.001)) + 3;
             if (it4 > 2000)
                 it4 = 2000;
             if (it4 < 3)
@@ -178,8 +178,8 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
             const double tw8 = now_ms();
             linear_q4k_w4a8_prefill_predecoded_mtile8(
                     xm_q8, xm_sx, xm_sum, M_BENCH, packed, n_in, n_out, ym8);
-            const double s8 = now_ms() - tw8;
-            int it8 = (int) (200.0 / (s8 + 0.001)) + 3;
+            const double s8  = now_ms() - tw8;
+            int          it8 = (int) (200.0 / (s8 + 0.001)) + 3;
             if (it8 > 2000)
                 it8 = 2000;
             if (it8 < 3)
@@ -192,26 +192,26 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
             (void) (dt4 / dt8); /* legacy speedup (mt4 → mt8) — see new columns below */
 
             /* SGEMM path: dequant Q4_K → fp32 + cblas_sgemm per tile. */
-            extern void cblas_sgemm(int,
-                                    int,
-                                    int,
-                                    int,
-                                    int,
-                                    int,
-                                    float,
-                                    const float*,
-                                    int,
-                                    const float*,
-                                    int,
-                                    float,
-                                    float*,
-                                    int);
-            extern void dequant_q4_K_row(const void*, float*, size_t);
-            const int Cb_RowMajor = 101, Cb_NoTrans = 111, Cb_Trans = 112;
+            extern void  cblas_sgemm(int,
+                                     int,
+                                     int,
+                                     int,
+                                     int,
+                                     int,
+                                     float,
+                                     const float *,
+                                     int,
+                                     const float *,
+                                     int,
+                                     float,
+                                     float *,
+                                     int);
+            extern void  dequant_q4_K_row(const void *, float *, size_t);
+            const int    Cb_RowMajor = 101, Cb_NoTrans = 111, Cb_Trans = 112;
             const size_t DEQ_TILE = 32;
-            double dt_sg = 0.0;
-            float* tile = (float*) malloc(DEQ_TILE * n_in * sizeof(float));
-            float* x_fp32 = (float*) malloc(M_BENCH * n_in * sizeof(float));
+            double       dt_sg    = 0.0;
+            float       *tile     = (float *) malloc(DEQ_TILE * n_in * sizeof(float));
+            float       *x_fp32   = (float *) malloc(M_BENCH * n_in * sizeof(float));
             if (tile && x_fp32) {
                 for (size_t i = 0; i < M_BENCH * n_in; i++) {
                     x_fp32[i] = ((float) ((i * 17) % 4096) * 0.0019f) - 3.9f;
@@ -220,7 +220,7 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                 /* warm */
                 for (size_t r0 = 0; r0 < n_out; r0 += DEQ_TILE) {
                     const size_t tr = (n_out - r0 < DEQ_TILE) ? (n_out - r0) : DEQ_TILE;
-                    dequant_q4_K_row((const uint8_t*) t->data + r0 * blk_bytes, tile, tr * n_in);
+                    dequant_q4_K_row((const uint8_t *) t->data + r0 * blk_bytes, tile, tr * n_in);
                     cblas_sgemm(Cb_RowMajor,
                                 Cb_NoTrans,
                                 Cb_Trans,
@@ -239,7 +239,7 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                 const double tw_sg = now_ms();
                 for (size_t r0 = 0; r0 < n_out; r0 += DEQ_TILE) {
                     const size_t tr = (n_out - r0 < DEQ_TILE) ? (n_out - r0) : DEQ_TILE;
-                    dequant_q4_K_row((const uint8_t*) t->data + r0 * blk_bytes, tile, tr * n_in);
+                    dequant_q4_K_row((const uint8_t *) t->data + r0 * blk_bytes, tile, tr * n_in);
                     cblas_sgemm(Cb_RowMajor,
                                 Cb_NoTrans,
                                 Cb_Trans,
@@ -255,8 +255,8 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                                 ym8 + r0,
                                 (int) n_out);
                 }
-                const double s_sg = now_ms() - tw_sg;
-                int it_sg = (int) (200.0 / (s_sg + 0.001)) + 3;
+                const double s_sg  = now_ms() - tw_sg;
+                int          it_sg = (int) (200.0 / (s_sg + 0.001)) + 3;
                 if (it_sg > 1000)
                     it_sg = 1000;
                 if (it_sg < 3)
@@ -266,7 +266,7 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                     for (size_t r0 = 0; r0 < n_out; r0 += DEQ_TILE) {
                         const size_t tr = (n_out - r0 < DEQ_TILE) ? (n_out - r0) : DEQ_TILE;
                         dequant_q4_K_row(
-                                (const uint8_t*) t->data + r0 * blk_bytes, tile, tr * n_in);
+                                (const uint8_t *) t->data + r0 * blk_bytes, tile, tr * n_in);
                         cblas_sgemm(Cb_RowMajor,
                                     Cb_NoTrans,
                                     Cb_Trans,
@@ -302,8 +302,8 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                 const double tw44n = now_ms();
                 linear_q4k_w4a8_prefill_predecoded_mtile4_ntile4_packed(
                         xm_q8, xm_sx, xm_sum, M_BENCH, packed_nt, n_in, n_out, ymn84);
-                const double s44n = now_ms() - tw44n;
-                int it44n = (int) (200.0 / (s44n + 0.001)) + 3;
+                const double s44n  = now_ms() - tw44n;
+                int          it44n = (int) (200.0 / (s44n + 0.001)) + 3;
                 if (it44n > 2000)
                     it44n = 2000;
                 if (it44n < 3)
@@ -320,8 +320,8 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                 const double tw84 = now_ms();
                 linear_q4k_w4a8_prefill_predecoded_mtile8_ntile4_packed(
                         xm_q8, xm_sx, xm_sum, M_BENCH, packed_nt, n_in, n_out, ymn84);
-                const double s84 = now_ms() - tw84;
-                int it84 = (int) (200.0 / (s84 + 0.001)) + 3;
+                const double s84  = now_ms() - tw84;
+                int          it84 = (int) (200.0 / (s84 + 0.001)) + 3;
                 if (it84 > 2000)
                     it84 = 2000;
                 if (it84 < 3)
@@ -332,7 +332,7 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                             xm_q8, xm_sx, xm_sum, M_BENCH, packed_nt, n_in, n_out, ymn84);
                 dt84 = (now_ms() - t084) / it84;
             }
-            const double speedup84 = (dt84 > 0) ? dt44n / dt84 : 0.0;
+            const double speedup84       = (dt84 > 0) ? dt44n / dt84 : 0.0;
             const double speedup8_vs_44n = (dt84 > 0) ? dt44n / dt8 : 0.0;
             printf("  %-32s [Q4_K m=%zu] mt4=%5.2f mt4_nt4p=%5.2f mt8=%5.2f mt8_nt4p=%5.2f ms | "
                    "mt8 vs mt4_nt4p Δ=%+5.1f%% | mt8_nt4p vs mt4_nt4p Δ=%+5.1f%%\n",
@@ -362,7 +362,7 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
     if (t->dtype == GGUF_TYPE_Q6_K) {
         /* Reference output from FP32 path stored in `y` from the calibration
          * runs above. Make a copy then re-compute via W6A8 to compare. */
-        float* y_ref = (float*) aligned_alloc(64, n_out * sizeof(float));
+        float *y_ref = (float *) aligned_alloc(64, n_out * sizeof(float));
         memcpy(y_ref, y, n_out * sizeof(float));
 
         /* W6A8: needs symmetric int8 quantization of x (no sum32 needed). */
@@ -382,7 +382,7 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
         const double tw = now_ms();
         linear_q6k_decode_w6a8_pre(x_q8, scale_x6, t->data, n_in, n_out, y);
         const double single_ms3 = now_ms() - tw;
-        int n_iter3 = (int) (200.0 / (single_ms3 + 0.001)) + 5;
+        int          n_iter3    = (int) (200.0 / (single_ms3 + 0.001)) + 5;
         if (n_iter3 > 5000)
             n_iter3 = 5000;
         if (n_iter3 < 3)
@@ -391,7 +391,7 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
         for (int it = 0; it < n_iter3; it++)
             linear_q6k_decode_w6a8_pre(x_q8, scale_x6, t->data, n_in, n_out, y);
         const double dt_ms3 = (now_ms() - t03) / n_iter3;
-        const double gbps3 = (double) bytes_per_call / (dt_ms3 * 1e6);
+        const double gbps3  = (double) bytes_per_call / (dt_ms3 * 1e6);
         printf("  %-32s [Q6_K W6A8] (same shape)         %7.1f MB  %7.2f ms  %5.2f GB/s  (%d it)  "
                "cos=%.6f\n",
                name,
@@ -406,12 +406,12 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
 
         /* FP32 sgemv comparison only worth it for the lm_head size. */
         if (n_out * n_in >= 1024 * 1024) {
-            float* w_fp32 = gguf_dequant_to_fp32(t);
+            float *w_fp32 = gguf_dequant_to_fp32(t);
             if (w_fp32) {
                 const double t_warm2 = now_ms();
                 linear_fp32(x, w_fp32, nullptr, 1, n_in, n_out, y);
                 const double single_ms2 = now_ms() - t_warm2;
-                int n_iter2 = (int) (200.0 / (single_ms2 + 0.001)) + 5;
+                int          n_iter2    = (int) (200.0 / (single_ms2 + 0.001)) + 5;
                 if (n_iter2 > 5000)
                     n_iter2 = 5000;
                 if (n_iter2 < 3)
@@ -421,8 +421,8 @@ static void bench_one(const struct gguf_tensor_t* t, const char* name) {
                     linear_fp32(x, w_fp32, nullptr, 1, n_in, n_out, y);
                 const double dt_ms2 = (now_ms() - t02) / n_iter2;
                 const size_t bytes2 = n_out * n_in * sizeof(float);
-                const double gbps2 = (double) bytes2 / (dt_ms2 * 1e6);
-                const double mb2 = (double) bytes2 / (1024.0 * 1024.0);
+                const double gbps2  = (double) bytes2 / (dt_ms2 * 1e6);
+                const double mb2    = (double) bytes2 / (1024.0 * 1024.0);
                 printf("  %-32s [FP32 sgemv] (same shape)        %7.1f MB  %7.2f ms  %5.2f GB/s  "
                        "(%d it)\n",
                        name,
@@ -446,13 +446,13 @@ skip_align:
     fprintf(stderr, "  %-32s SKIP (n_in %zu not block-aligned)\n", name, n_in);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     if (argc < 2 || argc > 3) {
         fprintf(stderr, "Usage: %s <gguf> [<tensor_name>]\n", argv[0]);
         return 2;
     }
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(argv[1], &err);
+    const char      *err = nullptr;
+    struct gguf_ctx *ctx = gguf_open(argv[1], &err);
     if (!ctx) {
         fprintf(stderr, "gguf_open: %s\n", err);
         return 1;
@@ -463,7 +463,7 @@ int main(int argc, char** argv) {
            "bandwidth\n");
 
     if (argc == 3) {
-        const struct gguf_tensor_t* t = gguf_get_tensor(ctx, argv[2]);
+        const struct gguf_tensor_t *t = gguf_get_tensor(ctx, argv[2]);
         if (!t) {
             fprintf(stderr, "tensor not found: %s\n", argv[2]);
             return 1;
@@ -472,7 +472,7 @@ int main(int argc, char** argv) {
     } else {
         /* Canonical Gemma 4 E2B per-decode-call shapes (layer 0 representative)
          * + lm_head (token_embd is tied; Q6_K in Q4_K_M model). */
-        static const char* shapes[] = {
+        static const char *shapes[] = {
                 "blk.0.attn_q.weight",
                 "blk.0.attn_k.weight",
                 "blk.0.attn_output.weight",
@@ -483,7 +483,7 @@ int main(int argc, char** argv) {
                 nullptr,
         };
         for (int i = 0; shapes[i]; i++) {
-            const struct gguf_tensor_t* t = gguf_get_tensor(ctx, shapes[i]);
+            const struct gguf_tensor_t *t = gguf_get_tensor(ctx, shapes[i]);
             if (!t) {
                 fprintf(stderr, "  %-32s NOT FOUND\n", shapes[i]);
                 continue;

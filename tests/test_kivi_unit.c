@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static float cosine_sim(const float* a, const float* b, size_t n) {
+static float cosine_sim(const float *a, const float *b, size_t n) {
     double dot = 0.0, na = 0.0, nb = 0.0;
     for (size_t i = 0; i < n; i++) {
         dot += (double) a[i] * (double) b[i];
@@ -39,11 +39,11 @@ static float cosine_sim(const float* a, const float* b, size_t n) {
 }
 
 /* Box-Muller for deterministic N(0,1) samples. */
-static float gauss(uint32_t* seed) {
-    uint32_t a = (*seed = (*seed) * 1103515245u + 12345u);
-    uint32_t b = (*seed = (*seed) * 1103515245u + 12345u);
-    float u1 = ((float) (a & 0xffffff) + 1.0f) / (float) 0x1000000;
-    float u2 = ((float) (b & 0xffffff)) / (float) 0x1000000;
+static float gauss(uint32_t *seed) {
+    uint32_t a  = (*seed = (*seed) * 1103515245u + 12345u);
+    uint32_t b  = (*seed = (*seed) * 1103515245u + 12345u);
+    float    u1 = ((float) (a & 0xffffff) + 1.0f) / (float) 0x1000000;
+    float    u2 = ((float) (b & 0xffffff)) / (float) 0x1000000;
     return sqrtf(-2.0f * logf(u1)) * cosf(6.2831853f * u2);
 }
 
@@ -58,7 +58,7 @@ static int test_packing_exact(void) {
     for (size_t i = 0; i < 16; i++)
         in[i] = (float) (i % 4);
     uint8_t q[4];
-    float scale = 0.0f, zero = 0.0f;
+    float   scale = 0.0f, zero = 0.0f;
     kivi_pack_v_row(16, in, q, &scale, &zero);
 
     /* For input {0,1,2,3,...}: vmin=0, vmax=3, range=3, scale=1, zero=0. */
@@ -94,9 +94,9 @@ static int test_packing_exact(void) {
 
 static int test_v_row_gaussian(void) {
     const size_t n = 256;
-    float in[256], out[256];
-    uint8_t q[64];
-    float scale, zero;
+    float        in[256], out[256];
+    uint8_t      q[64];
+    float        scale, zero;
 
     uint32_t seed = 0xC0FFEEu;
     for (size_t i = 0; i < n; i++)
@@ -123,11 +123,11 @@ static int test_k_group_gaussian(void) {
     const size_t c = 256;
     const size_t n = g * c;
 
-    float* in = malloc(n * sizeof(float));
-    float* out = malloc(n * sizeof(float));
-    uint8_t* q = malloc(n / 4);
-    float* scales = malloc(c * sizeof(float));
-    float* zeros = malloc(c * sizeof(float));
+    float   *in     = malloc(n * sizeof(float));
+    float   *out    = malloc(n * sizeof(float));
+    uint8_t *q      = malloc(n / 4);
+    float   *scales = malloc(c * sizeof(float));
+    float   *zeros  = malloc(c * sizeof(float));
 
     uint32_t seed = 0x42424242u;
     for (size_t i = 0; i < n; i++)
@@ -160,11 +160,11 @@ static int test_k_group_outliers(void) {
     const size_t c = 256;
     const size_t n = g * c;
 
-    float* in = malloc(n * sizeof(float));
-    float* out = malloc(n * sizeof(float));
-    uint8_t* q = malloc(n / 4);
-    float* scales = malloc(c * sizeof(float));
-    float* zeros = malloc(c * sizeof(float));
+    float   *in     = malloc(n * sizeof(float));
+    float   *out    = malloc(n * sizeof(float));
+    uint8_t *q      = malloc(n / 4);
+    float   *scales = malloc(c * sizeof(float));
+    float   *zeros  = malloc(c * sizeof(float));
 
     uint32_t seed = 0xABCDEFu;
     for (size_t t = 0; t < g; t++) {

@@ -21,8 +21,8 @@ UseTab: Never
 ColumnLimit: 100
 ContinuationIndentWidth: 8
 
-# Pointers bind to the pointee type: `float *x`.
-PointerAlignment: Left
+# Pointers bind to the pointee, not the type: `float *x`.
+PointerAlignment: Right
 DerivePointerAlignment: false
 
 # K&R-ish braces, no compact control-flow on one line.
@@ -32,9 +32,10 @@ AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
 AllowShortCaseLabelsOnASingleLine: false
 
-# Keep declarations visually stable without column-aligning unrelated lines.
-AlignConsecutiveAssignments: false
-AlignConsecutiveDeclarations: false
+# Column-align consecutive declarations and assignments — the established
+# src/ house style (e.g. struct members and init blocks line up by name/=).
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
 AlignEscapedNewlines: Left
 AlignTrailingComments: true
 

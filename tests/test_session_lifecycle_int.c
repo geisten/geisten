@@ -21,8 +21,8 @@
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         /* Fall back to cpu_scalar if neon not linked. */
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
@@ -32,8 +32,8 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "model_load(%s) failed: %s — %s\n",
@@ -49,8 +49,8 @@ int main(void) {
            geist_backend_name(be));
 
     struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed: %s\n", geist_status_to_string(s));
         geist_model_destroy(model);
@@ -67,7 +67,7 @@ int main(void) {
         printf("set_prompt: no tokenizer.bin (expected on some hosts), "
                "falling back to prefill_tokens with BOS\n");
         const geist_token_t prompt_ids[] = {2 /* BOS */};
-        s = geist_session_prefill_tokens(sess, 1, prompt_ids);
+        s                                = geist_session_prefill_tokens(sess, 1, prompt_ids);
     }
     if (s != GEIST_OK) {
         fprintf(stderr,
@@ -77,7 +77,7 @@ int main(void) {
         goto cleanup_fail;
     }
 
-    int fails = 0;
+    int           fails = 0;
     geist_token_t tok;
     for (int i = 0; i < 3; i++) {
         s = geist_session_decode_step(sess, &tok);
@@ -86,7 +86,7 @@ int main(void) {
             fails++;
             break;
         }
-        const char* text = geist_session_token_to_str(sess, tok);
+        const char *text = geist_session_token_to_str(sess, tok);
         printf("decoded token[%d] = %d (%s)\n", i, tok, text != nullptr ? text : "<unknown>");
     }
 

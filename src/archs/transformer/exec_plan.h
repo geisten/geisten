@@ -26,8 +26,7 @@ struct transformer_arch_state;
 struct transformer_arch_session;
 struct transformer_layer_forward_ctx;
 
-typedef enum geist_status (*transformer_layer_stage_fn)(
-    struct transformer_layer_forward_ctx *ctx);
+typedef enum geist_status (*transformer_layer_stage_fn)(struct transformer_layer_forward_ctx *ctx);
 
 /* No KV-append / attention-kind enum here: those are derived from
  * st->sess->kv_{kivi,int8}_enabled at hot-path entry. The plan would
@@ -37,16 +36,16 @@ typedef enum geist_status (*transformer_layer_stage_fn)(
  * to cache the dispatch for fused kernels, it must be rebuilt on every
  * session attach. */
 struct transformer_layer_exec_plan {
-    int kv_src;
-    bool compute_kv;
-    bool apply_gemma_attn_norms;
-    bool apply_sub_ln;
-    bool apply_ple;
-    bool rope_interleaved;
+    int                            kv_src;
+    bool                           compute_kv;
+    bool                           apply_gemma_attn_norms;
+    bool                           apply_sub_ln;
+    bool                           apply_ple;
+    bool                           rope_interleaved;
     enum geist_ffn_activation_kind ffn_activation;
-    transformer_layer_stage_fn run_attention_block;
-    transformer_layer_stage_fn run_ffn_block;
-    transformer_layer_stage_fn run_ple_or_copy;
+    transformer_layer_stage_fn     run_attention_block;
+    transformer_layer_stage_fn     run_ffn_block;
+    transformer_layer_stage_fn     run_ple_or_copy;
 };
 
 enum transformer_kv_append_kind {
@@ -65,14 +64,14 @@ enum transformer_attention_kind {
  * rebuilt for every session because KV representation is a session option.
  */
 struct transformer_session_exec_plan {
-    bool kv_int8_enabled;
-    bool kv_kivi_enabled;
+    bool                            kv_int8_enabled;
+    bool                            kv_kivi_enabled;
     enum transformer_kv_append_kind kv_append_kind;
     enum transformer_attention_kind attention_kind;
 };
 
 enum geist_status transformer_exec_plan_build(struct transformer_arch_state *st);
-void transformer_exec_plan_destroy(struct transformer_arch_state *st);
-void transformer_session_exec_plan_build(struct transformer_arch_session *sess);
+void              transformer_exec_plan_destroy(struct transformer_arch_state *st);
+void              transformer_session_exec_plan_build(struct transformer_arch_session *sess);
 
 #endif /* GEIST_INTERNAL_ARCH_TRANSFORMER_EXEC_PLAN_H */

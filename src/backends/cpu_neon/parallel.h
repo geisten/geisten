@@ -50,11 +50,10 @@ void geist_pp_parallel_for(size_t n, geist_pp_body_fn body_fn, void *ctx);
  * each worker claims at a time; 0 is treated as 1. This costs one
  * atomic fetch_add per chunk but gives better load balance for kernels
  * with uneven row/tile cost. */
-void geist_pp_parallel_for_grain(size_t n, size_t grain,
-                                 geist_pp_body_fn body_fn, void *ctx);
+void geist_pp_parallel_for_grain(size_t n, size_t grain, geist_pp_body_fn body_fn, void *ctx);
 
 /* Number of threads the pool will actually use. Returns the same
  * value passed via GEIST_THREADS / OMP_NUM_THREADS. Cheap to call. */
 size_t geist_pp_thread_count(void);
 
-#endif  /* GEIST_INTERNAL_BACKEND_CPU_NEON_PARALLEL_H */
+#endif /* GEIST_INTERNAL_BACKEND_CPU_NEON_PARALLEL_H */

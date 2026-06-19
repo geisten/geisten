@@ -27,20 +27,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    const char* png_path = argc > 1 ? argv[1] : "vision_bench/syn_320x224.png";
-    int w = 0, h = 0, c = 0;
-    uint8_t* rgb = stbi_load(png_path, &w, &h, &c, 3);
+    const char *png_path = argc > 1 ? argv[1] : "vision_bench/syn_320x224.png";
+    int         w = 0, h = 0, c = 0;
+    uint8_t    *rgb = stbi_load(png_path, &w, &h, &c, 3);
     if (rgb == nullptr) {
         GEIST_SKIP("could not decode PNG (set first arg to a valid image, "
                    "default: vision_bench/syn_320x224.png)");
     }
     printf("loaded %s: %dx%d RGB (%d ch input → 3 forced)\n", png_path, h, w, c);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -50,8 +50,8 @@ int main(int argc, char** argv) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
@@ -60,8 +60,8 @@ int main(int argc, char** argv) {
     }
 
     struct geist_session_opts opts = {.max_seq_len = 1024};
-    struct geist_session* sess = nullptr;
-    s = geist_session_create(model, be, &opts, &sess);
+    struct geist_session     *sess = nullptr;
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed\n");
         geist_model_destroy(model);
@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
      * expect coherent text from a bare image with no chat-template wrap
      * — this just validates the prefill_image path didn't poison the
      * KV cache or the logits head. */
-    int fails = 0;
+    int           fails = 0;
     geist_token_t tok;
     printf("decoded:");
     for (int i = 0; i < 6; i++) {
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
             fails++;
             break;
         }
-        const char* text = geist_session_token_to_str(sess, tok);
+        const char *text = geist_session_token_to_str(sess, tok);
         printf(" %d(%s)", tok, text != nullptr ? text : "?");
     }
     printf("\n");

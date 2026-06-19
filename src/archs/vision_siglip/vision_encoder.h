@@ -30,7 +30,7 @@
  * Confirmed from model.embed_vision.embedding_projection.weight shape
  * (1536, 768) — same as the audio tower's output dim. */
 #define VISION_SOFT_TOKEN_DIM 1536
-#define VISION_TOWER_HIDDEN   768   /* per-block ViT hidden_size */
+#define VISION_TOWER_HIDDEN 768 /* per-block ViT hidden_size */
 
 /* Soft tokens per image (after kernel-3 avg-pool). */
 #define VISION_SOFT_TOKENS_PER_IMAGE 280
@@ -51,17 +51,16 @@ void                  vision_encoder_destroy(struct VisionEncoder *);
  * P3: returns 0 (only the tower forward is implemented; the pooler and
  * projector land in P4). For per-block parity testing, call
  * vision_encoder_run_tower() directly. */
-size_t vision_encoder_run_image(const struct VisionEncoder *,
-                                 const uint8_t *rgb,
-                                 size_t height, size_t width,
-                                 float *out);
+size_t vision_encoder_run_image(
+        const struct VisionEncoder *, const uint8_t *rgb, size_t height, size_t width, float *out);
 
 /* Batched video-tower forward. */
 size_t vision_encoder_run_video(const struct VisionEncoder *,
-                                 const uint8_t *frames,
-                                 size_t n_frames,
-                                 size_t height, size_t width,
-                                 float *out);
+                                const uint8_t *frames,
+                                size_t         n_frames,
+                                size_t         height,
+                                size_t         width,
+                                float         *out);
 
 /* P3 entry point: full tower forward on pre-processed patches.
  *   patches_in:   (n_patches, 16*16*3 = 768) fp32 — output of
@@ -80,9 +79,9 @@ size_t vision_encoder_run_video(const struct VisionEncoder *,
  * (raw fp32 row-major, same layout as the HF parity dump). Used by the
  * P3 unit test to bisect parity failures. */
 bool vision_encoder_run_tower(const struct VisionEncoder *,
-                               const float *patches_in,
-                               const int32_t *positions,
-                               size_t n_patches,
-                               float *hidden_out);
+                              const float   *patches_in,
+                              const int32_t *positions,
+                              size_t         n_patches,
+                              float         *hidden_out);
 
 #endif

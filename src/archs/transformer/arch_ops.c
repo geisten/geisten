@@ -41,16 +41,15 @@
 /* ---- Batched text prefill -------------------------------------------- */
 
 static enum geist_status
-prefill_text_batch_inner(struct transformer_arch_state *st,
-                                   size_t n, const geist_token_t *ids) {
+prefill_text_batch_inner(struct transformer_arch_state *st, size_t n, const geist_token_t *ids) {
     if (st == nullptr || (n > 0 && ids == nullptr)) {
         return GEIST_E_INVALID_ARG;
     }
     if (n == 0) {
         return GEIST_OK;
     }
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
 
     /* sqrt(d_model) embedding scale is Gemma-3/4-specific; Llama / BitNet
      * don't scale. has_ple gates Gemma family identity. */
@@ -63,9 +62,8 @@ prefill_text_batch_inner(struct transformer_arch_state *st,
         {
             float *h_dst = (float *) v->buffer_map(st->sess->scratch_h_a);
             for (size_t t = 0; t < chunk; t++) {
-                enum geist_status s = dequant_one_row(be, &st->embed_table,
-                                                        (size_t) ids[off + t],
-                                                        h_dst + t * st->d_model);
+                enum geist_status s = dequant_one_row(
+                        be, &st->embed_table, (size_t) ids[off + t], h_dst + t * st->d_model);
                 if (s != GEIST_OK) {
                     v->buffer_unmap(st->sess->scratch_h_a);
                     return s;
@@ -81,22 +79,24 @@ prefill_text_batch_inner(struct transformer_arch_state *st,
         }
 
         /* 2. Batched PLE precompute. P1.5.b: skipped for non-PLE families. */
-        enum geist_status s = GEIST_OK;
+        enum geist_status    s       = GEIST_OK;
         struct geist_buffer *ple_buf = nullptr;
         if (st->config.has_ple) {
             s = compute_per_layer_inputs_batch(
-                st, chunk, ids + off, st->sess->scratch_h_a, st->sess->scratch_per_layer_input);
-            if (s != GEIST_OK) { return s; }
+                    st, chunk, ids + off, st->sess->scratch_h_a, st->sess->scratch_per_layer_input);
+            if (s != GEIST_OK) {
+                return s;
+            }
             ple_buf = st->sess->scratch_per_layer_input;
         }
 
         /* 3. Layer loop seq=chunk. */
         const size_t q_pos = st->sess->kv_len;
-        s = transformer_run_all_layers(st, q_pos, chunk,
-                                            st->sess->scratch_h_a,
-                                            ple_buf,
-                                            st->sess->scratch_h_b);
-        if (s != GEIST_OK) { return s; }
+        s                  = transformer_run_all_layers(
+                st, q_pos, chunk, st->sess->scratch_h_a, ple_buf, st->sess->scratch_h_b);
+        if (s != GEIST_OK) {
+            return s;
+        }
 
         /* 4. Advance kv_len by chunk. */
         st->sess->kv_len += chunk;
@@ -109,26 +109,30 @@ prefill_text_batch_inner(struct transformer_arch_state *st,
          *    ops->decode_step has a pending prediction. */
         if (off + chunk == n) {
             s = finalize_logits_last_row(st, chunk);
-            if (s != GEIST_OK) { return s; }
+            if (s != GEIST_OK) {
+                return s;
+            }
         }
     }
     return GEIST_OK;
 }
 
-enum geist_status
-transformer_prefill_text_batch(struct transformer_arch_state *st,
-                                   size_t n, const geist_token_t *ids) {
-    if (st == nullptr) { return GEIST_E_INVALID_ARG; }
+enum geist_status transformer_prefill_text_batch(struct transformer_arch_state *st,
+                                                 size_t                         n,
+                                                 const geist_token_t           *ids) {
+    if (st == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
     /* Prefill is compute-bound; let the backend enter its prefill thread
      * regime (cpu_neon bumps OMP to all cores). Restored after the pass. */
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
-    const int region_tok =
-        v->parallel_region_begin
-            ? v->parallel_region_begin(be, GEIST_REGION_PREFILL_BATCH)
-            : 0;
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
+    const int                        region_tok =
+            v->parallel_region_begin ? v->parallel_region_begin(be, GEIST_REGION_PREFILL_BATCH) : 0;
     const enum geist_status s = prefill_text_batch_inner(st, n, ids);
-    if (v->parallel_region_end) { v->parallel_region_end(be, region_tok); }
+    if (v->parallel_region_end) {
+        v->parallel_region_end(be, region_tok);
+    }
     return s;
 }
 
@@ -139,10 +143,10 @@ transformer_prefill_text_batch(struct transformer_arch_state *st,
  * accept/reject the draft and then optionally truncates kv_len to
  * undo verify-pass KV writes past the accept point. */
 
-enum geist_status
-transformer_verify_forward(struct transformer_arch_state *st,
-                               size_t k, const geist_token_t *ids,
-                               geist_token_t *out_tokens) {
+enum geist_status transformer_verify_forward(struct transformer_arch_state *st,
+                                             size_t                         k,
+                                             const geist_token_t           *ids,
+                                             geist_token_t                 *out_tokens) {
     if (st == nullptr || k == 0 || ids == nullptr || out_tokens == nullptr) {
         return GEIST_E_INVALID_ARG;
     }
@@ -150,17 +154,16 @@ transformer_verify_forward(struct transformer_arch_state *st,
         /* Spec K should fit in one prefill chunk. Larger requires chunking. */
         return GEIST_E_INVALID_ARG;
     }
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
-    const float embed_scale = st->config.has_ple ? sqrtf((float) st->d_model) : 1.0f;
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
+    const float embed_scale             = st->config.has_ple ? sqrtf((float) st->d_model) : 1.0f;
 
     /* 1. Embed all k tokens into scratch_h_a [k, HIDDEN]. */
     {
         float *h_dst = (float *) v->buffer_map(st->sess->scratch_h_a);
         for (size_t t = 0; t < k; t++) {
-            enum geist_status s = dequant_one_row(be, &st->embed_table,
-                                                    (size_t) ids[t],
-                                                    h_dst + t * st->d_model);
+            enum geist_status s =
+                    dequant_one_row(be, &st->embed_table, (size_t) ids[t], h_dst + t * st->d_model);
             if (s != GEIST_OK) {
                 v->buffer_unmap(st->sess->scratch_h_a);
                 return s;
@@ -176,22 +179,24 @@ transformer_verify_forward(struct transformer_arch_state *st,
     }
 
     /* 2. PLE precompute. P1.5.b: skipped for non-PLE families. */
-    enum geist_status s = GEIST_OK;
+    enum geist_status    s       = GEIST_OK;
     struct geist_buffer *ple_buf = nullptr;
     if (st->config.has_ple) {
         s = compute_per_layer_inputs_batch(
-            st, k, ids, st->sess->scratch_h_a, st->sess->scratch_per_layer_input);
-        if (s != GEIST_OK) { return s; }
+                st, k, ids, st->sess->scratch_h_a, st->sess->scratch_per_layer_input);
+        if (s != GEIST_OK) {
+            return s;
+        }
         ple_buf = st->sess->scratch_per_layer_input;
     }
 
     /* 3. Layer loop. */
     const size_t q_pos = st->sess->kv_len;
-    s = transformer_run_all_layers(st, q_pos, k,
-                                        st->sess->scratch_h_a,
-                                        ple_buf,
-                                        st->sess->scratch_h_b);
-    if (s != GEIST_OK) { return s; }
+    s                  = transformer_run_all_layers(
+            st, q_pos, k, st->sess->scratch_h_a, ple_buf, st->sess->scratch_h_b);
+    if (s != GEIST_OK) {
+        return s;
+    }
 
     /* 4. Advance kv_len by k — caller may truncate later on reject.
      * KIVI: bump residual_count but do NOT drain (drain commits 2-bit
@@ -203,7 +208,7 @@ transformer_verify_forward(struct transformer_arch_state *st,
     if (st->sess->kv_kivi_enabled) {
         st->sess->kivi_residual_count += k;
     }
-    st->sess->logits_valid = false;
+    st->sess->logits_valid       = false;
     st->sess->next_token_pending = 0;
 
     /* 5. Sample one token per row of scratch_h_b. Two paths:
@@ -218,19 +223,24 @@ transformer_verify_forward(struct transformer_arch_state *st,
      * only softcap skip would be additive but the linear is the bulk. */
     if (k == 1) {
         s = finalize_logits_one_row(st, 0, &out_tokens[0]);
-        if (s != GEIST_OK) { return s; }
+        if (s != GEIST_OK) {
+            return s;
+        }
     } else {
         s = finalize_logits_batch(st, k, out_tokens);
-        if (s != GEIST_OK) { return s; }
+        if (s != GEIST_OK) {
+            return s;
+        }
     }
     return GEIST_OK;
 }
 
-void transformer_kv_truncate(struct transformer_arch_state *st,
-                                 size_t new_len) {
-    if (st == nullptr) return;
-    if (new_len > st->sess->kv_len) return;       /* monotonic shrink only */
-    st->sess->kv_len             = new_len;
+void transformer_kv_truncate(struct transformer_arch_state *st, size_t new_len) {
+    if (st == nullptr)
+        return;
+    if (new_len > st->sess->kv_len)
+        return; /* monotonic shrink only */
+    st->sess->kv_len = new_len;
     if (st->sess->kv_kivi_enabled) {
         /* Truncate can't cross a drain boundary backwards (drained groups
          * are 2-bit committed and can't be un-quantized). Speculative
@@ -238,7 +248,7 @@ void transformer_kv_truncate(struct transformer_arch_state *st,
          * the drained region. If asked anyway, clamp to drain boundary. */
         const size_t drained = st->sess->kivi_drained_count;
         if (new_len < drained) {
-            st->sess->kv_len             = drained;
+            st->sess->kv_len              = drained;
             st->sess->kivi_residual_count = 0;
         } else {
             st->sess->kivi_residual_count = new_len - drained;
@@ -253,27 +263,31 @@ void transformer_kv_truncate(struct transformer_arch_state *st,
 
 /* ---- Batched audio prefill ------------------------------------------- */
 
-enum geist_status
-transformer_prefill_audio_batch(struct transformer_arch_state *st,
-                                    size_t n, const float *soft_tokens) {
+enum geist_status transformer_prefill_audio_batch(struct transformer_arch_state *st,
+                                                  size_t                         n,
+                                                  const float                   *soft_tokens) {
     if (st == nullptr || (n > 0 && soft_tokens == nullptr)) {
         return GEIST_E_INVALID_ARG;
     }
     if (n == 0) {
         return GEIST_OK;
     }
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
 
     /* Pre-fill a pad-id array for compute_per_layer_inputs_batch.
      * Audio tokens use pad_token_id (0) as PLE row identity. */
-    geist_token_t *pad_ids = heap_alloc_aligned(
-        st->sess->m_max * sizeof(geist_token_t), alignof(geist_token_t));
-    if (pad_ids == nullptr) { return GEIST_E_OOM; }
-    for (size_t i = 0; i < st->sess->m_max; i++) { pad_ids[i] = 0; }
+    geist_token_t *pad_ids =
+            heap_alloc_aligned(st->sess->m_max * sizeof(geist_token_t), alignof(geist_token_t));
+    if (pad_ids == nullptr) {
+        return GEIST_E_OOM;
+    }
+    for (size_t i = 0; i < st->sess->m_max; i++) {
+        pad_ids[i] = 0;
+    }
 
-    enum geist_status rc = GEIST_OK;
-    const size_t m_max = st->sess->m_max;
+    enum geist_status rc    = GEIST_OK;
+    const size_t      m_max = st->sess->m_max;
     for (size_t off = 0; off < n; off += m_max) {
         const size_t chunk = (n - off > m_max) ? m_max : (n - off);
 
@@ -302,19 +316,21 @@ transformer_prefill_audio_batch(struct transformer_arch_state *st,
         if (st->config.has_ple) {
             float *h_dst = (float *) v->buffer_map(st->sess->scratch_h_a);
             for (size_t t = 0; t < chunk; t++) {
-                enum geist_status s = dequant_one_row(be, &st->embed_table,
-                                                        0 /* pad_token_id */,
-                                                        h_dst + t * st->d_model);
+                enum geist_status s = dequant_one_row(
+                        be, &st->embed_table, 0 /* pad_token_id */, h_dst + t * st->d_model);
                 if (s != GEIST_OK) {
                     v->buffer_unmap(st->sess->scratch_h_a);
-                    rc = s; goto cleanup;
+                    rc = s;
+                    goto cleanup;
                 }
             }
             v->buffer_unmap(st->sess->scratch_h_a);
 
             rc = compute_per_layer_inputs_batch(
-                st, chunk, pad_ids, st->sess->scratch_h_a, st->sess->scratch_per_layer_input);
-            if (rc != GEIST_OK) { goto cleanup; }
+                    st, chunk, pad_ids, st->sess->scratch_h_a, st->sess->scratch_per_layer_input);
+            if (rc != GEIST_OK) {
+                goto cleanup;
+            }
             ple_buf = st->sess->scratch_per_layer_input;
         }
 
@@ -322,20 +338,18 @@ transformer_prefill_audio_batch(struct transformer_arch_state *st,
          * layer loop (these live in the LM residual stream). */
         {
             const size_t bytes = chunk * st->d_model * sizeof(float);
-            uint8_t *dst = (uint8_t *) v->buffer_map(st->sess->scratch_h_a);
-            memcpy(dst,
-                    (const uint8_t *) (soft_tokens + off * st->d_model),
-                    bytes);
+            uint8_t     *dst   = (uint8_t *) v->buffer_map(st->sess->scratch_h_a);
+            memcpy(dst, (const uint8_t *) (soft_tokens + off * st->d_model), bytes);
             v->buffer_unmap(st->sess->scratch_h_a);
         }
 
         /* 3. Layer loop. */
         const size_t q_pos = st->sess->kv_len;
-        rc = transformer_run_all_layers(st, q_pos, chunk,
-                                            st->sess->scratch_h_a,
-                                            ple_buf,
-                                            st->sess->scratch_h_b);
-        if (rc != GEIST_OK) { goto cleanup; }
+        rc                 = transformer_run_all_layers(
+                st, q_pos, chunk, st->sess->scratch_h_a, ple_buf, st->sess->scratch_h_b);
+        if (rc != GEIST_OK) {
+            goto cleanup;
+        }
 
         st->sess->kv_len += chunk;
         if (st->sess->kv_kivi_enabled) {
@@ -345,23 +359,23 @@ transformer_prefill_audio_batch(struct transformer_arch_state *st,
 
         if (off + chunk == n) {
             rc = finalize_logits_last_row(st, chunk);
-            if (rc != GEIST_OK) { goto cleanup; }
+            if (rc != GEIST_OK) {
+                goto cleanup;
+            }
         }
     }
 
-cleanup:
-    {
-        void *p = pad_ids;
-        safe_free(&p);
-    }
+cleanup: {
+    void *p = pad_ids;
+    safe_free(&p);
+}
     return rc;
 }
 
 /* ---- Prefix pinning -------------------------------------------------- */
 
 enum geist_status
-transformer_pin_prefix(struct transformer_arch_state *st,
-                           size_t n, const geist_token_t *ids) {
+transformer_pin_prefix(struct transformer_arch_state *st, size_t n, const geist_token_t *ids) {
     if (st == nullptr) {
         return GEIST_E_INVALID_ARG;
     }
@@ -399,15 +413,17 @@ transformer_pin_prefix(struct transformer_arch_state *st,
  * Returns GEIST_OK if AWQ applied (or no-op if path is nullptr).
  * On size mismatch or alloc failure: returns the error WITHOUT undoing
  * already-applied changes; caller treats the state as poisoned. */
-enum geist_status apply_awq_to_state(
-    struct transformer_arch_state *st, const char *awq_path) {
-    if (awq_path == nullptr) return GEIST_OK;
+enum geist_status apply_awq_to_state(struct transformer_arch_state *st, const char *awq_path) {
+    if (awq_path == nullptr)
+        return GEIST_OK;
 
-    const char        *err = nullptr;
-    struct ptqtp_awq_ctx   *awq = ptqtp_awq_open(awq_path, &err);
+    const char           *err = nullptr;
+    struct ptqtp_awq_ctx *awq = ptqtp_awq_open(awq_path, &err);
     if (awq == nullptr) {
-        geist_backend_set_error(st->backend, GEIST_E_FILE_NOT_FOUND,
-                                "AWQ open(%s): %s", awq_path,
+        geist_backend_set_error(st->backend,
+                                GEIST_E_FILE_NOT_FOUND,
+                                "AWQ open(%s): %s",
+                                awq_path,
                                 err != nullptr ? err : "(no detail)");
         return GEIST_E_FILE_NOT_FOUND;
     }
@@ -418,21 +434,26 @@ enum geist_status apply_awq_to_state(
 
     for (int i = 0; (size_t) i < st->n_layers; i++) {
         struct transformer_layer_weights *L = &st->layers[i];
-        size_t       n   = 0;
-        const float *s   = nullptr;
+        size_t                            n = 0;
+        const float                      *s = nullptr;
 
         /* attn_norm gamma /= s_attn_norm */
         snprintf(key, sizeof key, "blk.%d.attn_norm.out", i);
         s = ptqtp_awq_get(awq, key, &n);
         if (s != nullptr) {
             if (n != st->d_model) {
-                geist_backend_set_error(st->backend, GEIST_E_INVALID_ARG,
-                                        "AWQ %s: n=%zu, expected %d", key, n,
+                geist_backend_set_error(st->backend,
+                                        GEIST_E_INVALID_ARG,
+                                        "AWQ %s: n=%zu, expected %d",
+                                        key,
+                                        n,
                                         (int) st->d_model);
-                rc = GEIST_E_INVALID_ARG; goto cleanup;
+                rc = GEIST_E_INVALID_ARG;
+                goto cleanup;
             }
             float *g = (float *) v->buffer_map(L->attn_norm.buffer);
-            for (size_t j = 0; j < st->d_model; j++) g[j] /= s[j];
+            for (size_t j = 0; j < st->d_model; j++)
+                g[j] /= s[j];
             v->buffer_unmap(L->attn_norm.buffer);
         }
 
@@ -441,13 +462,18 @@ enum geist_status apply_awq_to_state(
         s = ptqtp_awq_get(awq, key, &n);
         if (s != nullptr) {
             if (n != st->d_model) {
-                geist_backend_set_error(st->backend, GEIST_E_INVALID_ARG,
-                                        "AWQ %s: n=%zu, expected %d", key, n,
+                geist_backend_set_error(st->backend,
+                                        GEIST_E_INVALID_ARG,
+                                        "AWQ %s: n=%zu, expected %d",
+                                        key,
+                                        n,
                                         (int) st->d_model);
-                rc = GEIST_E_INVALID_ARG; goto cleanup;
+                rc = GEIST_E_INVALID_ARG;
+                goto cleanup;
             }
             float *g = (float *) v->buffer_map(L->ffn_norm.buffer);
-            for (size_t j = 0; j < st->d_model; j++) g[j] /= s[j];
+            for (size_t j = 0; j < st->d_model; j++)
+                g[j] /= s[j];
             v->buffer_unmap(L->ffn_norm.buffer);
         }
 
@@ -456,14 +482,22 @@ enum geist_status apply_awq_to_state(
         s = ptqtp_awq_get(awq, key, &n);
         if (s != nullptr) {
             if (n != (size_t) L->q_out) {
-                geist_backend_set_error(st->backend, GEIST_E_INVALID_ARG,
-                                        "AWQ %s: n=%zu, expected %zu", key, n,
+                geist_backend_set_error(st->backend,
+                                        GEIST_E_INVALID_ARG,
+                                        "AWQ %s: n=%zu, expected %zu",
+                                        key,
+                                        n,
                                         (size_t) L->q_out);
-                rc = GEIST_E_INVALID_ARG; goto cleanup;
+                rc = GEIST_E_INVALID_ARG;
+                goto cleanup;
             }
             L->o_awq_inv_scale = heap_alloc_aligned(n * sizeof(float), alignof(float));
-            if (L->o_awq_inv_scale == nullptr) { rc = GEIST_E_OOM; goto cleanup; }
-            for (size_t j = 0; j < n; j++) L->o_awq_inv_scale[j] = 1.0f / s[j];
+            if (L->o_awq_inv_scale == nullptr) {
+                rc = GEIST_E_OOM;
+                goto cleanup;
+            }
+            for (size_t j = 0; j < n; j++)
+                L->o_awq_inv_scale[j] = 1.0f / s[j];
         }
 
         /* down_proj input: 1/s applied at runtime to post-GeGLU gate [intermediate]. */
@@ -471,14 +505,22 @@ enum geist_status apply_awq_to_state(
         s = ptqtp_awq_get(awq, key, &n);
         if (s != nullptr) {
             if (n != (size_t) L->intermediate) {
-                geist_backend_set_error(st->backend, GEIST_E_INVALID_ARG,
-                                        "AWQ %s: n=%zu, expected %zu", key, n,
+                geist_backend_set_error(st->backend,
+                                        GEIST_E_INVALID_ARG,
+                                        "AWQ %s: n=%zu, expected %zu",
+                                        key,
+                                        n,
                                         (size_t) L->intermediate);
-                rc = GEIST_E_INVALID_ARG; goto cleanup;
+                rc = GEIST_E_INVALID_ARG;
+                goto cleanup;
             }
             L->down_awq_inv_scale = heap_alloc_aligned(n * sizeof(float), alignof(float));
-            if (L->down_awq_inv_scale == nullptr) { rc = GEIST_E_OOM; goto cleanup; }
-            for (size_t j = 0; j < n; j++) L->down_awq_inv_scale[j] = 1.0f / s[j];
+            if (L->down_awq_inv_scale == nullptr) {
+                rc = GEIST_E_OOM;
+                goto cleanup;
+            }
+            for (size_t j = 0; j < n; j++)
+                L->down_awq_inv_scale[j] = 1.0f / s[j];
         }
     }
 
@@ -486,4 +528,3 @@ cleanup:
     ptqtp_awq_close(awq);
     return rc;
 }
-

@@ -17,13 +17,13 @@
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("auto", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("auto", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         fprintf(stderr, "backend create: %s\n", geist_last_create_error());
         return GEIST_TEST_ERROR;
     }
-    struct geist_model* model = nullptr;
+    struct geist_model *model = nullptr;
     if (geist_model_load(model_path, be, &model) != GEIST_OK) {
         fprintf(stderr, "model load: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
@@ -36,9 +36,9 @@ int main(void) {
     /* Render eos back to text via a session, so the log shows what the model
      * actually stops on (for this Gemma 4 GGUF it is "<turn|>", id 106 — the
      * end-of-turn marker doubles as eos, so `tok == eos` is the whole stop). */
-    struct geist_session* sess = nullptr;
+    struct geist_session *sess = nullptr;
     (void) geist_session_create(model, be, nullptr, &sess);
-    const char* eos_str = sess ? geist_session_token_to_str(sess, eos) : nullptr;
+    const char *eos_str = sess ? geist_session_token_to_str(sess, eos) : nullptr;
     printf("bos=%d  eos=%d (%s)\n", bos, eos, eos_str ? eos_str : "(control)");
 
     int fail = 0;

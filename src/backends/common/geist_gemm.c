@@ -28,18 +28,20 @@ static void geist_gemm_report(void) {
     fprintf(stderr,
             "[geist_gemm] dense fp32: sgemm %llu calls / %.2f ms, "
             "sgemv %llu calls / %.2f ms, total %.2f ms\n",
-            (unsigned long long) g_gemm_calls, g_gemm_ns / 1e6,
-            (unsigned long long) g_gemv_calls, g_gemv_ns / 1e6,
+            (unsigned long long) g_gemm_calls,
+            g_gemm_ns / 1e6,
+            (unsigned long long) g_gemv_calls,
+            g_gemv_ns / 1e6,
             (g_gemm_ns + g_gemv_ns) / 1e6);
 }
 
 static int geist_gemm_prof(void) {
     static _Atomic int enabled = -1;
-    int e = atomic_load(&enabled);
+    int                e       = atomic_load(&enabled);
     if (e < 0) {
         const char *s = getenv("GEIST_PROFILE_GEMM");
-        e = (s != NULL && s[0] == '1') ? 1 : 0;
-        int expected = -1;
+        e             = (s != NULL && s[0] == '1') ? 1 : 0;
+        int expected  = -1;
         if (atomic_compare_exchange_strong(&enabled, &expected, e) && e)
             atexit(geist_gemm_report);
     }
@@ -56,7 +58,7 @@ static unsigned long long geist_now_ns(void) {
  * OpenBLAS on Linux/Pi) — matching the existing cblas-by-default convention.
  * The BLAS-free build opts out with -DGEIST_GEMM_NATIVE (or -DDISABLE_CBLAS). */
 #if !defined(GEIST_GEMM_NATIVE) && !defined(DISABLE_CBLAS)
-#  define GEIST_GEMM_USE_CBLAS 1
+#define GEIST_GEMM_USE_CBLAS 1
 #endif
 
 #if defined(GEIST_GEMM_USE_CBLAS)
@@ -66,41 +68,87 @@ static unsigned long long geist_now_ns(void) {
  * and OpenBLAS's <cblas.h>; both libraries export these C symbols with plain
  * int enum arguments, and GEIST_OP_N/T already equal CBLAS NoTrans/Trans. */
 enum { GEIST_CBLAS_ROW_MAJOR = 101 };
-extern void cblas_sgemm(int order, int transA, int transB, int M, int N, int K,
-                        float alpha, const float *A, int lda,
-                        const float *B, int ldb,
-                        float beta, float *C, int ldc);
-extern void cblas_sgemv(int order, int transA, int M, int N,
-                        float alpha, const float *A, int lda,
-                        const float *x, int incx,
-                        float beta, float *y, int incy);
+extern void cblas_sgemm(int          order,
+                        int          transA,
+                        int          transB,
+                        int          M,
+                        int          N,
+                        int          K,
+                        float        alpha,
+                        const float *A,
+                        int          lda,
+                        const float *B,
+                        int          ldb,
+                        float        beta,
+                        float       *C,
+                        int          ldc);
+extern void cblas_sgemv(int          order,
+                        int          transA,
+                        int          M,
+                        int          N,
+                        float        alpha,
+                        const float *A,
+                        int          lda,
+                        const float *x,
+                        int          incx,
+                        float        beta,
+                        float       *y,
+                        int          incy);
 
-static void geist_sgemm_impl(int transA, int transB, int M, int N, int K,
-                 float alpha, const float *A, int lda, const float *B, int ldb,
-                 float beta, float *C, int ldc) {
-    cblas_sgemm(GEIST_CBLAS_ROW_MAJOR, transA, transB, M, N, K,
-                alpha, A, lda, B, ldb, beta, C, ldc);
+static void geist_sgemm_impl(int          transA,
+                             int          transB,
+                             int          M,
+                             int          N,
+                             int          K,
+                             float        alpha,
+                             const float *A,
+                             int          lda,
+                             const float *B,
+                             int          ldb,
+                             float        beta,
+                             float       *C,
+                             int          ldc) {
+    cblas_sgemm(
+            GEIST_CBLAS_ROW_MAJOR, transA, transB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 }
 
-static void geist_sgemv_impl(int transA, int M, int N, float alpha, const float *A, int lda,
-                 const float *x, int incx, float beta, float *y, int incy) {
-    cblas_sgemv(GEIST_CBLAS_ROW_MAJOR, transA, M, N, alpha, A, lda, x, incx,
-                beta, y, incy);
+static void geist_sgemv_impl(int          transA,
+                             int          M,
+                             int          N,
+                             float        alpha,
+                             const float *A,
+                             int          lda,
+                             const float *x,
+                             int          incx,
+                             float        beta,
+                             float       *y,
+                             int          incy) {
+    cblas_sgemv(GEIST_CBLAS_ROW_MAJOR, transA, M, N, alpha, A, lda, x, incx, beta, y, incy);
 }
 
-#else /* ---- native, dependency-free fallback -------------------------------
- * NEON-vectorized for the dominant y = x*W^T pattern (transA=N, transB=T,
- * beta=0); a scalar triple loop covers the rare cases (N/N, transposed A,
- * beta!=0). Used by the BLAS-free build only; the quant W*A8 hot path never
- * reaches here. Per ROADMAP.md Step 2, dense fp32 is ~2.6% of inference, so
- * "decent" suffices — this needs no OpenBLAS-grade blocking. */
+#else /* ---- native, dependency-free fallback -------------------------------     \
+       * NEON-vectorized for the dominant y = x*W^T pattern (transA=N, transB=T,   \
+       * beta=0); a scalar triple loop covers the rare cases (N/N, transposed A,   \
+       * beta!=0). Used by the BLAS-free build only; the quant W*A8 hot path never \
+       * reaches here. Per ROADMAP.md Step 2, dense fp32 is ~2.6% of inference, so \
+       * "decent" suffices — this needs no OpenBLAS-grade blocking. */
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 
-static void geist_sgemm_impl(int transA, int transB, int M, int N, int K,
-                 float alpha, const float *A, int lda, const float *B, int ldb,
-                 float beta, float *C, int ldc) {
+static void geist_sgemm_impl(int          transA,
+                             int          transB,
+                             int          M,
+                             int          N,
+                             int          K,
+                             float        alpha,
+                             const float *A,
+                             int          lda,
+                             const float *B,
+                             int          ldb,
+                             float        beta,
+                             float       *C,
+                             int          ldc) {
 #if defined(__ARM_NEON)
     if (transA == GEIST_OP_N && transB == GEIST_OP_T && beta == 0.0f) {
         /* C[M,N] = alpha * A[M,K] * B[N,K]^T (the y = x*W^T pattern). 4x4
@@ -111,23 +159,32 @@ static void geist_sgemm_impl(int transA, int transB, int M, int N, int K,
          * difference between ~6x and ~1.5x off OpenBLAS. Edges handled scalar-
          * vectorized. */
         const int Kv = K & ~3;
-        int i = 0;
+        int       i  = 0;
         for (; i + 4 <= M; i += 4) {
-            const float *Ap[4] = { A + (size_t)(i+0)*lda, A + (size_t)(i+1)*lda,
-                                   A + (size_t)(i+2)*lda, A + (size_t)(i+3)*lda };
-            float *Cp[4] = { C + (size_t)(i+0)*ldc, C + (size_t)(i+1)*ldc,
-                             C + (size_t)(i+2)*ldc, C + (size_t)(i+3)*ldc };
-            int j = 0;
+            const float *Ap[4] = {A + (size_t) (i + 0) * lda,
+                                  A + (size_t) (i + 1) * lda,
+                                  A + (size_t) (i + 2) * lda,
+                                  A + (size_t) (i + 3) * lda};
+            float       *Cp[4] = {C + (size_t) (i + 0) * ldc,
+                                  C + (size_t) (i + 1) * ldc,
+                                  C + (size_t) (i + 2) * ldc,
+                                  C + (size_t) (i + 3) * ldc};
+            int          j     = 0;
             for (; j + 4 <= N; j += 4) {
-                const float *Bp[4] = { B + (size_t)(j+0)*ldb, B + (size_t)(j+1)*ldb,
-                                       B + (size_t)(j+2)*ldb, B + (size_t)(j+3)*ldb };
-                float32x4_t c[4][4];
+                const float *Bp[4] = {B + (size_t) (j + 0) * ldb,
+                                      B + (size_t) (j + 1) * ldb,
+                                      B + (size_t) (j + 2) * ldb,
+                                      B + (size_t) (j + 3) * ldb};
+                float32x4_t  c[4][4];
                 for (int ii = 0; ii < 4; ii++)
-                    for (int jj = 0; jj < 4; jj++) c[ii][jj] = vdupq_n_f32(0);
+                    for (int jj = 0; jj < 4; jj++)
+                        c[ii][jj] = vdupq_n_f32(0);
                 for (int k = 0; k < Kv; k += 4) {
                     float32x4_t av[4], bv[4];
-                    for (int ii = 0; ii < 4; ii++) av[ii] = vld1q_f32(Ap[ii] + k);
-                    for (int jj = 0; jj < 4; jj++) bv[jj] = vld1q_f32(Bp[jj] + k);
+                    for (int ii = 0; ii < 4; ii++)
+                        av[ii] = vld1q_f32(Ap[ii] + k);
+                    for (int jj = 0; jj < 4; jj++)
+                        bv[jj] = vld1q_f32(Bp[jj] + k);
                     for (int ii = 0; ii < 4; ii++)
                         for (int jj = 0; jj < 4; jj++)
                             c[ii][jj] = vfmaq_f32(c[ii][jj], av[ii], bv[jj]);
@@ -135,49 +192,60 @@ static void geist_sgemm_impl(int transA, int transB, int M, int N, int K,
                 for (int ii = 0; ii < 4; ii++)
                     for (int jj = 0; jj < 4; jj++) {
                         float r = vaddvq_f32(c[ii][jj]);
-                        for (int k = Kv; k < K; k++) r += Ap[ii][k] * Bp[jj][k];
+                        for (int k = Kv; k < K; k++)
+                            r += Ap[ii][k] * Bp[jj][k];
                         Cp[ii][j + jj] = alpha * r;
                     }
             }
             for (; j < N; j++) { /* N-edge: 4 A-rows x 1 B-row */
-                const float *Bj = B + (size_t) j * ldb;
-                float32x4_t cc[4] = { vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0) };
+                const float *Bj    = B + (size_t) j * ldb;
+                float32x4_t  cc[4] = {
+                        vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0)};
                 for (int k = 0; k < Kv; k += 4) {
                     const float32x4_t bv = vld1q_f32(Bj + k);
-                    for (int ii = 0; ii < 4; ii++) cc[ii] = vfmaq_f32(cc[ii], vld1q_f32(Ap[ii] + k), bv);
+                    for (int ii = 0; ii < 4; ii++)
+                        cc[ii] = vfmaq_f32(cc[ii], vld1q_f32(Ap[ii] + k), bv);
                 }
                 for (int ii = 0; ii < 4; ii++) {
                     float r = vaddvq_f32(cc[ii]);
-                    for (int k = Kv; k < K; k++) r += Ap[ii][k] * Bj[k];
+                    for (int k = Kv; k < K; k++)
+                        r += Ap[ii][k] * Bj[k];
                     Cp[ii][j] = alpha * r;
                 }
             }
         }
         for (; i < M; i++) { /* M-edge: 1 A-row, block N by 4 */
             const float *Ai = A + (size_t) i * lda;
-            float *Ci = C + (size_t) i * ldc;
-            int j = 0;
+            float       *Ci = C + (size_t) i * ldc;
+            int          j  = 0;
             for (; j + 4 <= N; j += 4) {
-                const float *Bp[4] = { B + (size_t)(j+0)*ldb, B + (size_t)(j+1)*ldb,
-                                       B + (size_t)(j+2)*ldb, B + (size_t)(j+3)*ldb };
-                float32x4_t cc[4] = { vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0) };
+                const float *Bp[4] = {B + (size_t) (j + 0) * ldb,
+                                      B + (size_t) (j + 1) * ldb,
+                                      B + (size_t) (j + 2) * ldb,
+                                      B + (size_t) (j + 3) * ldb};
+                float32x4_t  cc[4] = {
+                        vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0), vdupq_n_f32(0)};
                 for (int k = 0; k < Kv; k += 4) {
                     const float32x4_t av = vld1q_f32(Ai + k);
-                    for (int jj = 0; jj < 4; jj++) cc[jj] = vfmaq_f32(cc[jj], av, vld1q_f32(Bp[jj] + k));
+                    for (int jj = 0; jj < 4; jj++)
+                        cc[jj] = vfmaq_f32(cc[jj], av, vld1q_f32(Bp[jj] + k));
                 }
                 for (int jj = 0; jj < 4; jj++) {
                     float r = vaddvq_f32(cc[jj]);
-                    for (int k = Kv; k < K; k++) r += Ai[k] * Bp[jj][k];
+                    for (int k = Kv; k < K; k++)
+                        r += Ai[k] * Bp[jj][k];
                     Ci[j + jj] = alpha * r;
                 }
             }
             for (; j < N; j++) {
                 const float *Bj = B + (size_t) j * ldb;
-                float32x4_t a = vdupq_n_f32(0);
-                int k = 0;
-                for (; k < Kv; k += 4) a = vfmaq_f32(a, vld1q_f32(Ai + k), vld1q_f32(Bj + k));
+                float32x4_t  a  = vdupq_n_f32(0);
+                int          k  = 0;
+                for (; k < Kv; k += 4)
+                    a = vfmaq_f32(a, vld1q_f32(Ai + k), vld1q_f32(Bj + k));
                 float r = vaddvq_f32(a);
-                for (; k < K; k++) r += Ai[k] * Bj[k];
+                for (; k < K; k++)
+                    r += Ai[k] * Bj[k];
                 Ci[j] = alpha * r;
             }
         }
@@ -188,31 +256,42 @@ static void geist_sgemm_impl(int transA, int transB, int M, int N, int K,
         for (int j = 0; j < N; j++) {
             float acc = 0.0f;
             for (int k = 0; k < K; k++) {
-                const float a = (transA == GEIST_OP_N)
-                    ? A[(size_t) i * lda + k] : A[(size_t) k * lda + i];
-                const float b = (transB == GEIST_OP_N)
-                    ? B[(size_t) k * ldb + j] : B[(size_t) j * ldb + k];
+                const float a =
+                        (transA == GEIST_OP_N) ? A[(size_t) i * lda + k] : A[(size_t) k * lda + i];
+                const float b =
+                        (transB == GEIST_OP_N) ? B[(size_t) k * ldb + j] : B[(size_t) j * ldb + k];
                 acc += a * b;
             }
             float *c = &C[(size_t) i * ldc + j];
-            *c = alpha * acc + (beta == 0.0f ? 0.0f : beta * *c);
+            *c       = alpha * acc + (beta == 0.0f ? 0.0f : beta * *c);
         }
     }
 }
 
-static void geist_sgemv_impl(int transA, int M, int N, float alpha, const float *A, int lda,
-                 const float *x, int incx, float beta, float *y, int incy) {
+static void geist_sgemv_impl(int          transA,
+                             int          M,
+                             int          N,
+                             float        alpha,
+                             const float *A,
+                             int          lda,
+                             const float *x,
+                             int          incx,
+                             float        beta,
+                             float       *y,
+                             int          incy) {
     if (transA == GEIST_OP_N) {
 #if defined(__ARM_NEON)
         if (incx == 1 && incy == 1 && beta == 0.0f) {
             const int Nv = N & ~3;
             for (int i = 0; i < M; i++) {
                 const float *Ai = A + (size_t) i * lda;
-                float32x4_t a = vdupq_n_f32(0);
-                int j = 0;
-                for (; j < Nv; j += 4) a = vfmaq_f32(a, vld1q_f32(Ai + j), vld1q_f32(x + j));
+                float32x4_t  a  = vdupq_n_f32(0);
+                int          j  = 0;
+                for (; j < Nv; j += 4)
+                    a = vfmaq_f32(a, vld1q_f32(Ai + j), vld1q_f32(x + j));
                 float c = vaddvq_f32(a);
-                for (; j < N; j++) c += Ai[j] * x[j];
+                for (; j < N; j++)
+                    c += Ai[j] * x[j];
                 y[i] = alpha * c;
             }
             return;
@@ -223,13 +302,13 @@ static void geist_sgemv_impl(int transA, int M, int N, float alpha, const float 
             for (int j = 0; j < N; j++)
                 acc += A[(size_t) i * lda + j] * x[(size_t) j * incx];
             float *yi = &y[(size_t) i * incy];
-            *yi = alpha * acc + (beta == 0.0f ? 0.0f : beta * *yi);
+            *yi       = alpha * acc + (beta == 0.0f ? 0.0f : beta * *yi);
         }
     } else {
         /* y[N] = alpha * A^T x[M] + beta y : scale y first, then accumulate. */
         for (int j = 0; j < N; j++) {
             float *yj = &y[(size_t) j * incy];
-            *yj = (beta == 0.0f ? 0.0f : beta * *yj);
+            *yj       = (beta == 0.0f ? 0.0f : beta * *yj);
         }
         for (int i = 0; i < M; i++) {
             const float xi = alpha * x[(size_t) i * incx];
@@ -243,9 +322,19 @@ static void geist_sgemv_impl(int transA, int M, int N, float alpha, const float 
 
 /* Public entry points: dispatch to the selected backend, optionally timing the
  * call when GEIST_PROFILE_GEMM=1. */
-void geist_sgemm(int transA, int transB, int M, int N, int K,
-                 float alpha, const float *A, int lda, const float *B, int ldb,
-                 float beta, float *C, int ldc) {
+void geist_sgemm(int          transA,
+                 int          transB,
+                 int          M,
+                 int          N,
+                 int          K,
+                 float        alpha,
+                 const float *A,
+                 int          lda,
+                 const float *B,
+                 int          ldb,
+                 float        beta,
+                 float       *C,
+                 int          ldc) {
     if (!geist_gemm_prof()) {
         geist_sgemm_impl(transA, transB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
         return;
@@ -256,8 +345,17 @@ void geist_sgemm(int transA, int transB, int M, int N, int K,
     atomic_fetch_add(&g_gemm_calls, 1);
 }
 
-void geist_sgemv(int transA, int M, int N, float alpha, const float *A, int lda,
-                 const float *x, int incx, float beta, float *y, int incy) {
+void geist_sgemv(int          transA,
+                 int          M,
+                 int          N,
+                 float        alpha,
+                 const float *A,
+                 int          lda,
+                 const float *x,
+                 int          incx,
+                 float        beta,
+                 float       *y,
+                 int          incy) {
     if (!geist_gemm_prof()) {
         geist_sgemv_impl(transA, M, N, alpha, A, lda, x, incx, beta, y, incy);
         return;

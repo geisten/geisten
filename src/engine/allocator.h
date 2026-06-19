@@ -22,8 +22,7 @@
 /* Arena: bump-pointer allocator for short-lived activation buffers. */
 struct geist_arena;
 
-struct geist_arena *geist_arena_create(size_t                          initial_bytes,
-                                       const struct geist_allocator   *parent);
+struct geist_arena *geist_arena_create(size_t initial_bytes, const struct geist_allocator *parent);
 void                geist_arena_destroy(struct geist_arena *a);
 
 /* Reset the bump pointer; previous allocations become invalid. The

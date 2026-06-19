@@ -27,12 +27,14 @@
 #include <string.h>
 
 struct audio_conformer_state {
-    struct AudioEncoder *enc;       /* weights + Conformer layers */
-    struct MelState     *mel;       /* per-frame mel computation */
+    struct AudioEncoder *enc; /* weights + Conformer layers */
+    struct MelState     *mel; /* per-frame mel computation */
 };
 
-static char *find_file(const char *env_name, const char *aux_root,
-                       const char *basename, const char *const *fallbacks) {
+static char *find_file(const char        *env_name,
+                       const char        *aux_root,
+                       const char        *basename,
+                       const char *const *fallbacks) {
     const char *env = env_name != nullptr ? getenv(env_name) : nullptr;
     if (env != nullptr && env[0] != '\0') {
         FILE *f = fopen(env, "rb");
@@ -70,25 +72,25 @@ static void *audio_conformer_state_create(struct geist_backend *be, const char *
     (void) be; /* B-5: audio encoder still uses its own allocation; B-6 cleanup will route. */
 
     static const char *audio_fallbacks[] = {
-        "./audio_bench/audio_tower.safetensors",
-        "../gemma-4-E2B-it/audio_tower.safetensors",
-        "audio_tower.safetensors",
-        nullptr,
+            "./audio_bench/audio_tower.safetensors",
+            "../gemma-4-E2B-it/audio_tower.safetensors",
+            "audio_tower.safetensors",
+            nullptr,
     };
     static const char *mel_fallbacks[] = {
-        "./audio_test_data/mel_constants.bin",
-        "./mel_constants.bin",
-        "../gemma-4-E2B-it/mel_constants.bin",
-        nullptr,
+            "./audio_test_data/mel_constants.bin",
+            "./mel_constants.bin",
+            "../gemma-4-E2B-it/mel_constants.bin",
+            nullptr,
     };
 
-    char *audio_path = find_file("GEIST_AUDIO_MODEL_PATH", aux_root,
-                                  "audio_tower.safetensors", audio_fallbacks);
+    char *audio_path = find_file(
+            "GEIST_AUDIO_MODEL_PATH", aux_root, "audio_tower.safetensors", audio_fallbacks);
     if (audio_path == nullptr) {
         return nullptr;
     }
-    char *mel_path = find_file("GEIST_MEL_CONSTANTS_PATH", aux_root,
-                                "mel_constants.bin", mel_fallbacks);
+    char *mel_path =
+            find_file("GEIST_MEL_CONSTANTS_PATH", aux_root, "mel_constants.bin", mel_fallbacks);
     if (mel_path == nullptr) {
         safe_free((void **) &audio_path);
         return nullptr;
@@ -108,13 +110,13 @@ static void *audio_conformer_state_create(struct geist_backend *be, const char *
     }
 
     struct audio_conformer_state *st =
-        heap_alloc_aligned(sizeof(*st), alignof(struct audio_conformer_state));
+            heap_alloc_aligned(sizeof(*st), alignof(struct audio_conformer_state));
     if (st == nullptr) {
         mel_destroy(mel);
         audio_encoder_destroy(enc);
         return nullptr;
     }
-    *st = (struct audio_conformer_state){.enc = enc, .mel = mel};
+    *st = (struct audio_conformer_state) {.enc = enc, .mel = mel};
     return st;
 }
 
@@ -135,8 +137,12 @@ static void audio_conformer_state_destroy(void *encoder_state) {
 /* Compute mel frames from int16 PCM at 16 kHz. Returns n_frames on success,
  * 0 on bad input. PCM is processed in 320-sample windows (20 ms hop=full
  * frame); the existing mel pipeline matches HF's Gemma4AudioFeatureExtractor. */
-static size_t pcm_to_mel(struct MelState *mel, const int16_t *pcm, size_t n_samples,
-                        float *mel_out, bool *mask_out, size_t max_frames) {
+static size_t pcm_to_mel(struct MelState *mel,
+                         const int16_t   *pcm,
+                         size_t           n_samples,
+                         float           *mel_out,
+                         bool            *mask_out,
+                         size_t           max_frames) {
     if (mel == nullptr || pcm == nullptr) {
         return 0;
     }
@@ -157,11 +163,12 @@ static size_t pcm_to_mel(struct MelState *mel, const int16_t *pcm, size_t n_samp
     return n_frames;
 }
 
-static size_t audio_conformer_encode_pcm(void *encoder_state, const int16_t *pcm,
-                                         size_t n_samples, float *out_soft,
-                                         size_t max_soft) {
-    if (encoder_state == nullptr || pcm == nullptr || out_soft == nullptr ||
-        max_soft == 0) {
+static size_t audio_conformer_encode_pcm(void          *encoder_state,
+                                         const int16_t *pcm,
+                                         size_t         n_samples,
+                                         float         *out_soft,
+                                         size_t         max_soft) {
+    if (encoder_state == nullptr || pcm == nullptr || out_soft == nullptr || max_soft == 0) {
         return 0;
     }
     struct audio_conformer_state *st = encoder_state;
@@ -176,11 +183,13 @@ static size_t audio_conformer_encode_pcm(void *encoder_state, const int16_t *pcm
         return 0;
     }
 
-    float *mel  = heap_alloc_array_aligned(float, n_mel_frames * MEL_N_MEL);
-    bool  *mask = heap_alloc_array_aligned(bool,  n_mel_frames);
+    float *mel  = heap_alloc_array_aligned(float, n_mel_frames *MEL_N_MEL);
+    bool  *mask = heap_alloc_array_aligned(bool, n_mel_frames);
     if (mel == nullptr || mask == nullptr) {
-        if (mel != nullptr) safe_free((void **) &mel);
-        if (mask != nullptr) safe_free((void **) &mask);
+        if (mel != nullptr)
+            safe_free((void **) &mel);
+        if (mask != nullptr)
+            safe_free((void **) &mask);
         return 0;
     }
 
@@ -213,9 +222,9 @@ static size_t audio_conformer_soft_token_dim(const void *encoder_state) {
 }
 
 const struct geist_arch_ops_encoder geist_arch_audio_conformer = {
-    .name           = "audio_conformer",
-    .state_create   = audio_conformer_state_create,
-    .state_destroy  = audio_conformer_state_destroy,
-    .encode_pcm     = audio_conformer_encode_pcm,
-    .soft_token_dim = audio_conformer_soft_token_dim,
+        .name           = "audio_conformer",
+        .state_create   = audio_conformer_state_create,
+        .state_destroy  = audio_conformer_state_destroy,
+        .encode_pcm     = audio_conformer_encode_pcm,
+        .soft_token_dim = audio_conformer_soft_token_dim,
 };

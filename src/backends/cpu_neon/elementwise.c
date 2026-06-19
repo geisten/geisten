@@ -29,8 +29,8 @@ extern void vvtanhf(float *y, const float *x, const int *n);
 #endif
 
 static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
-    if (t == nullptr || t->dtype != GEIST_DTYPE_F32 ||
-        t->layout != GEIST_LAYOUT_DENSE || t->buffer == nullptr || t->ndim < 1) {
+    if (t == nullptr || t->dtype != GEIST_DTYPE_F32 || t->layout != GEIST_LAYOUT_DENSE ||
+        t->buffer == nullptr || t->ndim < 1) {
         return nullptr;
     }
     size_t n = 1;
@@ -45,9 +45,9 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
 }
 
 [[nodiscard]] enum geist_status cpu_neon_add(struct geist_backend      *be,
-                                              const struct geist_tensor *a,
-                                              const struct geist_tensor *b,
-                                              struct geist_tensor       *y) {
+                                             const struct geist_tensor *a,
+                                             const struct geist_tensor *b,
+                                             struct geist_tensor       *y) {
     size_t       na = 0, nb = 0, ny = 0;
     const float *ap = get_f32_dense_ptr(a, &na);
     const float *bp = get_f32_dense_ptr(b, &nb);
@@ -61,9 +61,9 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
 }
 
 [[nodiscard]] enum geist_status cpu_neon_mul(struct geist_backend      *be,
-                                              const struct geist_tensor *a,
-                                              const struct geist_tensor *b,
-                                              struct geist_tensor       *y) {
+                                             const struct geist_tensor *a,
+                                             const struct geist_tensor *b,
+                                             struct geist_tensor       *y) {
     size_t       na = 0, nb = 0, ny = 0;
     const float *ap = get_f32_dense_ptr(a, &na);
     const float *bp = get_f32_dense_ptr(b, &nb);
@@ -76,9 +76,8 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
     return GEIST_OK;
 }
 
-[[nodiscard]] enum geist_status cpu_neon_gelu_tanh(struct geist_backend      *be,
-                                                    const struct geist_tensor *x,
-                                                    struct geist_tensor       *y) {
+[[nodiscard]] enum geist_status
+cpu_neon_gelu_tanh(struct geist_backend *be, const struct geist_tensor *x, struct geist_tensor *y) {
     size_t       nx = 0, ny = 0;
     const float *xp = get_f32_dense_ptr(x, &nx);
     float       *yp = get_f32_dense_ptr(y, &ny);
@@ -90,24 +89,21 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
     return GEIST_OK;
 }
 
-[[nodiscard]] enum geist_status cpu_neon_gelu_tanh_mul(
-    struct geist_backend      *be,
-    const struct geist_tensor *x,
-    const struct geist_tensor *z,
-    struct geist_tensor       *y) {
+[[nodiscard]] enum geist_status cpu_neon_gelu_tanh_mul(struct geist_backend      *be,
+                                                       const struct geist_tensor *x,
+                                                       const struct geist_tensor *z,
+                                                       struct geist_tensor       *y) {
     size_t       nx = 0, nz = 0, ny = 0;
     const float *xp = get_f32_dense_ptr(x, &nx);
     const float *zp = get_f32_dense_ptr(z, &nz);
     float       *yp = get_f32_dense_ptr(y, &ny);
-    if (xp == nullptr || zp == nullptr || yp == nullptr ||
-        nx != nz || nx != ny) {
-        geist_backend_set_error(be, GEIST_E_INVALID_ARG,
-                                "cpu_neon gelu_tanh_mul: bad inputs");
+    if (xp == nullptr || zp == nullptr || yp == nullptr || nx != nz || nx != ny) {
+        geist_backend_set_error(be, GEIST_E_INVALID_ARG, "cpu_neon gelu_tanh_mul: bad inputs");
         return GEIST_E_INVALID_ARG;
     }
 #if defined(__APPLE__) && defined(HAVE_ACCELERATE)
     if (be != nullptr && be->state != nullptr && nx <= (size_t) INT32_MAX) {
-        struct cpu_neon_state *st = (struct cpu_neon_state *) be->state;
+        struct cpu_neon_state     *st = (struct cpu_neon_state *) be->state;
         struct cpu_neon_workspace *ws = &st->workspace;
         if (ws->elt_f32_cap < nx) {
             safe_free((void **) &ws->elt_f32);
@@ -120,10 +116,10 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
         }
         const float kAlpha = 0.7978845608028654f;
         const float kBeta  = 0.044715f;
-        float *tmp = ws->elt_f32;
+        float      *tmp    = ws->elt_f32;
         for (size_t i = 0; i < nx; i++) {
             const float xi = xp[i];
-            tmp[i] = kAlpha * (xi + kBeta * xi * xi * xi);
+            tmp[i]         = kAlpha * (xi + kBeta * xi * xi * xi);
         }
         int n_i32 = (int) nx;
         vvtanhf(tmp, tmp, &n_i32);
@@ -137,32 +133,30 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
     return GEIST_OK;
 }
 
-[[nodiscard]] enum geist_status cpu_neon_gelu_tanh_mul_scaled(
-    struct geist_backend      *be,
-    const struct geist_tensor *x,
-    const struct geist_tensor *z,
-    const float               *scale,
-    struct geist_tensor       *y) {
+[[nodiscard]] enum geist_status cpu_neon_gelu_tanh_mul_scaled(struct geist_backend      *be,
+                                                              const struct geist_tensor *x,
+                                                              const struct geist_tensor *z,
+                                                              const float               *scale,
+                                                              struct geist_tensor       *y) {
     size_t       nx = 0, nz = 0, ny = 0;
     const float *xp = get_f32_dense_ptr(x, &nx);
     const float *zp = get_f32_dense_ptr(z, &nz);
     float       *yp = get_f32_dense_ptr(y, &ny);
-    if (xp == nullptr || zp == nullptr || yp == nullptr ||
-        scale == nullptr || nx != nz || nx != ny ||
-        x->ndim < 1 || z->ndim < 1 || y->ndim < 1) {
-        geist_backend_set_error(be, GEIST_E_INVALID_ARG,
-                                "cpu_neon gelu_tanh_mul_scaled: bad inputs");
+    if (xp == nullptr || zp == nullptr || yp == nullptr || scale == nullptr || nx != nz ||
+        nx != ny || x->ndim < 1 || z->ndim < 1 || y->ndim < 1) {
+        geist_backend_set_error(
+                be, GEIST_E_INVALID_ARG, "cpu_neon gelu_tanh_mul_scaled: bad inputs");
         return GEIST_E_INVALID_ARG;
     }
     const size_t feat = (size_t) y->shape[y->ndim - 1];
     if (feat == 0 || nx % feat != 0) {
-        geist_backend_set_error(be, GEIST_E_INVALID_ARG,
-                                "cpu_neon gelu_tanh_mul_scaled: feature mismatch");
+        geist_backend_set_error(
+                be, GEIST_E_INVALID_ARG, "cpu_neon gelu_tanh_mul_scaled: feature mismatch");
         return GEIST_E_INVALID_ARG;
     }
 #if defined(__APPLE__) && defined(HAVE_ACCELERATE)
     if (be != nullptr && be->state != nullptr && nx <= (size_t) INT32_MAX) {
-        struct cpu_neon_state *st = (struct cpu_neon_state *) be->state;
+        struct cpu_neon_state     *st = (struct cpu_neon_state *) be->state;
         struct cpu_neon_workspace *ws = &st->workspace;
         if (ws->elt_f32_cap < nx) {
             safe_free((void **) &ws->elt_f32);
@@ -175,10 +169,10 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
         }
         const float kAlpha = 0.7978845608028654f;
         const float kBeta  = 0.044715f;
-        float *tmp = ws->elt_f32;
+        float      *tmp    = ws->elt_f32;
         for (size_t i = 0; i < nx; i++) {
             const float xi = xp[i];
-            tmp[i] = kAlpha * (xi + kBeta * xi * xi * xi);
+            tmp[i]         = kAlpha * (xi + kBeta * xi * xi * xi);
         }
         int n_i32 = (int) nx;
         vvtanhf(tmp, tmp, &n_i32);
@@ -188,24 +182,24 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
         return GEIST_OK;
     }
 #endif
-    const float kAlpha = 0.7978845608028654f;
-    const float kBeta  = 0.044715f;
-    const size_t rows = nx / feat;
+    const float  kAlpha = 0.7978845608028654f;
+    const float  kBeta  = 0.044715f;
+    const size_t rows   = nx / feat;
     for (size_t r = 0; r < rows; r++) {
         const size_t base = r * feat;
         for (size_t j = 0; j < feat; j++) {
-            const size_t i = base + j;
-            const float xi = xp[i];
-            const float inner = kAlpha * (xi + kBeta * xi * xi * xi);
-            yp[i] = (0.5f * xi * (1.0f + tanhf(inner))) * zp[i] * scale[j];
+            const size_t i     = base + j;
+            const float  xi    = xp[i];
+            const float  inner = kAlpha * (xi + kBeta * xi * xi * xi);
+            yp[i]              = (0.5f * xi * (1.0f + tanhf(inner))) * zp[i] * scale[j];
         }
     }
     return GEIST_OK;
 }
 
 [[nodiscard]] enum geist_status cpu_neon_relu_squared(struct geist_backend      *be,
-                                                       const struct geist_tensor *x,
-                                                       struct geist_tensor       *y) {
+                                                      const struct geist_tensor *x,
+                                                      struct geist_tensor       *y) {
     size_t       nx = 0, ny = 0;
     const float *xp = get_f32_dense_ptr(x, &nx);
     float       *yp = get_f32_dense_ptr(y, &ny);
@@ -217,9 +211,8 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
     return GEIST_OK;
 }
 
-[[nodiscard]] enum geist_status cpu_neon_silu(struct geist_backend      *be,
-                                               const struct geist_tensor *x,
-                                               struct geist_tensor       *y) {
+[[nodiscard]] enum geist_status
+cpu_neon_silu(struct geist_backend *be, const struct geist_tensor *x, struct geist_tensor *y) {
     size_t       nx = 0, ny = 0;
     const float *xp = get_f32_dense_ptr(x, &nx);
     float       *yp = get_f32_dense_ptr(y, &ny);
@@ -232,10 +225,10 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
 }
 
 [[nodiscard]] enum geist_status cpu_neon_rmsnorm(struct geist_backend      *be,
-                                                  const struct geist_tensor *x,
-                                                  const struct geist_tensor *w,
-                                                  float                      eps,
-                                                  struct geist_tensor       *y) {
+                                                 const struct geist_tensor *x,
+                                                 const struct geist_tensor *w,
+                                                 float                      eps,
+                                                 struct geist_tensor       *y) {
     size_t       nx = 0, nw = 0, ny = 0;
     const float *xp = get_f32_dense_ptr(x, &nx);
     const float *wp = get_f32_dense_ptr(w, &nw);

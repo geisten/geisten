@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int check(bool cond, const char* what) {
+static int check(bool cond, const char *what) {
     if (!cond) {
         fprintf(stderr, "FAIL: %s\n", what);
         return 1;
@@ -31,8 +31,8 @@ int main(void) {
 
     /* ---- 1. Argmax: deterministic, stable on ties ---- */
     {
-        float logits[] = {-1.0f, 2.0f, 0.5f, 3.0f, 3.0f, -0.5f};
-        geist_token_t t = geist_sampler_argmax(6, logits);
+        float         logits[] = {-1.0f, 2.0f, 0.5f, 3.0f, 3.0f, -0.5f};
+        geist_token_t t        = geist_sampler_argmax(6, logits);
         fails += check(t == 3, "argmax picks first occurrence of max (idx 3)");
     }
 
@@ -41,7 +41,7 @@ int main(void) {
         struct geist_rng rng;
         geist_rng_seed(&rng, 42);
         float logits[] = {0.0f, 0.0f, 0.0f, 10.0f, 0.0f};
-        int hits_3 = 0;
+        int   hits_3   = 0;
         for (int i = 0; i < 1000; i++) {
             if (geist_sampler_temperature(5, logits, 0.1f /* low T */, &rng) == 3) {
                 hits_3++;
@@ -54,8 +54,8 @@ int main(void) {
     {
         struct geist_rng rng;
         geist_rng_seed(&rng, 1);
-        float logits[] = {1.0f, 2.0f, 3.0f, 0.5f};
-        geist_token_t t = geist_sampler_temperature(4, logits, 0.0f, &rng);
+        float         logits[] = {1.0f, 2.0f, 3.0f, 0.5f};
+        geist_token_t t        = geist_sampler_temperature(4, logits, 0.0f, &rng);
         fails += check(t == 2, "temperature=0 returns argmax (idx 2)");
     }
 
@@ -63,8 +63,8 @@ int main(void) {
     {
         struct geist_rng rng;
         geist_rng_seed(&rng, 7);
-        float logits[] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-        int counts[5] = {0};
+        float logits[]  = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+        int   counts[5] = {0};
         for (int i = 0; i < 5000; i++) {
             geist_token_t t = geist_sampler_temperature(5, logits, 1.0f, &rng);
             if (t >= 0 && t < 5)
@@ -94,7 +94,7 @@ int main(void) {
         geist_rng_seed(&rng, 11);
         /* Top 2 logits are at indices 4 (=5.0) and 2 (=4.0). */
         float logits[] = {0.0f, 1.0f, 4.0f, 2.0f, 5.0f, 1.5f, 0.0f, 0.5f};
-        bool seen[8] = {false};
+        bool  seen[8]  = {false};
         for (int i = 0; i < 1000; i++) {
             geist_token_t t = geist_sampler_top_k(8, logits, 2, 1.0f, &rng);
             fails += check(t >= 0 && t < 8, "top-k token in range");
@@ -115,7 +115,7 @@ int main(void) {
         /* Make most mass concentrate at index 0 — top_p=0.5 should pretty
          * much always pick index 0. */
         float logits[] = {10.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-        int hits_0 = 0;
+        int   hits_0   = 0;
         for (int i = 0; i < 1000; i++) {
             if (geist_sampler_top_p(5, logits, 0.5f, 1.0f, &rng) == 0) {
                 hits_0++;
@@ -127,7 +127,7 @@ int main(void) {
     /* ---- 7. Workspace reuse: O(1) allocations across multiple calls ---- */
     {
         struct geist_sampler_workspace ws = {0};
-        enum geist_status s = geist_sampler_workspace_init(&ws, 8);
+        enum geist_status              s  = geist_sampler_workspace_init(&ws, 8);
         fails += check(s == GEIST_OK, "workspace init OK");
 
         struct geist_rng rng;

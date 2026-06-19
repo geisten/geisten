@@ -40,8 +40,8 @@ int main(void) {
 
     /* cpu_neon now handles Q5_K via dequant + cblas_sgemm (added alongside
      * the production swap). Falls back to cpu_scalar if neon isn't built. */
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -51,8 +51,8 @@ int main(void) {
     }
 
     /* ---- v2 path ---- */
-    struct transformer_arch_state* st = nullptr;
-    s = transformer_state_create(be, model_path, nullptr, &st);
+    struct transformer_arch_state *st = nullptr;
+    s                                 = transformer_state_create(be, model_path, nullptr, &st);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "state_create: %s — %s\n",
@@ -69,7 +69,7 @@ int main(void) {
      * BOS first builds up the KV cache at position 0 the way prefill
      * would. */
     const geist_token_t prompt[] = {HELLO_TOKEN};
-    geist_token_t next = -1;
+    geist_token_t       next     = -1;
     for (size_t i = 0; i < sizeof prompt / sizeof prompt[0]; i++) {
         s = transformer_decode_step(st, prompt[i], &next);
         if (s != GEIST_OK) {
@@ -109,8 +109,8 @@ int main(void) {
     int fails = 0;
     printf("                v2       canonical\n");
     for (int t = 0; t < N_DECODE_STEPS; t++) {
-        const int canonical = HELLO_TOKEN;
-        const char* vs_can = (_decoded[t] == canonical) ? "==" : "!=";
+        const int   canonical = HELLO_TOKEN;
+        const char *vs_can    = (_decoded[t] == canonical) ? "==" : "!=";
         printf("  step[%d]  %6d  %s  %6d\n", t, (int) _decoded[t], vs_can, canonical);
         if (_decoded[t] != canonical) {
             fails++;

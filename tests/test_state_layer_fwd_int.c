@@ -52,7 +52,7 @@
 #define RMS_EPS 1e-6f
 
 /* Deterministic-seeded uniform random in [-0.5, 0.5]. */
-static void fill_random(float* p, size_t n, uint32_t seed) {
+static void fill_random(float *p, size_t n, uint32_t seed) {
     uint32_t s = seed;
     for (size_t i = 0; i < n; i++) {
         s ^= s << 13;
@@ -64,9 +64,9 @@ static void fill_random(float* p, size_t n, uint32_t seed) {
 
 /* Read a 1D F32 tensor's bytes (norm weights) into a host buffer. */
 static void
-read_norm(struct geist_backend* be, const struct geist_tensor* t, float* dst, size_t expected) {
-    size_t bytes = expected * sizeof(float);
-    enum geist_status s = be->desc->vtbl->buffer_download(bytes, (uint8_t*) dst, t->buffer);
+read_norm(struct geist_backend *be, const struct geist_tensor *t, float *dst, size_t expected) {
+    size_t            bytes = expected * sizeof(float);
+    enum geist_status s     = be->desc->vtbl->buffer_download(bytes, (uint8_t *) dst, t->buffer);
     if (s != GEIST_OK) {
         fprintf(stderr, "buffer_download (norm) failed: %s\n", geist_status_to_string(s));
         exit(GEIST_TEST_ERROR);
@@ -76,18 +76,18 @@ read_norm(struct geist_backend* be, const struct geist_tensor* t, float* dst, si
 /* Dequantize a 2D weight tensor's bytes (whatever GGUF dtype) to a host
  * FP32 buffer using the gguf_quant.c row helpers — same way lm.c builds
  * its FP32 mirror. n_out * n_in floats written. The caller frees. */
-static float* dequant_proj_to_fp32(struct geist_backend* be,
-                                   const struct geist_tensor* t,
-                                   size_t n_out,
-                                   size_t n_in) {
+static float *dequant_proj_to_fp32(struct geist_backend      *be,
+                                   const struct geist_tensor *t,
+                                   size_t                     n_out,
+                                   size_t                     n_in) {
     /* struct geist_buffer is backend-private; buffer_map gives us the
      * raw host pointer to its bytes. That's all we need for dequant. */
-    const uint8_t* raw = (const uint8_t*) be->desc->vtbl->buffer_map(t->buffer);
+    const uint8_t *raw = (const uint8_t *) be->desc->vtbl->buffer_map(t->buffer);
     if (raw == nullptr) {
         fprintf(stderr, "buffer_map for projection weight failed\n");
         exit(GEIST_TEST_ERROR);
     }
-    float* fp32 = aligned_alloc(64, n_out * n_in * sizeof(float));
+    float *fp32 = aligned_alloc(64, n_out * n_in * sizeof(float));
     if (fp32 == nullptr) {
         exit(GEIST_TEST_ERROR);
     }
@@ -140,33 +140,33 @@ static float* dequant_proj_to_fp32(struct geist_backend* be,
  * same eps, same q_norm/k_norm/v_norm ordering. */
 static void reference_layer_forward(
         /* Per-layer geometry. */
-        bool is_full,
+        bool   is_full,
         size_t head_dim,
         size_t q_out,
         size_t kv_out,
         size_t intermediate,
         size_t sliding_window,
-        float rope_theta,
+        float  rope_theta,
         size_t n_rotated_dims,
-        float layer_scalar,
+        float  layer_scalar,
         /* Weights (FP32 dequantized mirrors). */
-        const float* attn_norm,
-        const float* q_proj,
-        const float* k_proj,
-        const float* v_proj,
-        const float* o_proj,
-        const float* q_norm,
-        const float* k_norm,
-        const float* post_attn_norm,
-        const float* ffn_norm,
-        const float* gate_proj,
-        const float* up_proj,
-        const float* down_proj,
-        const float* post_ffw_norm,
+        const float *attn_norm,
+        const float *q_proj,
+        const float *k_proj,
+        const float *v_proj,
+        const float *o_proj,
+        const float *q_norm,
+        const float *k_norm,
+        const float *post_attn_norm,
+        const float *ffn_norm,
+        const float *gate_proj,
+        const float *up_proj,
+        const float *down_proj,
+        const float *post_ffw_norm,
         /* Activations. */
-        const float* h_in,
-        size_t q_position,
-        float* h_out) {
+        const float *h_in,
+        size_t       q_position,
+        float       *h_out) {
 
     /* h_pre = h_in copy. */
     float h_pre[HIDDEN];
@@ -177,17 +177,17 @@ static void reference_layer_forward(
     rmsnorm_fp32(h_pre, attn_norm, 1, HIDDEN, RMS_EPS, normed);
 
     /* 2. Q/K/V projections (1 × HIDDEN) × (n_out × HIDDEN)^T → (1 × n_out). */
-    float* q = aligned_alloc(64, q_out * sizeof(float));
-    float* k = aligned_alloc(64, kv_out * sizeof(float));
-    float* vbu = aligned_alloc(64, kv_out * sizeof(float));
+    float *q   = aligned_alloc(64, q_out * sizeof(float));
+    float *k   = aligned_alloc(64, kv_out * sizeof(float));
+    float *vbu = aligned_alloc(64, kv_out * sizeof(float));
     linear_fp32(normed, q_proj, nullptr, 1, HIDDEN, q_out, q);
     linear_fp32(normed, k_proj, nullptr, 1, HIDDEN, kv_out, k);
     linear_fp32(normed, v_proj, nullptr, 1, HIDDEN, kv_out, vbu);
 
     /* 3-5. q_norm, rope(q), k_norm, v_norm, rope(k). */
     rmsnorm_fp32(q, q_norm, N_Q_HEADS, head_dim, RMS_EPS, q);
-    float* cos_b = aligned_alloc(64, head_dim * sizeof(float));
-    float* sin_b = aligned_alloc(64, head_dim * sizeof(float));
+    float *cos_b = aligned_alloc(64, head_dim * sizeof(float));
+    float *sin_b = aligned_alloc(64, head_dim * sizeof(float));
     rope_compute_at(q_position, 1, head_dim, n_rotated_dims, rope_theta, cos_b, sin_b);
     rope_apply(q, cos_b, sin_b, 1, N_Q_HEADS, head_dim);
     rmsnorm_fp32(k, k_norm, N_KV_HEADS, head_dim, RMS_EPS, k);
@@ -196,8 +196,8 @@ static void reference_layer_forward(
 
     /* 6-7. Build a fresh single-slot KV cache and run attention. */
     const size_t kv_len = q_position + 1;
-    float* k_cache = aligned_alloc(64, kv_len * (size_t) N_KV_HEADS * head_dim * sizeof(float));
-    float* v_cache = aligned_alloc(64, kv_len * (size_t) N_KV_HEADS * head_dim * sizeof(float));
+    float *k_cache = aligned_alloc(64, kv_len * (size_t) N_KV_HEADS * head_dim * sizeof(float));
+    float *v_cache = aligned_alloc(64, kv_len * (size_t) N_KV_HEADS * head_dim * sizeof(float));
     /* For this test we only care about the position q_position contributing
      * to its own output. Fill earlier slots with zeros so they don't perturb
      * softmax — but causal+window masking already ensures only s <= q_position
@@ -211,7 +211,7 @@ static void reference_layer_forward(
            vbu,
            (size_t) N_KV_HEADS * head_dim * sizeof(float));
 
-    float* attn_out = aligned_alloc(64, q_out * sizeof(float));
+    float *attn_out = aligned_alloc(64, q_out * sizeof(float));
     attention_mqa_causal_kv(q,
                             k_cache,
                             v_cache,
@@ -236,8 +236,8 @@ static void reference_layer_forward(
     /* 10. ffn_norm + gate/up + GeGLU + down. */
     float pre_ff[HIDDEN];
     rmsnorm_fp32(h_post_attn, ffn_norm, 1, HIDDEN, RMS_EPS, pre_ff);
-    float* gate = aligned_alloc(64, intermediate * sizeof(float));
-    float* up = aligned_alloc(64, intermediate * sizeof(float));
+    float *gate = aligned_alloc(64, intermediate * sizeof(float));
+    float *up   = aligned_alloc(64, intermediate * sizeof(float));
     linear_fp32(pre_ff, gate_proj, nullptr, 1, HIDDEN, intermediate, gate);
     linear_fp32(pre_ff, up_proj, nullptr, 1, HIDDEN, intermediate, up);
     gelu_tanh_fp32(gate, intermediate, gate);
@@ -270,17 +270,17 @@ static void reference_layer_forward(
 }
 
 /* Run one layer through transformer_forward_one_layer and download h_out. */
-static int run_layer(struct transformer_arch_state* st,
-                     int layer_idx,
-                     size_t q_position,
-                     const float* h_in_host,
-                     float* h_out_host) {
-    struct geist_backend* be = st->backend;
-    const struct geist_backend_vtbl* v = be->desc->vtbl;
+static int run_layer(struct transformer_arch_state *st,
+                     int                            layer_idx,
+                     size_t                         q_position,
+                     const float                   *h_in_host,
+                     float                         *h_out_host) {
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
 
-    struct geist_buffer* h_in_buf = nullptr;
-    struct geist_buffer* h_out_buf = nullptr;
-    enum geist_status s = v->buffer_create(
+    struct geist_buffer *h_in_buf  = nullptr;
+    struct geist_buffer *h_out_buf = nullptr;
+    enum geist_status    s         = v->buffer_create(
             be, HIDDEN * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &h_in_buf);
     if (s != GEIST_OK) {
         return -1;
@@ -291,7 +291,7 @@ static int run_layer(struct transformer_arch_state* st,
         v->buffer_destroy(be, h_in_buf);
         return -1;
     }
-    s = v->buffer_upload(h_in_buf, HIDDEN * sizeof(float), (const uint8_t*) h_in_host);
+    s = v->buffer_upload(h_in_buf, HIDDEN * sizeof(float), (const uint8_t *) h_in_host);
     if (s != GEIST_OK) {
         goto cleanup;
     }
@@ -312,7 +312,7 @@ static int run_layer(struct transformer_arch_state* st,
                 geist_backend_errmsg(be));
         goto cleanup;
     }
-    s = v->buffer_download(HIDDEN * sizeof(float), (uint8_t*) h_out_host, h_out_buf);
+    s = v->buffer_download(HIDDEN * sizeof(float), (uint8_t *) h_out_host, h_out_buf);
 
 cleanup:
     v->buffer_destroy(be, h_in_buf);
@@ -320,9 +320,9 @@ cleanup:
     return s == GEIST_OK ? 0 : -1;
 }
 
-static int check_one_layer(struct transformer_arch_state* st, int layer_idx) {
-    struct geist_backend* be = st->backend;
-    const struct transformer_layer_weights* L = &st->layers[layer_idx];
+static int check_one_layer(struct transformer_arch_state *st, int layer_idx) {
+    struct geist_backend                   *be = st->backend;
+    const struct transformer_layer_weights *L  = &st->layers[layer_idx];
 
     if (L->is_kv_shared) {
         printf("layer %d: skip (kv-shared not yet implemented in v2)\n", layer_idx);
@@ -330,12 +330,12 @@ static int check_one_layer(struct transformer_arch_state* st, int layer_idx) {
     }
 
     /* Load FP32 mirrors of every weight by downloading + dequantizing. */
-    float* attn_norm = aligned_alloc(64, HIDDEN * sizeof(float));
-    float* post_attn_norm = aligned_alloc(64, HIDDEN * sizeof(float));
-    float* ffn_norm = aligned_alloc(64, HIDDEN * sizeof(float));
-    float* post_ffw_norm = aligned_alloc(64, HIDDEN * sizeof(float));
-    float* q_norm = aligned_alloc(64, L->head_dim * sizeof(float));
-    float* k_norm = aligned_alloc(64, L->head_dim * sizeof(float));
+    float *attn_norm      = aligned_alloc(64, HIDDEN * sizeof(float));
+    float *post_attn_norm = aligned_alloc(64, HIDDEN * sizeof(float));
+    float *ffn_norm       = aligned_alloc(64, HIDDEN * sizeof(float));
+    float *post_ffw_norm  = aligned_alloc(64, HIDDEN * sizeof(float));
+    float *q_norm         = aligned_alloc(64, L->head_dim * sizeof(float));
+    float *k_norm         = aligned_alloc(64, L->head_dim * sizeof(float));
     read_norm(be, &L->attn_norm, attn_norm, HIDDEN);
     read_norm(be, &L->post_attn_norm, post_attn_norm, HIDDEN);
     read_norm(be, &L->ffn_norm, ffn_norm, HIDDEN);
@@ -343,13 +343,13 @@ static int check_one_layer(struct transformer_arch_state* st, int layer_idx) {
     read_norm(be, &L->q_norm, q_norm, L->head_dim);
     read_norm(be, &L->k_norm, k_norm, L->head_dim);
 
-    float* q_proj = dequant_proj_to_fp32(be, &L->q_proj, L->q_out, HIDDEN);
-    float* k_proj = dequant_proj_to_fp32(be, &L->k_proj, L->kv_out, HIDDEN);
-    float* v_proj = dequant_proj_to_fp32(be, &L->v_proj, L->kv_out, HIDDEN);
-    float* o_proj = dequant_proj_to_fp32(be, &L->o_proj, HIDDEN, L->q_out);
-    float* gate_proj = dequant_proj_to_fp32(be, &L->gate_proj, L->intermediate, HIDDEN);
-    float* up_proj = dequant_proj_to_fp32(be, &L->up_proj, L->intermediate, HIDDEN);
-    float* down_proj = dequant_proj_to_fp32(be, &L->down_proj, HIDDEN, L->intermediate);
+    float *q_proj    = dequant_proj_to_fp32(be, &L->q_proj, L->q_out, HIDDEN);
+    float *k_proj    = dequant_proj_to_fp32(be, &L->k_proj, L->kv_out, HIDDEN);
+    float *v_proj    = dequant_proj_to_fp32(be, &L->v_proj, L->kv_out, HIDDEN);
+    float *o_proj    = dequant_proj_to_fp32(be, &L->o_proj, HIDDEN, L->q_out);
+    float *gate_proj = dequant_proj_to_fp32(be, &L->gate_proj, L->intermediate, HIDDEN);
+    float *up_proj   = dequant_proj_to_fp32(be, &L->up_proj, L->intermediate, HIDDEN);
+    float *down_proj = dequant_proj_to_fp32(be, &L->down_proj, HIDDEN, L->intermediate);
 
     /* Random input residual. q_position = layer_idx (arbitrary nonzero). */
     float h_in[HIDDEN];
@@ -395,8 +395,8 @@ static int check_one_layer(struct transformer_arch_state* st, int layer_idx) {
      * vtable's cpu_neon backend uses W4A8-style INT8 matmul for Q4_K (which
      * has its own quantization noise). Magnitude of differences is bounded
      * by the kernel cross-ref tests already in place. */
-    ptrdiff_t bad = geist_fp32_close_array(h_ref, h_vtable, HIDDEN, 1e-3f, 1e-3f);
-    int fails = 0;
+    ptrdiff_t bad   = geist_fp32_close_array(h_ref, h_vtable, HIDDEN, 1e-3f, 1e-3f);
+    int       fails = 0;
     if (bad >= 0) {
         fprintf(stderr,
                 "layer %d FAIL: idx %td ref=%g vtable=%g diff=%g\n",
@@ -456,15 +456,15 @@ static int check_one_layer(struct transformer_arch_state* st, int layer_idx) {
  * finite values, and has a non-zero magnitude (catches the obvious
  * regressions like reading the wrong cache or skipping the K/V plumbing
  * entirely). Full cross-ref happens at the end-to-end token gate. */
-static int check_kv_shared_layer_smoke(struct transformer_arch_state* st,
-                                       int src_layer_idx,
-                                       int shared_layer_idx) {
-    struct geist_backend* be = st->backend;
-    const struct geist_backend_vtbl* v = be->desc->vtbl;
+static int check_kv_shared_layer_smoke(struct transformer_arch_state *st,
+                                       int                            src_layer_idx,
+                                       int                            shared_layer_idx) {
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
 
     struct geist_buffer *h_src_buf = nullptr, *h_src_out_buf = nullptr;
     struct geist_buffer *h_shared_buf = nullptr, *h_shared_out_buf = nullptr;
-    enum geist_status s;
+    enum geist_status    s;
     s = v->buffer_create(
             be, HIDDEN * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &h_src_buf);
     if (s != GEIST_OK)
@@ -488,10 +488,10 @@ static int check_kv_shared_layer_smoke(struct transformer_arch_state* st,
     float h_src[HIDDEN], h_shared[HIDDEN];
     fill_random(h_src, HIDDEN, 0x13371337u);
     fill_random(h_shared, HIDDEN, 0x42424242u);
-    s = v->buffer_upload(h_src_buf, HIDDEN * sizeof(float), (const uint8_t*) h_src);
+    s = v->buffer_upload(h_src_buf, HIDDEN * sizeof(float), (const uint8_t *) h_src);
     if (s != GEIST_OK)
         goto cleanup;
-    s = v->buffer_upload(h_shared_buf, HIDDEN * sizeof(float), (const uint8_t*) h_shared);
+    s = v->buffer_upload(h_shared_buf, HIDDEN * sizeof(float), (const uint8_t *) h_shared);
     if (s != GEIST_OK)
         goto cleanup;
 
@@ -523,11 +523,11 @@ static int check_kv_shared_layer_smoke(struct transformer_arch_state* st,
 
     /* Check finite + non-trivial. */
     float h_out[HIDDEN];
-    s = v->buffer_download(HIDDEN * sizeof(float), (uint8_t*) h_out, h_shared_out_buf);
+    s = v->buffer_download(HIDDEN * sizeof(float), (uint8_t *) h_out, h_shared_out_buf);
     if (s != GEIST_OK)
         goto cleanup;
-    int n_finite = 0;
-    double abs_sum = 0.0;
+    int    n_finite = 0;
+    double abs_sum  = 0.0;
     for (size_t i = 0; i < HIDDEN; i++) {
         if (isfinite(h_out[i])) {
             n_finite++;
@@ -564,19 +564,19 @@ cleanup:
 /* ---- PLE precompute cross-reference ---------------------------------- */
 
 /* Host-side reference for transformer_compute_per_layer_input. */
-static void reference_ple_precompute(const float* h,
-                                     geist_token_t token_id,
-                                     const struct geist_tensor* ple_table,
-                                     const float* ple_lookup_host_row,
-                                     const float* model_proj_host,
-                                     const float* model_proj_norm_host,
-                                     float* per_layer_input_out) {
+static void reference_ple_precompute(const float               *h,
+                                     geist_token_t              token_id,
+                                     const struct geist_tensor *ple_table,
+                                     const float               *ple_lookup_host_row,
+                                     const float               *model_proj_host,
+                                     const float               *model_proj_norm_host,
+                                     float                     *per_layer_input_out) {
     (void) ple_table;
     (void) token_id;
     /* ple_lookup_host_row is the dequantized ple_table[token_id, :]
      * (8960 floats) — the caller staged it because the dequant helpers
      * aren't directly importable here. */
-    float* ple_proj = aligned_alloc(64, GEIST_GEMMA4_PLE_OUT * sizeof(float));
+    float *ple_proj = aligned_alloc(64, GEIST_GEMMA4_PLE_OUT * sizeof(float));
     linear_fp32(
             h, model_proj_host, nullptr, 1, GEIST_GEMMA4_HIDDEN, GEIST_GEMMA4_PLE_OUT, ple_proj);
     for (size_t i = 0; i < (size_t) GEIST_GEMMA4_PLE_OUT; i++) {
@@ -595,9 +595,9 @@ static void reference_ple_precompute(const float* h,
     free(ple_proj);
 }
 
-static int check_ple_precompute(struct transformer_arch_state* st, geist_token_t token_id) {
-    struct geist_backend* be = st->backend;
-    const struct geist_backend_vtbl* v = be->desc->vtbl;
+static int check_ple_precompute(struct transformer_arch_state *st, geist_token_t token_id) {
+    struct geist_backend            *be = st->backend;
+    const struct geist_backend_vtbl *v  = be->desc->vtbl;
 
     /* Random residual stream. */
     float h_in[HIDDEN];
@@ -605,7 +605,7 @@ static int check_ple_precompute(struct transformer_arch_state* st, geist_token_t
 
     /* Upload h to a buffer. */
     struct geist_buffer *h_buf = nullptr, *ple_buf = nullptr;
-    enum geist_status s = v->buffer_create(
+    enum geist_status    s = v->buffer_create(
             be, HIDDEN * sizeof(float), GEIST_BUFFER_ACTIVATION, GEIST_MEMORY_AUTO, &h_buf);
     if (s != GEIST_OK)
         return 1;
@@ -618,7 +618,7 @@ static int check_ple_precompute(struct transformer_arch_state* st, geist_token_t
         v->buffer_destroy(be, h_buf);
         return 1;
     }
-    s = v->buffer_upload(h_buf, HIDDEN * sizeof(float), (const uint8_t*) h_in);
+    s = v->buffer_upload(h_buf, HIDDEN * sizeof(float), (const uint8_t *) h_in);
     if (s != GEIST_OK)
         goto cleanup;
 
@@ -631,8 +631,8 @@ static int check_ple_precompute(struct transformer_arch_state* st, geist_token_t
                 geist_backend_errmsg(be));
         goto cleanup;
     }
-    float* ple_vtable = aligned_alloc(64, GEIST_GEMMA4_PLE_OUT * sizeof(float));
-    s = v->buffer_download(GEIST_GEMMA4_PLE_OUT * sizeof(float), (uint8_t*) ple_vtable, ple_buf);
+    float *ple_vtable = aligned_alloc(64, GEIST_GEMMA4_PLE_OUT * sizeof(float));
+    s = v->buffer_download(GEIST_GEMMA4_PLE_OUT * sizeof(float), (uint8_t *) ple_vtable, ple_buf);
     if (s != GEIST_OK) {
         free(ple_vtable);
         goto cleanup;
@@ -640,8 +640,8 @@ static int check_ple_precompute(struct transformer_arch_state* st, geist_token_t
 
     /* Reference path: dequant the PLE row + FP32 mirrors of model_proj and
      * model_proj_norm, then compute the same expression. */
-    float* ple_lookup_row = aligned_alloc(64, GEIST_GEMMA4_PLE_OUT * sizeof(float));
-    float* model_proj_fp32 =
+    float *ple_lookup_row = aligned_alloc(64, GEIST_GEMMA4_PLE_OUT * sizeof(float));
+    float *model_proj_fp32 =
             dequant_proj_to_fp32(be, &st->model_proj, GEIST_GEMMA4_PLE_OUT, GEIST_GEMMA4_HIDDEN);
     float model_proj_norm[GEIST_GEMMA4_HIDDEN_PER_LAYER];
     read_norm(be, &st->model_proj_norm, model_proj_norm, GEIST_GEMMA4_HIDDEN_PER_LAYER);
@@ -650,9 +650,9 @@ static int check_ple_precompute(struct transformer_arch_state* st, geist_token_t
      * mirror that logic in dequant_proj_to_fp32 indirectly by calling the
      * row dequant on the raw bytes. */
     {
-        const uint8_t* raw = (const uint8_t*) v->buffer_map(st->ple_table.buffer);
-        const size_t row_idx = (size_t) token_id;
-        const size_t n_in = (size_t) GEIST_GEMMA4_PLE_OUT;
+        const uint8_t *raw     = (const uint8_t *) v->buffer_map(st->ple_table.buffer);
+        const size_t   row_idx = (size_t) token_id;
+        const size_t   n_in    = (size_t) GEIST_GEMMA4_PLE_OUT;
         switch (st->ple_table.dtype) {
         case GEIST_DTYPE_F32:
             memcpy(ple_lookup_row, raw + row_idx * n_in * sizeof(float), n_in * sizeof(float));
@@ -688,7 +688,7 @@ static int check_ple_precompute(struct transformer_arch_state* st, geist_token_t
         v->buffer_unmap(st->ple_table.buffer);
     }
 
-    float* ple_ref = aligned_alloc(64, GEIST_GEMMA4_PLE_OUT * sizeof(float));
+    float *ple_ref = aligned_alloc(64, GEIST_GEMMA4_PLE_OUT * sizeof(float));
     reference_ple_precompute(h_in,
                              token_id,
                              &st->ple_table,
@@ -699,7 +699,7 @@ static int check_ple_precompute(struct transformer_arch_state* st, geist_token_t
 
     /* Compare. */
     ptrdiff_t bad = geist_fp32_close_array(ple_ref, ple_vtable, GEIST_GEMMA4_PLE_OUT, 1e-3f, 1e-3f);
-    int rc = 0;
+    int       rc  = 0;
     if (bad >= 0) {
         fprintf(stderr,
                 "PLE precompute FAIL: idx %td ref=%g vtable=%g\n",
@@ -730,7 +730,7 @@ cleanup:
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
+    struct geist_backend *be = nullptr;
     /* For numerical comparison stability, prefer cpu_scalar (its kernels
      * match the reference more closely; cpu_neon's W4A8 quantized GEMV has
      * its own larger numerical envelope that the per-kernel cross-ref
@@ -744,8 +744,8 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct transformer_arch_state* st = nullptr;
-    s = transformer_state_create(be, model_path, nullptr, &st);
+    struct transformer_arch_state *st = nullptr;
+    s                                 = transformer_state_create(be, model_path, nullptr, &st);
     if (s != GEIST_OK) {
         fprintf(stderr,
                 "state_create failed: %s — %s\n",

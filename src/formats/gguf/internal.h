@@ -43,8 +43,8 @@ struct block_q3_K_t {
 _Static_assert(sizeof(struct block_q3_K_t) == Q3_K_BLOCK_BYTES, "struct block_q3_K_t size");
 
 struct block_q4_K_t {
-    uint16_t d;            /* fp16 */
-    uint16_t dmin;         /* fp16 */
+    uint16_t d;    /* fp16 */
+    uint16_t dmin; /* fp16 */
     uint8_t  scales[12];
     uint8_t  qs[128];
 } __attribute__((packed));
@@ -75,9 +75,9 @@ _Static_assert(sizeof(struct block_q8_0_t) == 34, "struct block_q8_0_t size");
 
 struct block_iq2_s_t {
     uint16_t d;
-    uint8_t  qs[64];      /* low 8 bits of 32 grid indices + 32 sign bytes */
-    uint8_t  qh[8];       /* high 2 bits of 32 grid indices, packed */
-    uint8_t  scales[8];   /* 4-bit pair per 32-elem sub-block */
+    uint8_t  qs[64];    /* low 8 bits of 32 grid indices + 32 sign bytes */
+    uint8_t  qh[8];     /* high 2 bits of 32 grid indices, packed */
+    uint8_t  scales[8]; /* 4-bit pair per 32-elem sub-block */
 } __attribute__((packed));
 _Static_assert(sizeof(struct block_iq2_s_t) == 82, "struct block_iq2_s_t size");
 
@@ -95,14 +95,13 @@ _Static_assert(sizeof(struct block_iq3_s_t) == 110, "struct block_iq3_s_t size")
  * Both formats encode 8 sub-blocks of 32 elements with a 6-bit scale and
  * 6-bit min per sub-block, packed across 12 bytes in a Q4_K/Q5_K super-
  * block. `j` selects the sub-block index in [0, 8). */
-static inline void get_scale_min_k4(int j, const uint8_t* q,
-                                     uint8_t* d_out, uint8_t* m_out) {
+static inline void get_scale_min_k4(int j, const uint8_t *q, uint8_t *d_out, uint8_t *m_out) {
     if (j < 4) {
-        *d_out = q[j]     & 63;
+        *d_out = q[j] & 63;
         *m_out = q[j + 4] & 63;
     } else {
         *d_out = (q[j + 4] & 0xF) | ((q[j - 4] >> 6) << 4);
-        *m_out = (q[j + 4] >>  4) | ((q[j    ] >> 6) << 4);
+        *m_out = (q[j + 4] >> 4) | ((q[j] >> 6) << 4);
     }
 }
 
@@ -112,7 +111,7 @@ static inline void get_scale_min_k4(int j, const uint8_t* q,
  * Used by every W*A8 kernel (Q3_K / Q4_K / Q5_K / Q6_K / Q8_0 /
  * IQ2_S / IQ3_S decode + prefill paths). Implementation lives in
  * gguf_quant/common.c. */
-float quantize_x_int8_sym(const float* x, size_t n, int8_t* x_q8);
+float quantize_x_int8_sym(const float *x, size_t n, int8_t *x_q8);
 
 /* dot(x_q8[0..15], q_signed_int8[0..15]) using vdotq_s32 when NEON
  * is available. Shared across Q3_K / Q4_K / Q5_K / Q6_K / Q8_0 W*A8
@@ -124,10 +123,10 @@ float quantize_x_int8_sym(const float* x, size_t n, int8_t* x_q8);
  * not interpret the sign of `q` — it just multiplies and sums. */
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
-static inline int32_t dot16_i8(const int8_t* x_q8, int8x16_t q) {
-    int8x16_t xv = vld1q_s8(x_q8);
+static inline int32_t dot16_i8(const int8_t *x_q8, int8x16_t q) {
+    int8x16_t xv  = vld1q_s8(x_q8);
     int32x4_t acc = vdupq_n_s32(0);
-    acc = vdotq_s32(acc, xv, q);
+    acc           = vdotq_s32(acc, xv, q);
     return vaddvq_s32(acc);
 }
 #endif

@@ -27,10 +27,10 @@
  * geist_session_token_to_str returns a thread-local buffer valid only until the
  * next call, so each piece is copied immediately. */
 static void decode_concat(
-        struct geist_session* s, const geist_token_t* ids, size_t n, char* out, size_t out_cap) {
+        struct geist_session *s, const geist_token_t *ids, size_t n, char *out, size_t out_cap) {
     size_t w = 0;
     for (size_t i = 0; i < n; i++) {
-        const char* p = geist_session_token_to_str(s, ids[i]);
+        const char *p = geist_session_token_to_str(s, ids[i]);
         if (p == nullptr)
             continue;
         size_t l = strlen(p);
@@ -43,9 +43,9 @@ static void decode_concat(
 }
 
 /* Returns: 0 = round-trip OK, 1 = mismatch, 77 = no tokenizer (skip). */
-static int check_roundtrip(struct geist_session* s, const char* text) {
-    geist_token_t ids[1024];
-    size_t n = 0;
+static int check_roundtrip(struct geist_session *s, const char *text) {
+    geist_token_t     ids[1024];
+    size_t            n  = 0;
     enum geist_status st = geist_session_tokenize(s, text, 1024, ids, &n);
     if (st == GEIST_E_NOT_FOUND)
         return 77;
@@ -65,8 +65,8 @@ static int check_roundtrip(struct geist_session* s, const char* text) {
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -75,17 +75,17 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load(%s) failed: %s\n", model_path, geist_status_to_string(s));
         geist_backend_destroy(be);
         return GEIST_TEST_FAIL;
     }
 
-    struct geist_session* sess = nullptr;
+    struct geist_session     *sess = nullptr;
     struct geist_session_opts opts = {.max_seq_len = 1024, .temperature = 0.0f};
-    s = geist_session_create(model, be, &opts, &sess);
+    s                              = geist_session_create(model, be, &opts, &sess);
     if (s != GEIST_OK) {
         fprintf(stderr, "session_create failed: %s\n", geist_status_to_string(s));
         geist_model_destroy(model);
@@ -96,7 +96,7 @@ int main(void) {
     int fails = 0;
 
     /* ---- 1. Lossless round-trip across varied inputs ---- */
-    static const char* cases[] = {
+    static const char *cases[] = {
             "Hello world",
             "Hello, world!",
             "The quick brown fox jumps over the lazy dog.",
@@ -124,8 +124,8 @@ int main(void) {
     /* ---- 2. Reference token: "Hello" → 9259 (gemma4-E2B) ---- */
     {
         geist_token_t ids[16];
-        size_t n = 0;
-        s = geist_session_tokenize(sess, "Hello", 16, ids, &n);
+        size_t        n = 0;
+        s               = geist_session_tokenize(sess, "Hello", 16, ids, &n);
         if (s != GEIST_OK || n < 1) {
             fprintf(stderr,
                     "tokenize(\"Hello\") failed: %s (n=%zu)\n",

@@ -25,18 +25,18 @@
 
 #define N_DECODE 6
 
-static int decode_tokens(struct geist_model* model,
-                         struct geist_backend* be,
-                         const struct geist_session_opts* opts,
-                         geist_token_t* out_tokens,
-                         int n) {
-    struct geist_session* sess = nullptr;
-    enum geist_status s = geist_session_create(model, be, opts, &sess);
+static int decode_tokens(struct geist_model              *model,
+                         struct geist_backend            *be,
+                         const struct geist_session_opts *opts,
+                         geist_token_t                   *out_tokens,
+                         int                              n) {
+    struct geist_session *sess = nullptr;
+    enum geist_status     s    = geist_session_create(model, be, opts, &sess);
     if (s != GEIST_OK)
         return -1;
 
     const geist_token_t bos[1] = {2};
-    s = geist_session_prefill_tokens(sess, 1, bos);
+    s                          = geist_session_prefill_tokens(sess, 1, bos);
     if (s != GEIST_OK) {
         geist_session_destroy(sess);
         return -1;
@@ -57,13 +57,13 @@ int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
     /* Locate the AWQ scales file alongside the model. */
-    const char* awq_env = getenv("GEIST_AWQ_PATH");
-    const char* awq_path =
+    const char *awq_env = getenv("GEIST_AWQ_PATH");
+    const char *awq_path =
             awq_env != nullptr ? awq_env : "gguf_artifacts/gemma4-e2b.awq_scales.bin";
 
     /* Quick existence check via fopen — keeps failure mode clear. */
     {
-        FILE* f = fopen(awq_path, "rb");
+        FILE *f = fopen(awq_path, "rb");
         if (f == nullptr) {
             printf("SKIP: awq scales file not found at %s\n", awq_path);
             return GEIST_TEST_SKIP;
@@ -71,8 +71,8 @@ int main(void) {
         fclose(f);
     }
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -81,8 +81,8 @@ int main(void) {
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load failed: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
@@ -108,8 +108,8 @@ int main(void) {
 
     /* Pass B: greedy decode with AWQ scales applied. */
     struct geist_session_opts opts_with_awq = {
-            .max_seq_len = 1024,
-            .temperature = 0.0f,
+            .max_seq_len     = 1024,
+            .temperature     = 0.0f,
             .awq_scales_path = awq_path,
     };
     geist_token_t tokens_with_awq[N_DECODE];

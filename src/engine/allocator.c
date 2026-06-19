@@ -39,10 +39,10 @@ static void libc_free(void *ctx, void *ptr) {
 }
 
 const struct geist_allocator geist_libc_allocator = {
-    .alloc    = libc_alloc,
-    .free     = libc_free,
-    .free_all = nullptr, /* libc has no free-all; arena does */
-    .ctx      = nullptr,
+        .alloc    = libc_alloc,
+        .free     = libc_free,
+        .free_all = nullptr, /* libc has no free-all; arena does */
+        .ctx      = nullptr,
 };
 
 /* ====================================================================== */
@@ -50,12 +50,11 @@ const struct geist_allocator geist_libc_allocator = {
 /* ====================================================================== */
 
 struct geist_arena {
-    struct memory_arena         arena;   /* heap.h's underlying arena */
+    struct memory_arena           arena;  /* heap.h's underlying arena */
     const struct geist_allocator *parent; /* allocator that owns the backing buffer */
 };
 
-struct geist_arena *geist_arena_create(size_t                          initial_bytes,
-                                       const struct geist_allocator   *parent) {
+struct geist_arena *geist_arena_create(size_t initial_bytes, const struct geist_allocator *parent) {
     if (parent == nullptr) {
         parent = &geist_libc_allocator;
     }
@@ -116,10 +115,10 @@ static void arena_as_alloc_free_all(void *ctx) {
 }
 
 struct geist_allocator geist_arena_as_allocator(struct geist_arena *a) {
-    return (struct geist_allocator){
-        .alloc    = arena_as_alloc_alloc,
-        .free     = arena_as_alloc_free,
-        .free_all = arena_as_alloc_free_all,
-        .ctx      = a,
+    return (struct geist_allocator) {
+            .alloc    = arena_as_alloc_alloc,
+            .free     = arena_as_alloc_free,
+            .free_all = arena_as_alloc_free_all,
+            .ctx      = a,
     };
 }

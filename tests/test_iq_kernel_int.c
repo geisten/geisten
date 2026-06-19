@@ -29,32 +29,32 @@ typedef enum CBLAS_ORDER_ { CblasRowMajor_ = 101 } CBLAS_ORDER_;
 typedef enum CBLAS_TRANSPOSE_ { CblasNoTrans_ = 111, CblasTrans_ = 112 } CBLAS_TRANSPOSE_;
 extern void cblas_sgemv(int /*order*/,
                         int /*TransA*/,
-                        int M,
-                        int N,
-                        float alpha,
-                        const float* A,
-                        int lda,
-                        const float* x,
-                        int incx,
-                        float beta,
-                        float* y,
-                        int incy);
+                        int          M,
+                        int          N,
+                        float        alpha,
+                        const float *A,
+                        int          lda,
+                        const float *x,
+                        int          incx,
+                        float        beta,
+                        float       *y,
+                        int          incy);
 extern void cblas_sgemm(int /*order*/,
                         int /*TransA*/,
                         int /*TransB*/,
-                        int M,
-                        int N,
-                        int K,
-                        float alpha,
-                        const float* A,
-                        int lda,
-                        const float* B,
-                        int ldb,
-                        float beta,
-                        float* C,
-                        int ldc);
+                        int          M,
+                        int          N,
+                        int          K,
+                        float        alpha,
+                        const float *A,
+                        int          lda,
+                        const float *B,
+                        int          ldb,
+                        float        beta,
+                        float       *C,
+                        int          ldc);
 
-static float cosine_similarity(const float* a, const float* b, size_t n) {
+static float cosine_similarity(const float *a, const float *b, size_t n) {
     double dot = 0.0, na = 0.0, nb = 0.0;
     for (size_t i = 0; i < n; i++) {
         dot += (double) a[i] * (double) b[i];
@@ -66,14 +66,14 @@ static float cosine_similarity(const float* a, const float* b, size_t n) {
     return (float) (dot / (sqrt(na) * sqrt(nb)));
 }
 
-static int verify_kernel(const struct gguf_tensor_t* t,
-                         const char* label,
-                         void (*kernel)(const float*, const void*, size_t, size_t, float*),
-                         void (*dequant_row)(const void*, float*, size_t),
+static int verify_kernel(const struct gguf_tensor_t *t,
+                         const char                 *label,
+                         void (*kernel)(const float *, const void *, size_t, size_t, float *),
+                         void (*dequant_row)(const void *, float *, size_t),
                          size_t block_bytes,
                          size_t block_elems) {
     /* Tensor layout: [n_out rows, n_in cols] row-major. */
-    const size_t n_in = t->dims[0];
+    const size_t n_in  = t->dims[0];
     const size_t n_out = t->dims[1];
     printf("=== %s: tensor %s, %zu x %zu ===\n", label, t->name, n_out, n_in);
 
@@ -82,20 +82,20 @@ static int verify_kernel(const struct gguf_tensor_t* t,
         return 0;
     }
 
-    float* x = malloc(n_in * sizeof(float));
+    float *x = malloc(n_in * sizeof(float));
     for (size_t i = 0; i < n_in; i++) {
         x[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
     }
 
     /* Reference: dequant the whole tensor then sgemv against x. */
-    float* w_fp32 = malloc(n_out * n_in * sizeof(float));
+    float       *w_fp32           = malloc(n_out * n_in * sizeof(float));
     const size_t n_blocks_per_row = n_in / block_elems;
     for (size_t r = 0; r < n_out; r++) {
-        dequant_row((const uint8_t*) t->data + r * n_blocks_per_row * block_bytes,
+        dequant_row((const uint8_t *) t->data + r * n_blocks_per_row * block_bytes,
                     w_fp32 + r * n_in,
                     n_in);
     }
-    float* y_ref = malloc(n_out * sizeof(float));
+    float *y_ref = malloc(n_out * sizeof(float));
     cblas_sgemv(CblasRowMajor_,
                 CblasNoTrans_,
                 (int) n_out,
@@ -111,11 +111,11 @@ static int verify_kernel(const struct gguf_tensor_t* t,
     free(w_fp32);
 
     /* Kernel under test. */
-    float* y_fast = malloc(n_out * sizeof(float));
+    float *y_fast = malloc(n_out * sizeof(float));
     kernel(x, t->data, n_in, n_out, y_fast);
 
-    const float cos = cosine_similarity(y_ref, y_fast, n_out);
-    float max_abs_diff = 0.0f;
+    const float cos          = cosine_similarity(y_ref, y_fast, n_out);
+    float       max_abs_diff = 0.0f;
     for (size_t i = 0; i < n_out; i++) {
         const float d = fabsf(y_ref[i] - y_fast[i]);
         if (d > max_abs_diff)
@@ -144,23 +144,23 @@ static int verify_kernel(const struct gguf_tensor_t* t,
 
 int main(void) {
     /* Prefer the IQ2_M model so we get both IQ2_S and IQ3_S tensors. */
-    const char* override_path = getenv("GEIST_GGUF_PATH");
-    const char* iq2m_path = "gguf_artifacts/gemma4-e2b-IQ2_M.gguf";
-    const char* model_path = override_path != nullptr ? override_path : iq2m_path;
+    const char *override_path = getenv("GEIST_GGUF_PATH");
+    const char *iq2m_path     = "gguf_artifacts/gemma4-e2b-IQ2_M.gguf";
+    const char *model_path    = override_path != nullptr ? override_path : iq2m_path;
 
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(model_path, &err);
+    const char      *err = nullptr;
+    struct gguf_ctx *ctx = gguf_open(model_path, &err);
     if (ctx == nullptr) {
         printf("SKIP: cannot open %s: %s\n", model_path, err != nullptr ? err : "(no detail)");
         return GEIST_TEST_SKIP;
     }
 
     /* Find one IQ2_S and one IQ3_S tensor of typical FFN/attn size. */
-    const struct gguf_tensor_t* iq2s = nullptr;
-    const struct gguf_tensor_t* iq3s = nullptr;
-    const size_t nt = gguf_tensor_count(ctx);
+    const struct gguf_tensor_t *iq2s = nullptr;
+    const struct gguf_tensor_t *iq3s = nullptr;
+    const size_t                nt   = gguf_tensor_count(ctx);
     for (size_t i = 0; i < nt; i++) {
-        const struct gguf_tensor_t* t = gguf_tensor_at(ctx, i);
+        const struct gguf_tensor_t *t = gguf_tensor_at(ctx, i);
         if (t == nullptr || t->n_dims != 2)
             continue;
         if (iq2s == nullptr && t->dtype == GGUF_TYPE_IQ2_S && t->dims[0] % IQ2_S_BLOCK_ELEMS == 0) {
@@ -202,22 +202,22 @@ int main(void) {
 
     /* ---- Flat-decode (M=1) kernels ---- */
     if (iq2s != nullptr) {
-        const size_t n_in = iq2s->dims[0];
+        const size_t n_in  = iq2s->dims[0];
         const size_t n_out = iq2s->dims[1];
         printf("=== IQ2_S flat-decode W2A8 %zu x %zu ===\n", n_out, n_in);
-        float* x = malloc(n_in * sizeof(float));
-        int8_t* flat = malloc(n_out * n_in);
-        float* w_fp32 = malloc(n_out * n_in * sizeof(float));
-        float* y_ref = malloc(n_out * sizeof(float));
-        float* y_fast = malloc(n_out * sizeof(float));
+        float  *x      = malloc(n_in * sizeof(float));
+        int8_t *flat   = malloc(n_out * n_in);
+        float  *w_fp32 = malloc(n_out * n_in * sizeof(float));
+        float  *y_ref  = malloc(n_out * sizeof(float));
+        float  *y_fast = malloc(n_out * sizeof(float));
         for (size_t i = 0; i < n_in; i++)
             x[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
         const size_t nbpr = n_in / IQ2_S_BLOCK_ELEMS;
         for (size_t r = 0; r < n_out; r++) {
-            dequant_iq2_s_row((const uint8_t*) iq2s->data + r * nbpr * IQ2_S_BLOCK_BYTES,
+            dequant_iq2_s_row((const uint8_t *) iq2s->data + r * nbpr * IQ2_S_BLOCK_BYTES,
                               w_fp32 + r * n_in,
                               n_in);
-            iq2s_decode_to_int8_row((const uint8_t*) iq2s->data + r * nbpr * IQ2_S_BLOCK_BYTES,
+            iq2s_decode_to_int8_row((const uint8_t *) iq2s->data + r * nbpr * IQ2_S_BLOCK_BYTES,
                                     flat + r * n_in,
                                     n_in);
         }
@@ -254,22 +254,22 @@ int main(void) {
         free(y_fast);
     }
     if (iq3s != nullptr) {
-        const size_t n_in = iq3s->dims[0];
+        const size_t n_in  = iq3s->dims[0];
         const size_t n_out = iq3s->dims[1];
         printf("=== IQ3_S flat-decode W3A8 %zu x %zu ===\n", n_out, n_in);
-        float* x = malloc(n_in * sizeof(float));
-        int8_t* flat = malloc(n_out * n_in);
-        float* w_fp32 = malloc(n_out * n_in * sizeof(float));
-        float* y_ref = malloc(n_out * sizeof(float));
-        float* y_fast = malloc(n_out * sizeof(float));
+        float  *x      = malloc(n_in * sizeof(float));
+        int8_t *flat   = malloc(n_out * n_in);
+        float  *w_fp32 = malloc(n_out * n_in * sizeof(float));
+        float  *y_ref  = malloc(n_out * sizeof(float));
+        float  *y_fast = malloc(n_out * sizeof(float));
         for (size_t i = 0; i < n_in; i++)
             x[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
         const size_t nbpr = n_in / IQ3_S_BLOCK_ELEMS;
         for (size_t r = 0; r < n_out; r++) {
-            dequant_iq3_s_row((const uint8_t*) iq3s->data + r * nbpr * IQ3_S_BLOCK_BYTES,
+            dequant_iq3_s_row((const uint8_t *) iq3s->data + r * nbpr * IQ3_S_BLOCK_BYTES,
                               w_fp32 + r * n_in,
                               n_in);
-            iq3s_decode_to_int8_row((const uint8_t*) iq3s->data + r * nbpr * IQ3_S_BLOCK_BYTES,
+            iq3s_decode_to_int8_row((const uint8_t *) iq3s->data + r * nbpr * IQ3_S_BLOCK_BYTES,
                                     flat + r * n_in,
                                     n_in);
         }
@@ -312,25 +312,25 @@ int main(void) {
         for (size_t k = 0; k < sizeof m_values_flat / sizeof m_values_flat[0]; k++) {
             const size_t m = m_values_flat[k];
             if (iq2s != nullptr) {
-                const size_t n_in = iq2s->dims[0];
+                const size_t n_in  = iq2s->dims[0];
                 const size_t n_out = iq2s->dims[1];
-                const size_t nbpr = n_in / IQ2_S_BLOCK_ELEMS;
+                const size_t nbpr  = n_in / IQ2_S_BLOCK_ELEMS;
                 printf("=== IQ2_S flat-prefill W2A8 m=%zu n_out=%zu n_in=%zu ===\n",
                        m,
                        n_out,
                        n_in);
-                float* x = malloc(m * n_in * sizeof(float));
-                int8_t* flat = malloc(n_out * n_in);
-                float* w_fp32 = malloc(n_out * n_in * sizeof(float));
-                float* y_ref = malloc(m * n_out * sizeof(float));
-                float* y_fast = malloc(m * n_out * sizeof(float));
+                float  *x      = malloc(m * n_in * sizeof(float));
+                int8_t *flat   = malloc(n_out * n_in);
+                float  *w_fp32 = malloc(n_out * n_in * sizeof(float));
+                float  *y_ref  = malloc(m * n_out * sizeof(float));
+                float  *y_fast = malloc(m * n_out * sizeof(float));
                 for (size_t i = 0; i < m * n_in; i++)
                     x[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
                 for (size_t r = 0; r < n_out; r++) {
-                    dequant_iq2_s_row((const uint8_t*) iq2s->data + r * nbpr * IQ2_S_BLOCK_BYTES,
+                    dequant_iq2_s_row((const uint8_t *) iq2s->data + r * nbpr * IQ2_S_BLOCK_BYTES,
                                       w_fp32 + r * n_in,
                                       n_in);
-                    iq2s_decode_to_int8_row((const uint8_t*) iq2s->data +
+                    iq2s_decode_to_int8_row((const uint8_t *) iq2s->data +
                                                     r * nbpr * IQ2_S_BLOCK_BYTES,
                                             flat + r * n_in,
                                             n_in);
@@ -368,25 +368,25 @@ int main(void) {
                 free(y_ref);
             }
             if (iq3s != nullptr) {
-                const size_t n_in = iq3s->dims[0];
+                const size_t n_in  = iq3s->dims[0];
                 const size_t n_out = iq3s->dims[1];
-                const size_t nbpr = n_in / IQ3_S_BLOCK_ELEMS;
+                const size_t nbpr  = n_in / IQ3_S_BLOCK_ELEMS;
                 printf("=== IQ3_S flat-prefill W3A8 m=%zu n_out=%zu n_in=%zu ===\n",
                        m,
                        n_out,
                        n_in);
-                float* x = malloc(m * n_in * sizeof(float));
-                int8_t* flat = malloc(n_out * n_in);
-                float* w_fp32 = malloc(n_out * n_in * sizeof(float));
-                float* y_ref = malloc(m * n_out * sizeof(float));
-                float* y_fast = malloc(m * n_out * sizeof(float));
+                float  *x      = malloc(m * n_in * sizeof(float));
+                int8_t *flat   = malloc(n_out * n_in);
+                float  *w_fp32 = malloc(n_out * n_in * sizeof(float));
+                float  *y_ref  = malloc(m * n_out * sizeof(float));
+                float  *y_fast = malloc(m * n_out * sizeof(float));
                 for (size_t i = 0; i < m * n_in; i++)
                     x[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
                 for (size_t r = 0; r < n_out; r++) {
-                    dequant_iq3_s_row((const uint8_t*) iq3s->data + r * nbpr * IQ3_S_BLOCK_BYTES,
+                    dequant_iq3_s_row((const uint8_t *) iq3s->data + r * nbpr * IQ3_S_BLOCK_BYTES,
                                       w_fp32 + r * n_in,
                                       n_in);
-                    iq3s_decode_to_int8_row((const uint8_t*) iq3s->data +
+                    iq3s_decode_to_int8_row((const uint8_t *) iq3s->data +
                                                     r * nbpr * IQ3_S_BLOCK_BYTES,
                                             flat + r * n_in,
                                             n_in);
@@ -431,19 +431,19 @@ int main(void) {
     for (size_t k = 0; k < sizeof m_values / sizeof m_values[0]; k++) {
         const size_t m = m_values[k];
         if (iq2s != nullptr) {
-            const size_t n_in = iq2s->dims[0];
+            const size_t n_in  = iq2s->dims[0];
             const size_t n_out = iq2s->dims[1];
-            const size_t nbpr = n_in / IQ2_S_BLOCK_ELEMS;
+            const size_t nbpr  = n_in / IQ2_S_BLOCK_ELEMS;
             printf("=== IQ2_S W2A8 prefill m=%zu n_out=%zu n_in=%zu ===\n", m, n_out, n_in);
-            float* x = malloc(m * n_in * sizeof(float));
-            float* y_fast = malloc(m * n_out * sizeof(float));
-            float* y_ref = malloc(m * n_out * sizeof(float));
+            float *x      = malloc(m * n_in * sizeof(float));
+            float *y_fast = malloc(m * n_out * sizeof(float));
+            float *y_ref  = malloc(m * n_out * sizeof(float));
             for (size_t i = 0; i < m * n_in; i++) {
                 x[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
             }
-            float* w_fp32 = malloc(n_out * n_in * sizeof(float));
+            float *w_fp32 = malloc(n_out * n_in * sizeof(float));
             for (size_t r = 0; r < n_out; r++) {
-                dequant_iq2_s_row((const uint8_t*) iq2s->data + r * nbpr * IQ2_S_BLOCK_BYTES,
+                dequant_iq2_s_row((const uint8_t *) iq2s->data + r * nbpr * IQ2_S_BLOCK_BYTES,
                                   w_fp32 + r * n_in,
                                   n_in);
             }
@@ -479,19 +479,19 @@ int main(void) {
             free(y_ref);
         }
         if (iq3s != nullptr) {
-            const size_t n_in = iq3s->dims[0];
+            const size_t n_in  = iq3s->dims[0];
             const size_t n_out = iq3s->dims[1];
-            const size_t nbpr = n_in / IQ3_S_BLOCK_ELEMS;
+            const size_t nbpr  = n_in / IQ3_S_BLOCK_ELEMS;
             printf("=== IQ3_S W3A8 prefill m=%zu n_out=%zu n_in=%zu ===\n", m, n_out, n_in);
-            float* x = malloc(m * n_in * sizeof(float));
-            float* y_fast = malloc(m * n_out * sizeof(float));
-            float* y_ref = malloc(m * n_out * sizeof(float));
+            float *x      = malloc(m * n_in * sizeof(float));
+            float *y_fast = malloc(m * n_out * sizeof(float));
+            float *y_ref  = malloc(m * n_out * sizeof(float));
             for (size_t i = 0; i < m * n_in; i++) {
                 x[i] = ((float) rand() / (float) RAND_MAX - 0.5f) * 2.0f;
             }
-            float* w_fp32 = malloc(n_out * n_in * sizeof(float));
+            float *w_fp32 = malloc(n_out * n_in * sizeof(float));
             for (size_t r = 0; r < n_out; r++) {
-                dequant_iq3_s_row((const uint8_t*) iq3s->data + r * nbpr * IQ3_S_BLOCK_BYTES,
+                dequant_iq3_s_row((const uint8_t *) iq3s->data + r * nbpr * IQ3_S_BLOCK_BYTES,
                                   w_fp32 + r * n_in,
                                   n_in);
             }

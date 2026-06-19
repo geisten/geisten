@@ -44,62 +44,62 @@ static const bool LAYER_IS_FULL[NUM_LAYERS] = {
 #define KV_FULL_SRC 14
 
 typedef struct {
-    int layer_idx;
-    bool is_full;
-    bool is_kv_shared;
-    int head_dim;
-    int q_out;
-    int kv_out;
-    int intermediate; /* 6144 normal, 12288 if kv_shared (double-wide) */
-    int sliding_window;
+    int   layer_idx;
+    bool  is_full;
+    bool  is_kv_shared;
+    int   head_dim;
+    int   q_out;
+    int   kv_out;
+    int   intermediate; /* 6144 normal, 12288 if kv_shared (double-wide) */
+    int   sliding_window;
     float rope_theta;
-    int n_rotated_dims;
+    int   n_rotated_dims;
 
-    const float* input_ln_w;
-    const float* q_proj_w;
-    const float* k_proj_w; /* nullptr if kv_shared */
-    const float* v_proj_w; /* nullptr if kv_shared */
-    const float* o_proj_w;
-    const float* q_norm_w;
-    const float* k_norm_w; /* nullptr if kv_shared */
-    const float* post_attn_ln_w;
-    const float* pre_ff_ln_w;
-    const float* gate_w;
-    const float* up_w;
-    const float* down_w;
-    const float* post_ff_ln_w;
-    const float* per_layer_gate_w;
-    const float* per_layer_proj_w;
-    const float* post_per_layer_norm_w;
-    float layer_scalar;
+    const float *input_ln_w;
+    const float *q_proj_w;
+    const float *k_proj_w; /* nullptr if kv_shared */
+    const float *v_proj_w; /* nullptr if kv_shared */
+    const float *o_proj_w;
+    const float *q_norm_w;
+    const float *k_norm_w; /* nullptr if kv_shared */
+    const float *post_attn_ln_w;
+    const float *pre_ff_ln_w;
+    const float *gate_w;
+    const float *up_w;
+    const float *down_w;
+    const float *post_ff_ln_w;
+    const float *per_layer_gate_w;
+    const float *per_layer_proj_w;
+    const float *post_per_layer_norm_w;
+    float        layer_scalar;
 } LayerW;
 
 /* KV cache block: stores post-norm post-RoPE K and V for one source layer. */
 typedef struct {
-    int head_dim;
+    int    head_dim;
     size_t seq;
-    float* k; /* (seq, N_KV_HEADS, head_dim) */
-    float* v; /* same */
+    float *k; /* (seq, N_KV_HEADS, head_dim) */
+    float *v; /* same */
 } KVCache;
 
-static int32_t* read_input_ids(const char* p, size_t* n) {
-    FILE* f = fopen(p, "rb");
+static int32_t *read_input_ids(const char *p, size_t *n) {
+    FILE *f = fopen(p, "rb");
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    int32_t* ids = (int32_t*) malloc((size_t) sz);
+    int32_t *ids = (int32_t *) malloc((size_t) sz);
     xfread(ids, 1, (size_t) sz, f);
     fclose(f);
     *n = (size_t) sz / 4;
     return ids;
 }
-static void write_bin(const char* p, const void* d, size_t b) {
-    FILE* f = fopen(p, "wb");
+static void write_bin(const char *p, const void *d, size_t b) {
+    FILE *f = fopen(p, "wb");
     xfwrite(d, 1, b, f);
     fclose(f);
 }
-static float* load_bf16(struct st_ctx* c, const char* n, size_t expected) {
-    const struct st_tensor_t* t = st_get(c, n);
+static float *load_bf16(struct st_ctx *c, const char *n, size_t expected) {
+    const struct st_tensor_t *t = st_get(c, n);
     if (!t || t->dtype != ST_DTYPE_BF16) {
         fprintf(stderr, "miss/bad: %s\n", n);
         return nullptr;
@@ -111,21 +111,21 @@ static float* load_bf16(struct st_ctx* c, const char* n, size_t expected) {
         fprintf(stderr, "elem mismatch %s: %zu vs %zu\n", n, elems, expected);
         return nullptr;
     }
-    return bf16_alloc_fp32((const uint16_t*) t->data, elems);
+    return bf16_alloc_fp32((const uint16_t *) t->data, elems);
 }
-static void layer_path(char* buf, size_t n, int idx, const char* suf) {
+static void layer_path(char *buf, size_t n, int idx, const char *suf) {
     snprintf(buf, n, "model.language_model.layers.%d.%s", idx, suf);
 }
 
-static bool load_layer_w(struct st_ctx* ctx, LayerW* L) {
-    L->is_full = LAYER_IS_FULL[L->layer_idx];
-    L->is_kv_shared = L->layer_idx >= 15;
-    L->head_dim = L->is_full ? 512 : 256;
-    L->q_out = N_Q_HEADS * L->head_dim;
-    L->kv_out = N_KV_HEADS * L->head_dim;
-    L->intermediate = L->is_kv_shared ? 12288 : 6144;
+static bool load_layer_w(struct st_ctx *ctx, LayerW *L) {
+    L->is_full        = LAYER_IS_FULL[L->layer_idx];
+    L->is_kv_shared   = L->layer_idx >= 15;
+    L->head_dim       = L->is_full ? 512 : 256;
+    L->q_out          = N_Q_HEADS * L->head_dim;
+    L->kv_out         = N_KV_HEADS * L->head_dim;
+    L->intermediate   = L->is_kv_shared ? 12288 : 6144;
     L->sliding_window = L->is_full ? 0 : 512;
-    L->rope_theta = L->is_full ? 1000000.0f : 10000.0f;
+    L->rope_theta     = L->is_full ? 1000000.0f : 10000.0f;
     L->n_rotated_dims = L->is_full ? 128 : L->head_dim;
 
     char p[256];
@@ -168,7 +168,7 @@ static bool load_layer_w(struct st_ctx* ctx, LayerW* L) {
     layer_path(p, sizeof(p), L->layer_idx, "post_per_layer_input_norm.weight");
     L->post_per_layer_norm_w = load_bf16(ctx, p, HIDDEN);
     layer_path(p, sizeof(p), L->layer_idx, "layer_scalar");
-    float* ls = load_bf16(ctx, p, 1);
+    float *ls = load_bf16(ctx, p, 1);
     if (!ls)
         return false;
     L->layer_scalar = ls[0];
@@ -178,64 +178,64 @@ static bool load_layer_w(struct st_ctx* ctx, LayerW* L) {
            L->per_layer_gate_w && L->per_layer_proj_w && L->post_per_layer_norm_w &&
            (L->is_kv_shared || (L->k_proj_w && L->v_proj_w && L->k_norm_w));
 }
-static void free_layer_w(LayerW* L) {
-    free((void*) L->input_ln_w);
-    free((void*) L->q_proj_w);
-    free((void*) L->q_norm_w);
-    free((void*) L->o_proj_w);
-    free((void*) L->k_proj_w);
-    free((void*) L->v_proj_w);
-    free((void*) L->k_norm_w);
-    free((void*) L->post_attn_ln_w);
-    free((void*) L->pre_ff_ln_w);
-    free((void*) L->gate_w);
-    free((void*) L->up_w);
-    free((void*) L->down_w);
-    free((void*) L->post_ff_ln_w);
-    free((void*) L->per_layer_gate_w);
-    free((void*) L->per_layer_proj_w);
-    free((void*) L->post_per_layer_norm_w);
+static void free_layer_w(LayerW *L) {
+    free((void *) L->input_ln_w);
+    free((void *) L->q_proj_w);
+    free((void *) L->q_norm_w);
+    free((void *) L->o_proj_w);
+    free((void *) L->k_proj_w);
+    free((void *) L->v_proj_w);
+    free((void *) L->k_norm_w);
+    free((void *) L->post_attn_ln_w);
+    free((void *) L->pre_ff_ln_w);
+    free((void *) L->gate_w);
+    free((void *) L->up_w);
+    free((void *) L->down_w);
+    free((void *) L->post_ff_ln_w);
+    free((void *) L->per_layer_gate_w);
+    free((void *) L->per_layer_proj_w);
+    free((void *) L->post_per_layer_norm_w);
 }
 
 /* Forward one layer. If kv_use is non-null, skip K/V proj and use cached.
  * If kv_store is non-null, write the post-RoPE+norm K/V there. */
-static void forward_layer(const LayerW* L,
-                          size_t seq,
-                          const float* h_in,
-                          const float* per_layer_input,
-                          KVCache* kv_store,
-                          const KVCache* kv_use,
-                          float* h_out) {
-    const int hd = L->head_dim;
+static void forward_layer(const LayerW  *L,
+                          size_t         seq,
+                          const float   *h_in,
+                          const float   *per_layer_input,
+                          KVCache       *kv_store,
+                          const KVCache *kv_use,
+                          float         *h_out) {
+    const int hd    = L->head_dim;
     const int q_out = L->q_out, kv_out = L->kv_out, inter = L->intermediate;
 
-    float* h_pre = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *h_pre = (float *) malloc(seq * HIDDEN * sizeof(float));
     memcpy(h_pre, h_in, seq * HIDDEN * sizeof(float));
 
-    float* normed = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *normed = (float *) malloc(seq * HIDDEN * sizeof(float));
     rmsnorm_fp32(h_pre, L->input_ln_w, seq, HIDDEN, RMS_EPS, normed);
 
     /* Q always computed; per-head q_norm; RoPE on Q. */
-    float* q = (float*) malloc(seq * (size_t) q_out * sizeof(float));
+    float *q = (float *) malloc(seq * (size_t) q_out * sizeof(float));
     linear_fp32(normed, L->q_proj_w, nullptr, seq, HIDDEN, q_out, q);
     rmsnorm_fp32(q, L->q_norm_w, seq * N_Q_HEADS, hd, RMS_EPS, q);
 
-    float* cos_b = (float*) malloc(seq * (size_t) hd * sizeof(float));
-    float* sin_b = (float*) malloc(seq * (size_t) hd * sizeof(float));
+    float *cos_b = (float *) malloc(seq * (size_t) hd * sizeof(float));
+    float *sin_b = (float *) malloc(seq * (size_t) hd * sizeof(float));
     rope_compute(seq, hd, L->n_rotated_dims, L->rope_theta, cos_b, sin_b);
     rope_apply(q, cos_b, sin_b, seq, N_Q_HEADS, hd);
 
     /* K/V either computed (and possibly cached) or pulled from cache. */
-    const float* k_use;
-    const float* v_use;
-    float* k_local = nullptr;
-    float* v_local = nullptr;
+    const float *k_use;
+    const float *v_use;
+    float       *k_local = nullptr;
+    float       *v_local = nullptr;
     if (kv_use) {
         k_use = kv_use->k;
         v_use = kv_use->v;
     } else {
-        k_local = (float*) malloc(seq * (size_t) kv_out * sizeof(float));
-        v_local = (float*) malloc(seq * (size_t) kv_out * sizeof(float));
+        k_local = (float *) malloc(seq * (size_t) kv_out * sizeof(float));
+        v_local = (float *) malloc(seq * (size_t) kv_out * sizeof(float));
         linear_fp32(normed, L->k_proj_w, nullptr, seq, HIDDEN, kv_out, k_local);
         linear_fp32(normed, L->v_proj_w, nullptr, seq, HIDDEN, kv_out, v_local);
         rmsnorm_fp32(k_local, L->k_norm_w, seq * N_KV_HEADS, hd, RMS_EPS, k_local);
@@ -243,9 +243,9 @@ static void forward_layer(const LayerW* L,
         rope_apply(k_local, cos_b, sin_b, seq, N_KV_HEADS, hd);
         if (kv_store) {
             kv_store->head_dim = hd;
-            kv_store->seq = seq;
-            kv_store->k = (float*) malloc(seq * (size_t) kv_out * sizeof(float));
-            kv_store->v = (float*) malloc(seq * (size_t) kv_out * sizeof(float));
+            kv_store->seq      = seq;
+            kv_store->k        = (float *) malloc(seq * (size_t) kv_out * sizeof(float));
+            kv_store->v        = (float *) malloc(seq * (size_t) kv_out * sizeof(float));
             memcpy(kv_store->k, k_local, seq * (size_t) kv_out * sizeof(float));
             memcpy(kv_store->v, v_local, seq * (size_t) kv_out * sizeof(float));
         }
@@ -253,48 +253,48 @@ static void forward_layer(const LayerW* L,
         v_use = v_local;
     }
 
-    float* attn_out = (float*) malloc(seq * (size_t) q_out * sizeof(float));
+    float *attn_out = (float *) malloc(seq * (size_t) q_out * sizeof(float));
     attention_mqa_causal(
             q, k_use, v_use, seq, N_Q_HEADS, N_KV_HEADS, hd, (size_t) L->sliding_window, attn_out);
 
-    float* o = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *o = (float *) malloc(seq * HIDDEN * sizeof(float));
     linear_fp32(attn_out, L->o_proj_w, nullptr, seq, q_out, HIDDEN, o);
 
     /* post_attn_norm + residual_1 */
-    float* post_attn = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *post_attn = (float *) malloc(seq * HIDDEN * sizeof(float));
     rmsnorm_fp32(o, L->post_attn_ln_w, seq, HIDDEN, RMS_EPS, post_attn);
-    float* h_post_attn = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *h_post_attn = (float *) malloc(seq * HIDDEN * sizeof(float));
     add_fp32(h_pre, post_attn, seq * HIDDEN, h_post_attn);
 
     /* MLP */
-    float* pre_ff = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *pre_ff = (float *) malloc(seq * HIDDEN * sizeof(float));
     rmsnorm_fp32(h_post_attn, L->pre_ff_ln_w, seq, HIDDEN, RMS_EPS, pre_ff);
-    float* gate = (float*) malloc(seq * (size_t) inter * sizeof(float));
-    float* up = (float*) malloc(seq * (size_t) inter * sizeof(float));
+    float *gate = (float *) malloc(seq * (size_t) inter * sizeof(float));
+    float *up   = (float *) malloc(seq * (size_t) inter * sizeof(float));
     linear_fp32(pre_ff, L->gate_w, nullptr, seq, HIDDEN, inter, gate);
     linear_fp32(pre_ff, L->up_w, nullptr, seq, HIDDEN, inter, up);
     gelu_tanh_fp32(gate, seq * (size_t) inter, gate);
     mul_fp32(gate, up, seq * (size_t) inter, gate);
-    float* down = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *down = (float *) malloc(seq * HIDDEN * sizeof(float));
     linear_fp32(gate, L->down_w, nullptr, seq, inter, HIDDEN, down);
 
     /* post_ff_norm + residual_2 */
-    float* post_ff = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *post_ff = (float *) malloc(seq * HIDDEN * sizeof(float));
     rmsnorm_fp32(down, L->post_ff_ln_w, seq, HIDDEN, RMS_EPS, post_ff);
-    float* h_post_ff = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *h_post_ff = (float *) malloc(seq * HIDDEN * sizeof(float));
     add_fp32(h_post_attn, post_ff, seq * HIDDEN, h_post_ff);
 
     /* PLE merge + residual_3 */
-    float* gate_ple = (float*) malloc(seq * HIDDEN_PER_LAYER * sizeof(float));
+    float *gate_ple = (float *) malloc(seq * HIDDEN_PER_LAYER * sizeof(float));
     linear_fp32(h_post_ff, L->per_layer_gate_w, nullptr, seq, HIDDEN, HIDDEN_PER_LAYER, gate_ple);
     gelu_tanh_fp32(gate_ple, seq * HIDDEN_PER_LAYER, gate_ple);
     for (size_t t = 0; t < seq; t++) {
-        float* g = gate_ple + t * HIDDEN_PER_LAYER;
-        const float* p = per_layer_input + t * HIDDEN_PER_LAYER;
+        float       *g = gate_ple + t * HIDDEN_PER_LAYER;
+        const float *p = per_layer_input + t * HIDDEN_PER_LAYER;
         for (size_t i = 0; i < HIDDEN_PER_LAYER; i++)
             g[i] *= p[i];
     }
-    float* proj_ple = (float*) malloc(seq * HIDDEN * sizeof(float));
+    float *proj_ple = (float *) malloc(seq * HIDDEN * sizeof(float));
     linear_fp32(gate_ple, L->per_layer_proj_w, nullptr, seq, HIDDEN_PER_LAYER, HIDDEN, proj_ple);
     rmsnorm_fp32(proj_ple, L->post_per_layer_norm_w, seq, HIDDEN, RMS_EPS, proj_ple);
     add_fp32(h_post_ff, proj_ple, seq * HIDDEN, h_out);
@@ -324,27 +324,27 @@ static void forward_layer(const LayerW* L,
     free(h_pre);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 4, "<model.safetensors> <ids.bin> <out.bin>");
 
-    const char* err = nullptr;
-    struct st_ctx* ctx = st_open(argv[1], &err);
+    const char    *err = nullptr;
+    struct st_ctx *ctx = st_open(argv[1], &err);
     if (!ctx) {
         fprintf(stderr, "%s\n", err);
         return 1;
     }
 
-    const struct st_tensor_t* embed = st_get(ctx, "model.language_model.embed_tokens.weight");
-    const struct st_tensor_t* ple_table =
+    const struct st_tensor_t *embed = st_get(ctx, "model.language_model.embed_tokens.weight");
+    const struct st_tensor_t *ple_table =
             st_get(ctx, "model.language_model.embed_tokens_per_layer.weight");
-    float* model_proj_w = load_bf16(ctx,
-                                    "model.language_model.per_layer_model_projection.weight",
-                                    (size_t) PLE_OUT * HIDDEN);
-    float* model_proj_norm_w = load_bf16(
+    float *model_proj_w      = load_bf16(ctx,
+                                         "model.language_model.per_layer_model_projection.weight",
+                                         (size_t) PLE_OUT * HIDDEN);
+    float *model_proj_norm_w = load_bf16(
             ctx, "model.language_model.per_layer_projection_norm.weight", HIDDEN_PER_LAYER);
-    float* final_norm_w = load_bf16(ctx, "model.language_model.norm.weight", HIDDEN);
+    float *final_norm_w = load_bf16(ctx, "model.language_model.norm.weight", HIDDEN);
     /* lm_head shares weights with embed_tokens (tie_word_embeddings=true). */
-    float* lm_head_w = bf16_alloc_fp32((const uint16_t*) embed->data, (size_t) VOCAB * HIDDEN);
+    float *lm_head_w = bf16_alloc_fp32((const uint16_t *) embed->data, (size_t) VOCAB * HIDDEN);
     if (!embed || !ple_table || !model_proj_w || !model_proj_norm_w || !final_norm_w ||
         !lm_head_w) {
         fprintf(stderr, "model weights load failed\n");
@@ -362,35 +362,35 @@ int main(int argc, char** argv) {
     }
     fprintf(stderr, "All layers loaded.\n");
 
-    size_t n_ids = 0;
-    int32_t* ids = read_input_ids(argv[2], &n_ids);
+    size_t   n_ids = 0;
+    int32_t *ids   = read_input_ids(argv[2], &n_ids);
     fprintf(stderr, "n_ids=%zu\n", n_ids);
 
     /* Embedding */
-    const float embed_scale = sqrtf((float) HIDDEN);
-    float* h = (float*) malloc(n_ids * HIDDEN * sizeof(float));
-    const uint16_t* etable = (const uint16_t*) embed->data;
+    const float     embed_scale = sqrtf((float) HIDDEN);
+    float          *h           = (float *) malloc(n_ids * HIDDEN * sizeof(float));
+    const uint16_t *etable      = (const uint16_t *) embed->data;
     for (size_t t = 0; t < n_ids; t++) {
-        const uint16_t* row = etable + (size_t) ids[t] * HIDDEN;
+        const uint16_t *row = etable + (size_t) ids[t] * HIDDEN;
         for (size_t i = 0; i < HIDDEN; i++)
             h[t * HIDDEN + i] = bf16_to_fp32(row[i]) * embed_scale;
     }
 
     /* PLE pre-compute */
-    float* ple_table_lookup = (float*) malloc(n_ids * PLE_OUT * sizeof(float));
-    const uint16_t* ptable = (const uint16_t*) ple_table->data;
+    float          *ple_table_lookup = (float *) malloc(n_ids * PLE_OUT * sizeof(float));
+    const uint16_t *ptable           = (const uint16_t *) ple_table->data;
     for (size_t t = 0; t < n_ids; t++) {
-        const uint16_t* row = ptable + (size_t) ids[t] * PLE_OUT;
+        const uint16_t *row = ptable + (size_t) ids[t] * PLE_OUT;
         for (size_t i = 0; i < PLE_OUT; i++)
             ple_table_lookup[t * PLE_OUT + i] = bf16_to_fp32(row[i]) * PLE_TABLE_SCALE;
     }
-    float* ple_proj = (float*) malloc(n_ids * PLE_OUT * sizeof(float));
+    float *ple_proj = (float *) malloc(n_ids * PLE_OUT * sizeof(float));
     linear_fp32(h, model_proj_w, nullptr, n_ids, HIDDEN, PLE_OUT, ple_proj);
     for (size_t i = 0; i < n_ids * PLE_OUT; i++)
         ple_proj[i] *= PLE_MODEL_PROJ_SCALE;
     rmsnorm_fp32(
             ple_proj, model_proj_norm_w, n_ids * NUM_LAYERS, HIDDEN_PER_LAYER, RMS_EPS, ple_proj);
-    float* per_layer_inputs = (float*) malloc(n_ids * PLE_OUT * sizeof(float));
+    float *per_layer_inputs = (float *) malloc(n_ids * PLE_OUT * sizeof(float));
     for (size_t i = 0; i < n_ids * PLE_OUT; i++)
         per_layer_inputs[i] = (ple_proj[i] + ple_table_lookup[i]) * PLE_INPUT_SCALE;
     free(ple_table_lookup);
@@ -398,15 +398,15 @@ int main(int argc, char** argv) {
 
     /* Forward through 35 layers */
     KVCache kv_sliding = {0}, kv_full = {0};
-    float* h_buf2 = (float*) malloc(n_ids * HIDDEN * sizeof(float));
-    float* ple_slice = (float*) malloc(n_ids * HIDDEN_PER_LAYER * sizeof(float));
+    float  *h_buf2    = (float *) malloc(n_ids * HIDDEN * sizeof(float));
+    float  *ple_slice = (float *) malloc(n_ids * HIDDEN_PER_LAYER * sizeof(float));
     for (int li = 0; li < NUM_LAYERS; li++) {
         for (size_t t = 0; t < n_ids; t++) {
-            const float* src = per_layer_inputs + t * PLE_OUT + (size_t) li * HIDDEN_PER_LAYER;
+            const float *src = per_layer_inputs + t * PLE_OUT + (size_t) li * HIDDEN_PER_LAYER;
             memcpy(ple_slice + t * HIDDEN_PER_LAYER, src, HIDDEN_PER_LAYER * sizeof(float));
         }
-        KVCache* store = nullptr;
-        const KVCache* use = nullptr;
+        KVCache       *store = nullptr;
+        const KVCache *use   = nullptr;
         if (li == KV_SLIDING_SRC)
             store = &kv_sliding;
         else if (li == KV_FULL_SRC)
@@ -415,14 +415,14 @@ int main(int argc, char** argv) {
             use = layers[li].is_full ? &kv_full : &kv_sliding;
         }
         forward_layer(&layers[li], n_ids, h, ple_slice, store, use, h_buf2);
-        float* tmp = h;
-        h = h_buf2;
-        h_buf2 = tmp;
+        float *tmp = h;
+        h          = h_buf2;
+        h_buf2     = tmp;
         if (li == 0) {
-            FILE* dbg = fopen("/tmp/layer0_out_safe.bin", "wb");
+            FILE *dbg = fopen("/tmp/layer0_out_safe.bin", "wb");
             xfwrite(h, sizeof(float), n_ids * HIDDEN, dbg);
             fclose(dbg);
-            FILE* dbg2 = fopen("/tmp/ple_slice_safe.bin", "wb");
+            FILE *dbg2 = fopen("/tmp/ple_slice_safe.bin", "wb");
             xfwrite(ple_slice, sizeof(float), n_ids * HIDDEN_PER_LAYER, dbg2);
             fclose(dbg2);
         }
@@ -437,11 +437,11 @@ int main(int argc, char** argv) {
     free(kv_full.v);
 
     /* Final norm */
-    float* h_final = (float*) malloc(n_ids * HIDDEN * sizeof(float));
+    float *h_final = (float *) malloc(n_ids * HIDDEN * sizeof(float));
     rmsnorm_fp32(h, final_norm_w, n_ids, HIDDEN, RMS_EPS, h_final);
 
     /* LM head */
-    float* logits = (float*) malloc(n_ids * (size_t) VOCAB * sizeof(float));
+    float *logits = (float *) malloc(n_ids * (size_t) VOCAB * sizeof(float));
     fprintf(stderr, "LM head matmul (%zu x %d → %d)...\n", n_ids, HIDDEN, VOCAB);
     linear_fp32(h_final, lm_head_w, nullptr, n_ids, HIDDEN, VOCAB, logits);
 

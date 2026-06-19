@@ -28,8 +28,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static uint8_t* read_input_bin(const char* path, int32_t* out_h, int32_t* out_w) {
-    FILE* f = fopen(path, "rb");
+static uint8_t *read_input_bin(const char *path, int32_t *out_h, int32_t *out_w) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     int32_t h = 0, w = 0;
@@ -37,8 +37,8 @@ static uint8_t* read_input_bin(const char* path, int32_t* out_h, int32_t* out_w)
         fclose(f);
         return nullptr;
     }
-    size_t n = (size_t) h * (size_t) w * 3;
-    uint8_t* buf = malloc(n);
+    size_t   n   = (size_t) h * (size_t) w * 3;
+    uint8_t *buf = malloc(n);
     if (buf == nullptr) {
         fclose(f);
         return nullptr;
@@ -54,8 +54,8 @@ static uint8_t* read_input_bin(const char* path, int32_t* out_h, int32_t* out_w)
     return buf;
 }
 
-static bool read_plan_bin(const char* path, int64_t out[9]) {
-    FILE* f = fopen(path, "rb");
+static bool read_plan_bin(const char *path, int64_t out[9]) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return false;
     bool ok = fread(out, sizeof(int64_t), 9, f) == 9;
@@ -63,14 +63,14 @@ static bool read_plan_bin(const char* path, int64_t out[9]) {
     return ok;
 }
 
-static void* read_full(const char* path, size_t* out_bytes) {
-    FILE* f = fopen(path, "rb");
+static void *read_full(const char *path, size_t *out_bytes) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    void* buf = malloc((size_t) sz);
+    void *buf = malloc((size_t) sz);
     if (buf == nullptr) {
         fclose(f);
         return nullptr;
@@ -85,15 +85,15 @@ static void* read_full(const char* path, size_t* out_bytes) {
     return buf;
 }
 
-static const char* default_basename = "dumps/vision/syn_320x224";
+static const char *default_basename = "dumps/vision/syn_320x224";
 
-int main(int argc, char** argv) {
-    const char* base = argc > 1 ? argv[1] : default_basename;
-    char path[512];
+int main(int argc, char **argv) {
+    const char *base = argc > 1 ? argv[1] : default_basename;
+    char        path[512];
 
     snprintf(path, sizeof path, "%s.input.bin", base);
-    int32_t in_h = 0, in_w = 0;
-    uint8_t* rgb = read_input_bin(path, &in_h, &in_w);
+    int32_t  in_h = 0, in_w = 0;
+    uint8_t *rgb = read_input_bin(path, &in_h, &in_w);
     if (rgb == nullptr) {
         fprintf(stdout,
                 "SKIP: dumps not found at %s.*. Run:\n"
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
             (int64_t) plan.pool_w,
             (int64_t) plan.soft_tokens,
     };
-    static const char* plan_fields[9] = {
+    static const char *plan_fields[9] = {
             "in_h",
             "in_w",
             "resized_h",
@@ -177,8 +177,8 @@ int main(int argc, char** argv) {
 
     /* --- Positions --------------------------------------------------- */
     snprintf(path, sizeof path, "%s.positions.bin", base);
-    size_t pos_bytes = 0;
-    int32_t* hf_pos = read_full(path, &pos_bytes);
+    size_t   pos_bytes = 0;
+    int32_t *hf_pos    = read_full(path, &pos_bytes);
     if (hf_pos == nullptr) {
         free(rgb);
         fprintf(stderr, "missing %s\n", path);
@@ -194,7 +194,7 @@ int main(int argc, char** argv) {
         free(hf_pos);
         return GEIST_TEST_FAIL;
     }
-    int32_t* pos = malloc(n_patches * 2 * sizeof(int32_t));
+    int32_t *pos = malloc(n_patches * 2 * sizeof(int32_t));
     image_pipeline_position_ids(&plan, pos);
     for (size_t i = 0; i < n_patches * 2; i++) {
         if (pos[i] != hf_pos[i]) {
@@ -211,8 +211,8 @@ int main(int argc, char** argv) {
 
     /* --- Patches (fp32, eps <= 1e-4) --------------------------------- */
     snprintf(path, sizeof path, "%s.patches.bin", base);
-    size_t pat_bytes = 0;
-    float* hf_patches = read_full(path, &pat_bytes);
+    size_t pat_bytes  = 0;
+    float *hf_patches = read_full(path, &pat_bytes);
     if (hf_patches == nullptr) {
         free(rgb);
         fprintf(stderr, "missing %s\n", path);
@@ -230,7 +230,7 @@ int main(int argc, char** argv) {
         return GEIST_TEST_FAIL;
     }
 
-    float* patches = malloc(n_floats * sizeof(float));
+    float *patches = malloc(n_floats * sizeof(float));
     if (!image_pipeline_preprocess(rgb, &plan, patches)) {
         free(rgb);
         free(hf_patches);
@@ -242,7 +242,7 @@ int main(int argc, char** argv) {
     /* Histogram of |Δ| in 1/255 units (the natural quantum since pixels
      * are uint8 / 255 floats). Buckets: 0, 1, 2, 3-7, >=8. */
     size_t hist[5] = {0, 0, 0, 0, 0};
-    float max_abs = 0.0f;
+    float  max_abs = 0.0f;
     size_t max_idx = 0;
     for (size_t i = 0; i < n_floats; i++) {
         float d = patches[i] - hf_patches[i];
@@ -281,11 +281,11 @@ int main(int argc, char** argv) {
     /* Gates: max diff <= 8/255 (sanity), p99.99 <= 2/255 (no algorithmic
      * skew, only rounding noise). 99.99% threshold = at most 0.01% can
      * land in buckets 3-7 or >=8. */
-    const float max_gate = 8.0f / 255.0f + 1e-7f;
+    const float  max_gate  = 8.0f / 255.0f + 1e-7f;
     const size_t p9999_max = (n_floats * 1 + 9999) / 10000; /* ceil(n * 1e-4) */
-    const size_t over_2 = hist[3] + hist[4];
+    const size_t over_2    = hist[3] + hist[4];
 
-    bool ok_max = max_abs <= max_gate;
+    bool ok_max   = max_abs <= max_gate;
     bool ok_p9999 = over_2 <= p9999_max;
 
     if (!ok_max) {

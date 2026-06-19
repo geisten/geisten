@@ -37,9 +37,12 @@ static bool arch_matches(const char *arch_name, const char *gguf_arch) {
     }
     /* The transformer descriptor handles a few Gemma generations. */
     if (strcmp(arch_name, "transformer") == 0) {
-        if (strncmp(gguf_arch, "gemma", 5) == 0) return true;
-        if (strncmp(gguf_arch, "llama", 5) == 0) return true;
-        if (strncmp(gguf_arch, "mistral", 7) == 0) return true;
+        if (strncmp(gguf_arch, "gemma", 5) == 0)
+            return true;
+        if (strncmp(gguf_arch, "llama", 5) == 0)
+            return true;
+        if (strncmp(gguf_arch, "mistral", 7) == 0)
+            return true;
     }
     return false;
 }
@@ -50,18 +53,18 @@ static bool arch_matches(const char *arch_name, const char *gguf_arch) {
 
 #if GEIST_ARCH_TRANSFORMER
 static const struct geist_arch_descriptor desc_transformer = {
-    .name               = "transformer",
-    .decoder_ops        = &geist_arch_transformer,
-    .audio_encoder_ops  = &geist_arch_audio_conformer,
-    .vision_encoder_ops = &geist_arch_vision_siglip,
+        .name               = "transformer",
+        .decoder_ops        = &geist_arch_transformer,
+        .audio_encoder_ops  = &geist_arch_audio_conformer,
+        .vision_encoder_ops = &geist_arch_vision_siglip,
 };
 #endif
 
 const struct geist_arch_descriptor *const geist_arch_registry[] = {
 #if GEIST_ARCH_TRANSFORMER
-    &desc_transformer,
+        &desc_transformer,
 #endif
-    nullptr,
+        nullptr,
 };
 
 const struct geist_arch_descriptor *geist_arch_registry_lookup(const char *gguf_arch) {

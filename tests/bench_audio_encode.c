@@ -31,8 +31,8 @@ static double now_ms(void) {
 
 /* Minimal WAV reader: 16-bit mono PCM at 16 kHz only. Same as the one
  * in test_audio_attach_int. */
-static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sample_rate_out) {
-    FILE* f = fopen(path, "rb");
+static int16_t *read_wav_pcm(const char *path, size_t *n_samples_out, int *sample_rate_out) {
+    FILE *f = fopen(path, "rb");
     if (f == nullptr)
         return nullptr;
     unsigned char hdr[44];
@@ -44,18 +44,18 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
         fclose(f);
         return nullptr;
     }
-    const int n_channels = hdr[22] | (hdr[23] << 8);
-    const int sample_rate = hdr[24] | (hdr[25] << 8) | (hdr[26] << 16) | (hdr[27] << 24);
+    const int n_channels      = hdr[22] | (hdr[23] << 8);
+    const int sample_rate     = hdr[24] | (hdr[25] << 8) | (hdr[26] << 16) | (hdr[27] << 24);
     const int bits_per_sample = hdr[34] | (hdr[35] << 8);
     if (n_channels != 1 || bits_per_sample != 16) {
         fclose(f);
         return nullptr;
     }
     fseek(f, 0, SEEK_END);
-    const long size = ftell(f);
+    const long   size      = ftell(f);
     const size_t n_samples = (size - 44) / 2;
     fseek(f, 44, SEEK_SET);
-    int16_t* pcm = malloc(n_samples * sizeof(int16_t));
+    int16_t *pcm = malloc(n_samples * sizeof(int16_t));
     if (pcm == nullptr) {
         fclose(f);
         return nullptr;
@@ -66,19 +66,19 @@ static int16_t* read_wav_pcm(const char* path, size_t* n_samples_out, int* sampl
         return nullptr;
     }
     fclose(f);
-    *n_samples_out = n_samples;
+    *n_samples_out   = n_samples;
     *sample_rate_out = sample_rate;
     return pcm;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     /* Default to a shipped test asset so `make bench-audio` works from a
      * clean checkout. Override with explicit args for custom benchmarks. */
-    const char* wav_path = argc > 1 ? argv[1] : "audio_test_data/de_hello.wav";
-    const char* audio_tower_path = argc > 2 ? argv[2] : "audio_bench/audio_tower.safetensors";
-    size_t n_samples;
-    int sample_rate;
-    int16_t* pcm = read_wav_pcm(wav_path, &n_samples, &sample_rate);
+    const char *wav_path         = argc > 1 ? argv[1] : "audio_test_data/de_hello.wav";
+    const char *audio_tower_path = argc > 2 ? argv[2] : "audio_bench/audio_tower.safetensors";
+    size_t      n_samples;
+    int         sample_rate;
+    int16_t    *pcm = read_wav_pcm(wav_path, &n_samples, &sample_rate);
     if (pcm == nullptr) {
         fprintf(stderr, "could not read wav: %s\n", wav_path);
         return GEIST_TEST_FAIL;
@@ -91,9 +91,9 @@ int main(int argc, char** argv) {
     const double audio_seconds = (double) n_samples / 16000.0;
     printf("loaded %zu PCM samples = %.2f s of audio\n", n_samples, audio_seconds);
 
-    const double t_create_0 = now_ms();
-    struct AudioEncoder* enc = audio_encoder_create(audio_tower_path);
-    const double t_create = now_ms() - t_create_0;
+    const double         t_create_0 = now_ms();
+    struct AudioEncoder *enc        = audio_encoder_create(audio_tower_path);
+    const double         t_create   = now_ms() - t_create_0;
     if (enc == nullptr) {
         fprintf(stderr,
                 "audio_encoder_create failed (missing "
@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
      * on the first call after end_input. */
     const size_t soft_dim = 1536;
     const size_t max_soft = 256;
-    float* soft = malloc(max_soft * soft_dim * sizeof(float));
+    float       *soft     = malloc(max_soft * soft_dim * sizeof(float));
     if (soft == nullptr) {
         audio_encoder_destroy(enc);
         free(pcm);
@@ -125,8 +125,8 @@ int main(int argc, char** argv) {
     }
 
     const double t_encode_0 = now_ms();
-    const size_t n_soft = audio_encoder_pull_softtokens(enc, soft, max_soft, -1);
-    const double t_encode = now_ms() - t_encode_0;
+    const size_t n_soft     = audio_encoder_pull_softtokens(enc, soft, max_soft, -1);
+    const double t_encode   = now_ms() - t_encode_0;
 
     printf("\n--- bench_audio_encode results ---\n");
     printf("  audio length      : %.2f s\n", audio_seconds);

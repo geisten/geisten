@@ -28,7 +28,7 @@
 #include <string.h>
 
 /* The 11 per-layer weights for a Gemma 4 transformer block. */
-static const char* LAYER_TENSORS[] = {
+static const char *LAYER_TENSORS[] = {
         "blk.0.attn_norm.weight",
         "blk.0.attn_q.weight",
         "blk.0.attn_k.weight",
@@ -44,31 +44,31 @@ static const char* LAYER_TENSORS[] = {
 };
 
 /* Global (model-level) tensors. */
-static const char* GLOBAL_TENSORS[] = {
+static const char *GLOBAL_TENSORS[] = {
         "token_embd.weight",
         "output_norm.weight",
         nullptr,
 };
 
-static int load_and_verify(struct geist_backend* be,
-                           struct gguf_ctx* ctx,
-                           const char* name,
-                           size_t* out_bytes_loaded) {
-    const struct gguf_tensor_t* t = gguf_get_tensor(ctx, name);
+static int load_and_verify(struct geist_backend *be,
+                           struct gguf_ctx      *ctx,
+                           const char           *name,
+                           size_t               *out_bytes_loaded) {
+    const struct gguf_tensor_t *t = gguf_get_tensor(ctx, name);
     if (t == nullptr) {
         fprintf(stderr, "  tensor '%s' not found\n", name);
         return 1;
     }
 
-    struct geist_buffer* buf = nullptr;
-    enum geist_status s = be->desc->vtbl->buffer_create(
+    struct geist_buffer *buf = nullptr;
+    enum geist_status    s   = be->desc->vtbl->buffer_create(
             be, t->nbytes, GEIST_BUFFER_WEIGHT, GEIST_MEMORY_AUTO, &buf);
     if (s != GEIST_OK || buf == nullptr) {
         fprintf(stderr, "  buffer_create failed for '%s': %s\n", name, geist_status_to_string(s));
         return 1;
     }
 
-    s = be->desc->vtbl->buffer_upload(buf, t->nbytes, (const uint8_t*) t->data);
+    s = be->desc->vtbl->buffer_upload(buf, t->nbytes, (const uint8_t *) t->data);
     if (s != GEIST_OK) {
         fprintf(stderr, "  buffer_upload failed for '%s': %s\n", name, geist_status_to_string(s));
         be->desc->vtbl->buffer_destroy(be, buf);
@@ -76,7 +76,7 @@ static int load_and_verify(struct geist_backend* be,
     }
 
     /* Read back and verify bit-identical. */
-    uint8_t* readback = malloc(t->nbytes);
+    uint8_t *readback = malloc(t->nbytes);
     if (readback == nullptr) {
         be->desc->vtbl->buffer_destroy(be, buf);
         return 1;
@@ -92,8 +92,8 @@ static int load_and_verify(struct geist_backend* be,
     free(readback);
 
     /* Verify buffer_map gives a host pointer (CPU shortcut). */
-    void* mapped = be->desc->vtbl->buffer_map(buf);
-    int map_ok = (mapped != nullptr && memcmp(mapped, t->data, t->nbytes) == 0);
+    void *mapped = be->desc->vtbl->buffer_map(buf);
+    int   map_ok = (mapped != nullptr && memcmp(mapped, t->data, t->nbytes) == 0);
     be->desc->vtbl->buffer_unmap(buf);
     be->desc->vtbl->buffer_destroy(be, buf);
 
@@ -112,15 +112,15 @@ static int load_and_verify(struct geist_backend* be,
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(model_path, &err);
+    const char      *err = nullptr;
+    struct gguf_ctx *ctx = gguf_open(model_path, &err);
     if (ctx == nullptr) {
         fprintf(stderr, "gguf_open: %s\n", err != nullptr ? err : "(no detail)");
         return GEIST_TEST_ERROR;
     }
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     }
@@ -131,9 +131,9 @@ int main(void) {
     }
 
     /* Per-layer (blk.0). */
-    int fails = 0;
+    int    fails        = 0;
     size_t bytes_loaded = 0;
-    int n_per_layer = 0;
+    int    n_per_layer  = 0;
     printf("loading blk.0 layer weights via %s buffer ops...\n", geist_backend_name(be));
     for (size_t i = 0; LAYER_TENSORS[i] != nullptr; i++) {
         if (load_and_verify(be, ctx, LAYER_TENSORS[i], &bytes_loaded) != 0) {

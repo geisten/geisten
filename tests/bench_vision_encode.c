@@ -38,15 +38,15 @@ static double now_ms(void) {
     return (double) ts.tv_sec * 1e3 + (double) ts.tv_nsec / 1e6;
 }
 
-static const char* find_weights(void) {
-    static const char* candidates[] = {
+static const char *find_weights(void) {
+    static const char *candidates[] = {
             "./vision_bench/vision_tower.safetensors",
             "../gemma-4-E2B-it/vision_tower.safetensors",
             "vision_tower.safetensors",
             nullptr,
     };
     for (size_t i = 0; candidates[i] != nullptr; i++) {
-        FILE* f = fopen(candidates[i], "rb");
+        FILE *f = fopen(candidates[i], "rb");
         if (f != nullptr) {
             fclose(f);
             return candidates[i];
@@ -55,16 +55,16 @@ static const char* find_weights(void) {
     return nullptr;
 }
 
-int main(int argc, char** argv) {
-    const char* img_path = argc > 1 ? argv[1] : "vision_bench/syn_320x224.png";
+int main(int argc, char **argv) {
+    const char *img_path = argc > 1 ? argv[1] : "vision_bench/syn_320x224.png";
 
-    int w = 0, h = 0, c = 0;
-    uint8_t* rgb = stbi_load(img_path, &w, &h, &c, 3);
+    int      w = 0, h = 0, c = 0;
+    uint8_t *rgb = stbi_load(img_path, &w, &h, &c, 3);
     if (rgb == nullptr) {
         printf("SKIP: stb_image failed to load %s\n", img_path);
         return GEIST_TEST_SKIP;
     }
-    const char* weights = find_weights();
+    const char *weights = find_weights();
     if (weights == nullptr) {
         stbi_image_free(rgb);
         printf("SKIP: vision_tower.safetensors not found "
@@ -73,13 +73,13 @@ int main(int argc, char** argv) {
     }
     printf("bench_vision_encode: image %s (%dx%d), weights %s\n", img_path, h, w, weights);
 
-    struct VisionEncoder* enc = vision_encoder_create(weights);
+    struct VisionEncoder *enc = vision_encoder_create(weights);
     if (enc == nullptr) {
         stbi_image_free(rgb);
         return GEIST_TEST_ERROR;
     }
 
-    float* soft = malloc(VISION_SOFT_TOKENS_PER_IMAGE * V_SOFT * sizeof(float));
+    float *soft = malloc(VISION_SOFT_TOKENS_PER_IMAGE * V_SOFT * sizeof(float));
     if (soft == nullptr) {
         vision_encoder_destroy(enc);
         stbi_image_free(rgb);

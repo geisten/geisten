@@ -26,7 +26,7 @@
 #include "gguf_reader.h"
 
 #include <geist.h>
-#include <geist_util.h>  /* eos/bos/token_by_text live here as of 0.2.0 */
+#include <geist_util.h> /* eos/bos/token_by_text live here as of 0.2.0 */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -38,7 +38,7 @@
  * for the transformer arch; future archs will store their own state types.
  * This struct holds engine-only side data that's architecture-agnostic. */
 struct model_engine_state {
-    char                     *path;
+    char *path;
     /* Two tokenizer paths, exactly one populated:
      *  - `sp_tok` is loaded from an external tokenizer.bin (Gemma path).
      *  - `gguf_tok` is loaded from the GGUF-embedded vocab + merges
@@ -65,9 +65,9 @@ static char *find_tokenizer_path(const char *gguf_path) {
     /* 2. Same directory as the GGUF */
     const char *slash = strrchr(gguf_path, '/');
     if (slash != nullptr) {
-        size_t dir_len  = (size_t) (slash - gguf_path);
+        size_t dir_len       = (size_t) (slash - gguf_path);
         size_t candidate_len = dir_len + strlen("/tokenizer.bin") + 1;
-        char  *candidate = heap_alloc_aligned(candidate_len, alignof(char));
+        char  *candidate     = heap_alloc_aligned(candidate_len, alignof(char));
         if (candidate != nullptr) {
             memcpy(candidate, gguf_path, dir_len);
             memcpy(candidate + dir_len, "/tokenizer.bin", strlen("/tokenizer.bin") + 1);
@@ -82,10 +82,10 @@ static char *find_tokenizer_path(const char *gguf_path) {
 
     /* 3. Project default for Gemma 4 development setup. */
     static const char *fallbacks[] = {
-        "./tokenizer.bin",
-        "../gemma-4-E2B-it/tokenizer.bin",
-        "../../gemma-4-E2B-it/tokenizer.bin",
-        nullptr,
+            "./tokenizer.bin",
+            "../gemma-4-E2B-it/tokenizer.bin",
+            "../../gemma-4-E2B-it/tokenizer.bin",
+            nullptr,
     };
     for (size_t i = 0; fallbacks[i] != nullptr; i++) {
         FILE *f = fopen(fallbacks[i], "rb");
@@ -97,17 +97,16 @@ static char *find_tokenizer_path(const char *gguf_path) {
     return nullptr;
 }
 
-[[nodiscard]] enum geist_status geist_model_load(const char            *path,
-                                                 struct geist_backend  *be,
-                                                 struct geist_model   **out) {
+[[nodiscard]] enum geist_status
+geist_model_load(const char *path, struct geist_backend *be, struct geist_model **out) {
     if (out == nullptr) {
         geist_error_set_create_time(GEIST_E_INVALID_ARG, "geist_model_load", "out is null");
         return GEIST_E_INVALID_ARG;
     }
     *out = nullptr;
     if (path == nullptr || path[0] == '\0' || be == nullptr) {
-        geist_error_set_create_time(GEIST_E_INVALID_ARG, "geist_model_load",
-                                    "path or backend is null/empty");
+        geist_error_set_create_time(
+                GEIST_E_INVALID_ARG, "geist_model_load", "path or backend is null/empty");
         return GEIST_E_INVALID_ARG;
     }
 
@@ -116,7 +115,8 @@ static char *find_tokenizer_path(const char *gguf_path) {
      * fallback regardless of the GGUF arch string. */
     const struct geist_arch_descriptor *desc = geist_arch_registry_lookup("gemma");
     if (desc == nullptr || desc->decoder_ops == nullptr) {
-        geist_error_set_create_time(GEIST_E_UNSUPPORTED, "geist_model_load",
+        geist_error_set_create_time(GEIST_E_UNSUPPORTED,
+                                    "geist_model_load",
                                     "no decoder architecture compiled into this build");
         return GEIST_E_UNSUPPORTED;
     }
@@ -127,36 +127,39 @@ static char *find_tokenizer_path(const char *gguf_path) {
      * whatever the arch needs. */
     void *arch_state = desc->decoder_ops->state_create(be, path, nullptr);
     if (arch_state == nullptr) {
-        geist_error_set_create_time(GEIST_E_IO, "geist_model_load",
+        geist_error_set_create_time(GEIST_E_IO,
+                                    "geist_model_load",
                                     "decoder state_create failed for '%s' (file missing or "
-                                    "malformed, or out of memory?)", path);
+                                    "malformed, or out of memory?)",
+                                    path);
         return GEIST_E_IO;
     }
 
     struct geist_model *m = heap_alloc_aligned(sizeof(*m), alignof(struct geist_model));
     if (m == nullptr) {
         desc->decoder_ops->state_destroy(arch_state);
-        geist_error_set_create_time(GEIST_E_OOM, "geist_model_load",
-                                    "failed to allocate model handle");
+        geist_error_set_create_time(
+                GEIST_E_OOM, "geist_model_load", "failed to allocate model handle");
         return GEIST_E_OOM;
     }
-    struct model_engine_state *eng = heap_alloc_aligned(sizeof(*eng), alignof(struct model_engine_state));
+    struct model_engine_state *eng =
+            heap_alloc_aligned(sizeof(*eng), alignof(struct model_engine_state));
     if (eng == nullptr) {
         safe_free((void **) &m);
         desc->decoder_ops->state_destroy(arch_state);
-        geist_error_set_create_time(GEIST_E_OOM, "geist_model_load",
-                                    "failed to allocate engine-side state");
+        geist_error_set_create_time(
+                GEIST_E_OOM, "geist_model_load", "failed to allocate engine-side state");
         return GEIST_E_OOM;
     }
 
-    size_t path_len = strlen(path);
+    size_t path_len  = strlen(path);
     char  *path_copy = heap_alloc_aligned(path_len + 1, alignof(char));
     if (path_copy == nullptr) {
         safe_free((void **) &eng);
         safe_free((void **) &m);
         desc->decoder_ops->state_destroy(arch_state);
-        geist_error_set_create_time(GEIST_E_OOM, "geist_model_load",
-                                    "failed to allocate path string");
+        geist_error_set_create_time(
+                GEIST_E_OOM, "geist_model_load", "failed to allocate path string");
         return GEIST_E_OOM;
     }
     memcpy(path_copy, path, path_len + 1);
@@ -173,16 +176,17 @@ static char *find_tokenizer_path(const char *gguf_path) {
      *     gguf_tokenizer handles GPT-2-style byte-level BPE.
      *  2. External `tokenizer.bin` — Gemma 4 layout.
      *     sp_bpe_tokenizer handles SentencePiece-BPE. */
-    struct sp_bpe_tokenizer *sp_tok    = nullptr;
-    struct gguf_tokenizer   *gguf_tok  = nullptr;
+    struct sp_bpe_tokenizer *sp_tok   = nullptr;
+    struct gguf_tokenizer   *gguf_tok = nullptr;
     {
-        const char *terr = nullptr;
+        const char      *terr = nullptr;
         struct gguf_ctx *tg   = gguf_open(path, &terr);
         if (tg != nullptr) {
             gguf_tok = heap_alloc_aligned(sizeof(*gguf_tok), alignof(struct gguf_tokenizer));
             if (gguf_tok != nullptr) {
                 if (!gguf_tokenizer_load_copy(gguf_tok, tg)) {
-                    void *p = gguf_tok; safe_free(&p);
+                    void *p = gguf_tok;
+                    safe_free(&p);
                     gguf_tok = nullptr;
                 }
             }
@@ -201,12 +205,12 @@ static char *find_tokenizer_path(const char *gguf_path) {
 
     /* aux_search_root: directory containing the GGUF, used by both audio
      * and vision encoders to locate their standalone safetensors files. */
-    char  *aux_root = nullptr;
+    char *aux_root = nullptr;
     {
         const char *slash = strrchr(path, '/');
         if (slash != nullptr) {
             size_t dir_len = (size_t) (slash - path);
-            aux_root = heap_alloc_aligned(dir_len + 1, alignof(char));
+            aux_root       = heap_alloc_aligned(dir_len + 1, alignof(char));
             if (aux_root != nullptr) {
                 memcpy(aux_root, path, dir_len);
                 aux_root[dir_len] = '\0';
@@ -215,15 +219,14 @@ static char *find_tokenizer_path(const char *gguf_path) {
     }
 
     const char *text_only_env = getenv("GEIST_TEXT_ONLY");
-    const bool text_only = text_only_env != nullptr && text_only_env[0] == '1';
+    const bool  text_only     = text_only_env != nullptr && text_only_env[0] == '1';
 
     /* Best-effort load of the audio encoder. The Conformer needs a
      * safetensors file (not part of the GGUF) + mel constants. Failure is
      * non-fatal — text-only sessions keep working, attach_audio reports
      * GEIST_E_NOT_FOUND. */
     void *audio_state = nullptr;
-    if (!text_only &&
-        desc->audio_encoder_ops != nullptr &&
+    if (!text_only && desc->audio_encoder_ops != nullptr &&
         desc->audio_encoder_ops->state_create != nullptr) {
         audio_state = desc->audio_encoder_ops->state_create(be, aux_root);
     }
@@ -233,8 +236,7 @@ static char *find_tokenizer_path(const char *gguf_path) {
      * Failure is non-fatal — vision-less sessions keep working;
      * attach_image / attach_video will report GEIST_E_NOT_FOUND. */
     void *vision_state = nullptr;
-    if (!text_only &&
-        desc->vision_encoder_ops != nullptr &&
+    if (!text_only && desc->vision_encoder_ops != nullptr &&
         desc->vision_encoder_ops->state_create != nullptr) {
         vision_state = desc->vision_encoder_ops->state_create(be, aux_root);
     }
@@ -243,39 +245,40 @@ static char *find_tokenizer_path(const char *gguf_path) {
         safe_free((void **) &aux_root);
     }
 
-    *eng = (struct model_engine_state){
-        .path     = path_copy,
-        .sp_tok   = sp_tok,
-        .gguf_tok = gguf_tok,
+    *eng = (struct model_engine_state) {
+            .path     = path_copy,
+            .sp_tok   = sp_tok,
+            .gguf_tok = gguf_tok,
     };
-    *m   = (struct geist_model){
-        .text_decoder    = {.arch_ops = desc->decoder_ops,
-                            .arch_meta = arch_state},
-        .audio_encoder   = {.arch_ops = audio_state != nullptr ? desc->audio_encoder_ops
-                                                               : nullptr,
-                            .arch_meta = audio_state},
-        .vision_encoder  = {.arch_ops = vision_state != nullptr ? desc->vision_encoder_ops
-                                                                : nullptr,
-                            .arch_meta = vision_state},
-        .weights         = eng, /* engine-side state piggybacks here */
-        .tokenizer       = sp_tok != nullptr ? (void *) sp_tok : (void *) gguf_tok,
-        .backend         = be,
+    *m = (struct geist_model) {
+            .text_decoder   = {.arch_ops = desc->decoder_ops, .arch_meta = arch_state},
+            .audio_encoder  = {.arch_ops =
+                                       audio_state != nullptr ? desc->audio_encoder_ops : nullptr,
+                               .arch_meta = audio_state},
+            .vision_encoder = {.arch_ops =
+                                       vision_state != nullptr ? desc->vision_encoder_ops : nullptr,
+                               .arch_meta = vision_state},
+            .weights        = eng, /* engine-side state piggybacks here */
+            .tokenizer      = sp_tok != nullptr ? (void *) sp_tok : (void *) gguf_tok,
+            .backend        = be,
     };
     *out = m;
     return GEIST_OK;
 }
 
-[[nodiscard]] enum geist_status
-geist_model_load_from_memory(const void *data, size_t size,
-                             struct geist_backend *be, struct geist_model **out) {
+[[nodiscard]] enum geist_status geist_model_load_from_memory(const void           *data,
+                                                             size_t                size,
+                                                             struct geist_backend *be,
+                                                             struct geist_model  **out) {
     if (out == nullptr) {
-        geist_error_set_create_time(GEIST_E_INVALID_ARG, "geist_model_load_from_memory",
-                                    "out is null");
+        geist_error_set_create_time(
+                GEIST_E_INVALID_ARG, "geist_model_load_from_memory", "out is null");
         return GEIST_E_INVALID_ARG;
     }
     *out = nullptr;
     if (data == nullptr || size == 0 || be == nullptr) {
-        geist_error_set_create_time(GEIST_E_INVALID_ARG, "geist_model_load_from_memory",
+        geist_error_set_create_time(GEIST_E_INVALID_ARG,
+                                    "geist_model_load_from_memory",
                                     "data/size/backend is null or empty");
         return GEIST_E_INVALID_ARG;
     }
@@ -283,8 +286,10 @@ geist_model_load_from_memory(const void *data, size_t size,
     const struct geist_arch_descriptor *desc = geist_arch_registry_lookup("gemma");
     if (desc == nullptr || desc->decoder_ops == nullptr ||
         desc->decoder_ops->state_create_from_memory == nullptr) {
-        geist_error_set_create_time(GEIST_E_UNSUPPORTED, "geist_model_load_from_memory",
-                                    "no decoder architecture supports memory loading in this build");
+        geist_error_set_create_time(
+                GEIST_E_UNSUPPORTED,
+                "geist_model_load_from_memory",
+                "no decoder architecture supports memory loading in this build");
         return GEIST_E_UNSUPPORTED;
     }
 
@@ -294,7 +299,8 @@ geist_model_load_from_memory(const void *data, size_t size,
      * has no directory. The GGUF must carry its own tokenizer. */
     void *arch_state = desc->decoder_ops->state_create_from_memory(be, data, size, nullptr);
     if (arch_state == nullptr) {
-        geist_error_set_create_time(GEIST_E_FORMAT, "geist_model_load_from_memory",
+        geist_error_set_create_time(GEIST_E_FORMAT,
+                                    "geist_model_load_from_memory",
                                     "decoder state_create_from_memory failed "
                                     "(malformed GGUF or out of memory?)");
         return GEIST_E_FORMAT;
@@ -303,16 +309,17 @@ geist_model_load_from_memory(const void *data, size_t size,
     struct geist_model *m = heap_alloc_aligned(sizeof(*m), alignof(struct geist_model));
     if (m == nullptr) {
         desc->decoder_ops->state_destroy(arch_state);
-        geist_error_set_create_time(GEIST_E_OOM, "geist_model_load_from_memory",
-                                    "failed to allocate model handle");
+        geist_error_set_create_time(
+                GEIST_E_OOM, "geist_model_load_from_memory", "failed to allocate model handle");
         return GEIST_E_OOM;
     }
     struct model_engine_state *eng =
-        heap_alloc_aligned(sizeof(*eng), alignof(struct model_engine_state));
+            heap_alloc_aligned(sizeof(*eng), alignof(struct model_engine_state));
     if (eng == nullptr) {
         safe_free((void **) &m);
         desc->decoder_ops->state_destroy(arch_state);
-        geist_error_set_create_time(GEIST_E_OOM, "geist_model_load_from_memory",
+        geist_error_set_create_time(GEIST_E_OOM,
+                                    "geist_model_load_from_memory",
                                     "failed to allocate engine-side state");
         return GEIST_E_OOM;
     }
@@ -320,8 +327,8 @@ geist_model_load_from_memory(const void *data, size_t size,
     /* GGUF-embedded tokenizer only (no sibling tokenizer.bin to find). */
     struct gguf_tokenizer *gguf_tok = nullptr;
     {
-        const char *terr = nullptr;
-        struct gguf_ctx *tg = gguf_open_memory(data, size, &terr);
+        const char      *terr = nullptr;
+        struct gguf_ctx *tg   = gguf_open_memory(data, size, &terr);
         if (tg != nullptr) {
             gguf_tok = heap_alloc_aligned(sizeof(*gguf_tok), alignof(struct gguf_tokenizer));
             if (gguf_tok != nullptr && !gguf_tokenizer_load_copy(gguf_tok, tg)) {
@@ -333,18 +340,18 @@ geist_model_load_from_memory(const void *data, size_t size,
         }
     }
 
-    *eng = (struct model_engine_state){
-        .path     = nullptr, /* embedded — no file path */
-        .sp_tok   = nullptr,
-        .gguf_tok = gguf_tok,
+    *eng = (struct model_engine_state) {
+            .path     = nullptr, /* embedded — no file path */
+            .sp_tok   = nullptr,
+            .gguf_tok = gguf_tok,
     };
-    *m = (struct geist_model){
-        .text_decoder   = {.arch_ops = desc->decoder_ops, .arch_meta = arch_state},
-        .audio_encoder  = {.arch_ops = nullptr, .arch_meta = nullptr},
-        .vision_encoder = {.arch_ops = nullptr, .arch_meta = nullptr},
-        .weights        = eng,
-        .tokenizer      = (void *) gguf_tok,
-        .backend        = be,
+    *m = (struct geist_model) {
+            .text_decoder   = {.arch_ops = desc->decoder_ops, .arch_meta = arch_state},
+            .audio_encoder  = {.arch_ops = nullptr, .arch_meta = nullptr},
+            .vision_encoder = {.arch_ops = nullptr, .arch_meta = nullptr},
+            .weights        = eng,
+            .tokenizer      = (void *) gguf_tok,
+            .backend        = be,
     };
     *out = m;
     return GEIST_OK;
@@ -355,18 +362,15 @@ void geist_model_destroy(struct geist_model *m) {
         return;
     }
     /* Tear down the decoder arch state. */
-    if (m->text_decoder.arch_ops != nullptr &&
-        m->text_decoder.arch_meta != nullptr) {
+    if (m->text_decoder.arch_ops != nullptr && m->text_decoder.arch_meta != nullptr) {
         m->text_decoder.arch_ops->state_destroy(m->text_decoder.arch_meta);
     }
     /* Tear down the audio encoder state (best-effort loaded). */
-    if (m->audio_encoder.arch_ops != nullptr &&
-        m->audio_encoder.arch_meta != nullptr) {
+    if (m->audio_encoder.arch_ops != nullptr && m->audio_encoder.arch_meta != nullptr) {
         m->audio_encoder.arch_ops->state_destroy(m->audio_encoder.arch_meta);
     }
     /* Tear down the vision encoder state (best-effort loaded). */
-    if (m->vision_encoder.arch_ops != nullptr &&
-        m->vision_encoder.arch_meta != nullptr) {
+    if (m->vision_encoder.arch_ops != nullptr && m->vision_encoder.arch_meta != nullptr) {
         m->vision_encoder.arch_ops->state_destroy(m->vision_encoder.arch_meta);
     }
     /* Tear down engine-side state (path string, tokenizer). */
@@ -378,7 +382,8 @@ void geist_model_destroy(struct geist_model *m) {
         }
         if (eng->gguf_tok != nullptr) {
             gguf_tokenizer_unload(eng->gguf_tok);
-            void *p = eng->gguf_tok; safe_free(&p);
+            void *p = eng->gguf_tok;
+            safe_free(&p);
             eng->gguf_tok = nullptr;
         }
         if (eng->path != nullptr) {
@@ -466,6 +471,7 @@ struct gguf_tokenizer *geist_model_internal_gguf_tokenizer(struct geist_model *m
 }
 
 void *geist_model_internal_arch_meta(struct geist_model *m) {
-    if (m == nullptr) return nullptr;
+    if (m == nullptr)
+        return nullptr;
     return m->text_decoder.arch_meta;
 }

@@ -34,7 +34,7 @@
 #define MAX_HISTORY 2048
 #define DECODE_N 50
 
-static const char* const PROMPTS[] = {
+static const char *const PROMPTS[] = {
         "What is the capital of France?",
         "Complete the poem: 'Roses are red, violets are'",
         "List five common smart-home commands.",
@@ -49,7 +49,7 @@ static double monotonic_ms(void) {
     return (double) ts.tv_sec * 1e3 + (double) ts.tv_nsec / 1e6;
 }
 
-static void format_chat(char* buf, size_t buf_size, const char* user_prompt) {
+static void format_chat(char *buf, size_t buf_size, const char *user_prompt) {
     snprintf(buf, buf_size, "<bos><|turn>user\n%s<turn|>\n<|turn>model\n", user_prompt);
 }
 
@@ -60,17 +60,17 @@ struct stats {
     size_t spec_emits;
 };
 
-static int run_prompt(struct geist_model* model,
-                      struct geist_backend* be,
-                      const struct geist_session_opts* opts,
-                      const char* user_prompt,
-                      size_t k_max,
-                      struct stats* out) {
+static int run_prompt(struct geist_model              *model,
+                      struct geist_backend            *be,
+                      const struct geist_session_opts *opts,
+                      const char                      *user_prompt,
+                      size_t                           k_max,
+                      struct stats                    *out) {
     char chat_buf[1024];
     format_chat(chat_buf, sizeof chat_buf, user_prompt);
 
     /* ---- Sequential reference. */
-    struct geist_session* sess = nullptr;
+    struct geist_session *sess = nullptr;
     if (geist_session_create(model, be, opts, &sess) != GEIST_OK)
         return 1;
     if (geist_session_set_prompt(sess, chat_buf) != GEIST_OK) {
@@ -100,7 +100,7 @@ static int run_prompt(struct geist_model* model,
      * structural repeats) hit n-gram matches against the prompt much
      * more often than against just the previously-emitted tokens. */
     geist_token_t history[MAX_HISTORY];
-    size_t history_n = 0;
+    size_t        history_n = 0;
     if (geist_session_tokenize(sess, chat_buf, MAX_HISTORY, history, &history_n) != GEIST_OK) {
         fprintf(stderr, "  tokenize failed: %s\n", geist_session_errmsg(sess));
         geist_session_destroy(sess);
@@ -110,13 +110,13 @@ static int run_prompt(struct geist_model* model,
         geist_session_destroy(sess);
         return 1;
     }
-    size_t spec_calls = 0;
-    size_t spec_emits = 0;
+    size_t        spec_calls = 0;
+    size_t        spec_emits = 0;
     geist_token_t buf[16 + 1];
 
     t0 = monotonic_ms();
     while (spec_emits < DECODE_N) {
-        size_t n;
+        size_t            n;
         enum geist_status s = geist_session_decode_speculative(
                 sess, k_max, history_n, history, k_max + 1, buf, &n);
         if (s != GEIST_OK || n == 0) {
@@ -131,7 +131,7 @@ static int run_prompt(struct geist_model* model,
                 history[history_n++] = buf[i];
         }
     }
-    out->t_spec_ms = monotonic_ms() - t0;
+    out->t_spec_ms  = monotonic_ms() - t0;
     out->spec_calls = spec_calls;
     out->spec_emits = spec_emits;
     geist_session_destroy(sess);
@@ -141,24 +141,24 @@ static int run_prompt(struct geist_model* model,
 int main(void) {
     GEIST_REQUIRE_GGUF(model_path);
 
-    struct geist_backend* be = nullptr;
-    enum geist_status s = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
+    struct geist_backend *be = nullptr;
+    enum geist_status     s  = geist_backend_create("cpu_neon", nullptr, nullptr, &be);
     if (s != GEIST_OK)
         s = geist_backend_create("cpu_scalar", nullptr, nullptr, &be);
     if (s != GEIST_OK) {
         fprintf(stderr, "backend_create: %s\n", geist_last_create_error());
         return GEIST_TEST_ERROR;
     }
-    struct geist_model* model = nullptr;
-    s = geist_model_load(model_path, be, &model);
+    struct geist_model *model = nullptr;
+    s                         = geist_model_load(model_path, be, &model);
     if (s != GEIST_OK) {
         fprintf(stderr, "model_load: %s\n", geist_last_create_error());
         geist_backend_destroy(be);
         return GEIST_TEST_FAIL;
     }
 
-    const char* kmax_env = getenv("GEIST_SPEC_KMAX");
-    size_t k_max = kmax_env != nullptr ? (size_t) atol(kmax_env) : 4;
+    const char *kmax_env = getenv("GEIST_SPEC_KMAX");
+    size_t      k_max    = kmax_env != nullptr ? (size_t) atol(kmax_env) : 4;
     if (k_max == 0 || k_max > 16)
         k_max = 4;
 
@@ -170,18 +170,18 @@ int main(void) {
     printf("%-50s  %8s  %8s  %5s  %5s  %5s\n", "prompt", "seq ms", "spec ms", "x", "t/cl", "acc%");
     printf("%-50s  %8s  %8s  %5s  %5s  %5s\n", "----", "----", "----", "----", "----", "----");
 
-    struct geist_session_opts opts = {.max_seq_len = 2048, .temperature = 0.0f};
-    double total_seq = 0.0, total_spec = 0.0;
-    size_t total_calls = 0, total_emits = 0;
+    struct geist_session_opts opts      = {.max_seq_len = 2048, .temperature = 0.0f};
+    double                    total_seq = 0.0, total_spec = 0.0;
+    size_t                    total_calls = 0, total_emits = 0;
 
     for (size_t i = 0; i < N_PROMPTS; i++) {
         struct stats st = {0};
-        const char* p = PROMPTS[i];
+        const char  *p  = PROMPTS[i];
         if (run_prompt(model, be, &opts, p, k_max, &st) != 0) {
             fprintf(stderr, "prompt %zu failed\n", i);
             continue;
         }
-        const double speedup = st.t_seq_ms / st.t_spec_ms;
+        const double speedup    = st.t_seq_ms / st.t_spec_ms;
         const double t_per_call = (double) st.spec_emits / (double) st.spec_calls;
         const double accept_pct = ((t_per_call - 1.0) / (double) k_max) * 100.0;
         /* Trim prompt for display. */

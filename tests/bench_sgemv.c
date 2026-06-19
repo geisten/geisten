@@ -20,16 +20,16 @@ typedef enum { CblasRowMajor = 101 } CBLAS_ORDER;
 typedef enum { CblasNoTrans = 111, CblasTrans = 112 } CBLAS_TRANSPOSE;
 extern void cblas_sgemv(CBLAS_ORDER,
                         CBLAS_TRANSPOSE,
-                        int M,
-                        int N,
-                        float alpha,
-                        const float* A,
-                        int lda,
-                        const float* X,
-                        int incX,
-                        float beta,
-                        float* Y,
-                        int incY);
+                        int          M,
+                        int          N,
+                        float        alpha,
+                        const float *A,
+                        int          lda,
+                        const float *X,
+                        int          incX,
+                        float        beta,
+                        float       *Y,
+                        int          incY);
 
 static double now_us(void) {
     struct timeval tv;
@@ -37,11 +37,11 @@ static double now_us(void) {
     return (double) tv.tv_sec * 1e6 + (double) tv.tv_usec;
 }
 
-static void bench(const char* name, int n_out, int n_in, int n_iter) {
+static void bench(const char *name, int n_out, int n_in, int n_iter) {
     /* Allocate aligned-ish FP32 buffers. */
-    float* W = (float*) aligned_alloc(64, (size_t) n_out * n_in * sizeof(float));
-    float* x = (float*) aligned_alloc(64, (size_t) n_in * sizeof(float));
-    float* y = (float*) aligned_alloc(64, (size_t) n_out * sizeof(float));
+    float *W = (float *) aligned_alloc(64, (size_t) n_out * n_in * sizeof(float));
+    float *x = (float *) aligned_alloc(64, (size_t) n_in * sizeof(float));
+    float *y = (float *) aligned_alloc(64, (size_t) n_out * sizeof(float));
     /* Fill with non-zero data to defeat any zero-skip optimizations. */
     for (size_t i = 0; i < (size_t) n_out * n_in; i++)
         W[i] = (float) ((i & 0xff) - 128) * 0.01f;
@@ -60,8 +60,8 @@ static void bench(const char* name, int n_out, int n_in, int n_iter) {
     double dt_us = (now_us() - t0) / n_iter;
 
     double bytes_per_call = (double) n_out * n_in * 4.0;
-    double gbps = bytes_per_call / (dt_us * 1e3);
-    double mb = bytes_per_call / (1024.0 * 1024.0);
+    double gbps           = bytes_per_call / (dt_us * 1e3);
+    double mb             = bytes_per_call / (1024.0 * 1024.0);
     printf("  %-30s (%5d × %5d, %6.1f MB) | %6.0f us/call | %5.1f GB/s\n",
            name,
            n_out,

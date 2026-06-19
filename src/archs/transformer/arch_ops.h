@@ -20,7 +20,6 @@
  * given file at load time: folds attn_norm + ffn_norm gamma; stashes
  * per-layer 1/scale arrays for o_proj and down_proj. nullptr path or
  * missing file → no-op return GEIST_OK. */
-enum geist_status apply_awq_to_state(struct transformer_arch_state *st,
-                                         const char *awq_path);
+enum geist_status apply_awq_to_state(struct transformer_arch_state *st, const char *awq_path);
 
 #endif /* GEIST_INTERNAL_ARCH_TRANSFORMER_ARCH_OPS_H */

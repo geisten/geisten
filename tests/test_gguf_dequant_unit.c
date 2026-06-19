@@ -11,17 +11,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 4, "<model.gguf> <tensor_name> <out.bin>");
 
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(argv[1], &err);
+    const char      *err = nullptr;
+    struct gguf_ctx *ctx = gguf_open(argv[1], &err);
     if (!ctx) {
         fprintf(stderr, "gguf_open: %s\n", err);
         return 1;
     }
 
-    const struct gguf_tensor_t* t = gguf_get_tensor(ctx, argv[2]);
+    const struct gguf_tensor_t *t = gguf_get_tensor(ctx, argv[2]);
     if (!t) {
         fprintf(stderr, "missing tensor: %s\n", argv[2]);
         gguf_close(ctx);
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
     }
     fprintf(stderr, "], %zu elems, %zu bytes\n", elems, t->nbytes);
 
-    float* out = (float*) malloc(elems * sizeof(float));
+    float *out = (float *) malloc(elems * sizeof(float));
     if (!out) {
         gguf_close(ctx);
         return 1;
@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
         memcpy(out, t->data, elems * sizeof(float));
         break;
     case GGUF_TYPE_F16: {
-        const uint16_t* h = (const uint16_t*) t->data;
+        const uint16_t *h = (const uint16_t *) t->data;
         for (size_t i = 0; i < elems; i++)
             out[i] = fp16_to_fp32(h[i]);
         break;
@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    FILE* fo = fopen(argv[3], "wb");
+    FILE *fo = fopen(argv[3], "wb");
     if (!fo) {
         perror("fopen out");
         free(out);

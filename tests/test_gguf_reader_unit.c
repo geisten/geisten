@@ -7,11 +7,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     GEIST_REQUIRE_ARGS(argc, 2, "<model.gguf> [tensor_name ...]");
 
-    const char* err = nullptr;
-    struct gguf_ctx* ctx = gguf_open(argv[1], &err);
+    const char      *err = nullptr;
+    struct gguf_ctx *ctx = gguf_open(argv[1], &err);
     if (!ctx) {
         fprintf(stderr, "gguf_open: %s\n", err ? err : "?");
         return 1;
@@ -21,10 +21,10 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Loaded %zu tensors from %s\n", n, argv[1]);
 
     /* dtype histogram */
-    int hist[40] = {0};
+    int    hist[40]    = {0};
     size_t total_bytes = 0;
     for (size_t i = 0; i < n; i++) {
-        const struct gguf_tensor_t* t = gguf_tensor_at(ctx, i);
+        const struct gguf_tensor_t *t = gguf_tensor_at(ctx, i);
         if ((int) t->dtype < 40)
             hist[t->dtype]++;
         total_bytes += t->nbytes;
@@ -44,11 +44,11 @@ int main(int argc, char** argv) {
      * which weights use the format. */
     bool unknown_seen[40] = {false};
     for (size_t i = 0; i < n; i++) {
-        const struct gguf_tensor_t* t = gguf_tensor_at(ctx, i);
-        int dt = (int) t->dtype;
+        const struct gguf_tensor_t *t  = gguf_tensor_at(ctx, i);
+        int                         dt = (int) t->dtype;
         if (dt >= 40 || dt < 0)
             continue;
-        const char* nm = gguf_dtype_name((gguf_dtype_t) dt);
+        const char *nm = gguf_dtype_name((gguf_dtype_t) dt);
         if (strcmp(nm, "?") == 0 && !unknown_seen[dt]) {
             unknown_seen[dt] = true;
             fprintf(stderr, "  unknown dtype id=%d first tensor: %s (dims=[", dt, t->name);
@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
     /* Print first 5 tensors as sanity */
     fprintf(stderr, "\nFirst 5 tensors:\n");
     for (size_t i = 0; i < (n < 5 ? n : 5); i++) {
-        const struct gguf_tensor_t* t = gguf_tensor_at(ctx, i);
+        const struct gguf_tensor_t *t = gguf_tensor_at(ctx, i);
         fprintf(stderr, "  [%zu] %s  %s  dims=[", i, t->name, gguf_dtype_name(t->dtype));
         for (int d = 0; d < t->n_dims; d++) {
             if (d > 0)
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
 
     /* Lookup user-supplied names */
     for (int a = 2; a < argc; a++) {
-        const struct gguf_tensor_t* t = gguf_get_tensor(ctx, argv[a]);
+        const struct gguf_tensor_t *t = gguf_get_tensor(ctx, argv[a]);
         if (!t) {
             printf("MISSING: %s\n", argv[a]);
             continue;
