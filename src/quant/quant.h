@@ -24,8 +24,8 @@
  * Q4_K / Q6_K / Q3_K decode kernels (profile showed ~5% of decode time
  * was function-call overhead on this path).
  *
- * Falls back to the bit-exact IEEE-754 decode in gguf_quant.c when no
- * hardware fp16 is available. */
+ * Falls back to the bit-exact IEEE-754 decode in src/formats/gguf/common.c
+ * when no hardware fp16 is available. */
 #if defined(__ARM_FP) && (__ARM_FP & 2)
 #include <string.h>
 static inline float fp16_to_fp32(uint16_t h) {

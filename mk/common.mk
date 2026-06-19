@@ -85,9 +85,7 @@ BACKEND_DEFINES := $(foreach b,$(BACKENDS),-DGEIST_BACKEND_$(shell echo $(b) | t
 # Orthogonal to the quantized decode kernels, which never use BLAS. Each
 # provider fragment sets GEMM_CFLAGS / GEMM_LDLIBS.
 GEMM_PROVIDER ?= native
-GEMM_CFLAGS :=
-GEMM_LDLIBS :=
-include mk/gemm-$(GEMM_PROVIDER).mk
+include mk/gemm-$(GEMM_PROVIDER).mk  # sets GEMM_CFLAGS / GEMM_LDLIBS
 
 CFLAGS        := $(CFLAGS_BASE) $(BACKEND_DEFINES) $(GEMM_CFLAGS) $(CFLAGS_MODE) $(CFLAGS_TARGET) $(EXTRA_CFLAGS)
 # Strict CFLAGS for the src/ tree — adds -Wshadow -Wundef on top of CFLAGS.

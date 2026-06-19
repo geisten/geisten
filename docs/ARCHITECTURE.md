@@ -27,9 +27,10 @@ src/io/                  GGUF reader, safetensors reader
 An **architecture** knows the shape of the computation (which ops, in which
 order, with which tensors). A **backend** knows how to execute an op on a given
 dtype/layout. The engine binds the two and drives sessions. Backends and archs
-self-register into runtime registries (`src/engine/*_registry.c`), so the set
-compiled in is a build-time choice (`make BACKENDS="..."`) and the one used is a
-runtime choice (`geist_backend_create("auto" | "cpu_neon" | ...)`).
+are listed in compile-gated registries (`src/engine/*_registry.c`, each entry
+behind a `GEIST_BACKEND_*` / `GEIST_ARCH_*` guard), so the set compiled in is a
+build-time choice (`make BACKENDS="..."`) and the one used is a runtime choice
+(`geist_backend_create("auto" | "cpu_neon" | ...)`).
 
 ## Processing pipeline
 

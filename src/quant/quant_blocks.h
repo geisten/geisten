@@ -110,13 +110,8 @@ static inline void get_scale_min_k4(int j, const uint8_t *q, uint8_t *d_out, uin
     }
 }
 
-/* Symmetric INT8 quantization of `n` floats: scale = max(|x|) / 127,
- * x_q8[i] = round(x[i] / scale) clamped to [-127, 127]. Returns scale.
- *
- * Used by every W*A8 kernel (Q3_K / Q4_K / Q5_K / Q6_K / Q8_0 /
- * IQ2_S / IQ3_S decode + prefill paths). Implementation lives in
- * gguf_quant/common.c. */
-float quantize_x_int8_sym(const float *x, size_t n, int8_t *x_q8);
+/* quantize_x_int8_sym (symmetric INT8 activation quant) is declared in
+ * quant.h — the W*A8 kernels here use it via that contract. */
 
 /* dot(x_q8[0..15], q_signed_int8[0..15]) using vdotq_s32 when NEON
  * is available. Shared across Q3_K / Q4_K / Q5_K / Q6_K / Q8_0 W*A8
