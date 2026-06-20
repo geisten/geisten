@@ -320,11 +320,6 @@ static bool q6k_weight_ntile4(const struct geist_weight *w) {
            w->aux_fp32 != nullptr;
 }
 
-static bool q6k_weight_ntile8(const struct geist_weight *w) {
-    return w != nullptr && w->backend_layout == GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE8 &&
-           w->aux_fp32 != nullptr;
-}
-
 static bool q6k_weight_ntile4_stream(const struct geist_weight *w) {
     return w != nullptr && w->backend_layout == GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE4_STREAM &&
            w->aux_fp32 != nullptr;
@@ -527,50 +522,6 @@ static void cpu_neon_w_q4k_pair_mN(const float               *x,
     }
 }
 
-static void cpu_neon_w_q4k_triple_mN(const float               *x,
-                                     const struct geist_weight *w0,
-                                     const struct geist_weight *w1,
-                                     const struct geist_weight *w2,
-                                     size_t                     m,
-                                     struct geist_backend      *be,
-                                     float                     *y0,
-                                     float                     *y1,
-                                     float                     *y2) {
-    struct cpu_neon_state     *st   = (struct cpu_neon_state *) be->state;
-    struct cpu_neon_workspace *ws   = &st->workspace;
-    const size_t               n_in = (size_t) w0->n_in;
-    if (m == 0 || m > GEIST_QUANT_M_CAP || w0->n_in != w1->n_in || w0->n_in != w2->n_in) {
-        return;
-    }
-
-    /* SGEMM-prefill triple: three dequant+sgemm runs sharing activation x. */
-    if (st->policy.q4k_sgemm_prefill && m >= st->policy.qk_sgemm_threshold &&
-        cpu_neon_dequant_w_workspace_prepare(ws, qk_sgemm_tile_rows_for(st), n_in)) {
-        const size_t tile_rows = qk_sgemm_tile_rows_for(st);
-        cpu_neon_qk_sgemm_run(x, w0, m, tile_rows, ws->dequant_w_fp32, y0);
-        cpu_neon_qk_sgemm_run(x, w1, m, tile_rows, ws->dequant_w_fp32, y1);
-        cpu_neon_qk_sgemm_run(x, w2, m, tile_rows, ws->dequant_w_fp32, y2);
-        return;
-    }
-
-    if (!cpu_neon_qk_mN_workspace_prepare(ws, m, n_in))
-        return;
-
-    const bool use_block_scales = st->policy.q4k_mtile_prefill && st->policy.q4k_block_q8_prefill &&
-                                  q4k_weight_predecoded(w0) && q4k_weight_predecoded(w1) &&
-                                  q4k_weight_predecoded(w2) && !q4k_weight_ntile4(w0) &&
-                                  !q4k_weight_ntile4(w1) && !q4k_weight_ntile4(w2);
-    if (use_block_scales) {
-        cpu_neon_qk_mN_quantize_x_blocks(ws, x, m, n_in);
-    } else {
-        cpu_neon_qk_mN_quantize_x(ws, x, m, n_in);
-    }
-
-    cpu_neon_q4k_run_prequantized(st, ws, w0, use_block_scales, m, y0);
-    cpu_neon_q4k_run_prequantized(st, ws, w1, use_block_scales, m, y1);
-    cpu_neon_q4k_run_prequantized(st, ws, w2, use_block_scales, m, y2);
-}
-
 static void cpu_neon_w_q6k_mN(const float               *x,
                               const struct geist_weight *w,
                               size_t                     m,
@@ -602,9 +553,6 @@ static void cpu_neon_w_q6k_mN(const float               *x,
     }
     if (q6k_weight_ntile4_stream(w)) {
         linear_q6k_w6a8_prefill_predecoded_ntile4_stream(
-                ws->qk_mN_xq, ws->qk_mN_sc, m, w->aux_fp32, n_in, (size_t) w->n_out, y);
-    } else if (q6k_weight_ntile8(w)) {
-        linear_q6k_w6a8_prefill_predecoded_ntile8(
                 ws->qk_mN_xq, ws->qk_mN_sc, m, w->aux_fp32, n_in, (size_t) w->n_out, y);
     } else if (q6k_weight_ntile4(w)) {
         linear_q6k_w6a8_prefill_predecoded_ntile4(
@@ -1259,11 +1207,9 @@ install_q6k_ntile_if_eligible(struct geist_weight *w, const struct cpu_neon_kern
     }
 
     const bool   use_stream = policy->q6k_ntile4_stream_prefill;
-    const bool   use_ntile8 = !use_stream && policy->q6k_ntile8_prefill;
     const size_t bytes =
             use_stream ? q6k_predecode_ntile4_stream_size_bytes((size_t) w->n_in, (size_t) w->n_out)
-            : use_ntile8 ? q6k_predecode_ntile8_size_bytes((size_t) w->n_in, (size_t) w->n_out)
-                         : q6k_predecode_ntile4_size_bytes((size_t) w->n_in, (size_t) w->n_out);
+                       : q6k_predecode_ntile4_size_bytes((size_t) w->n_in, (size_t) w->n_out);
     if (bytes == 0 || bytes > (size_t) INT32_MAX) {
         return GEIST_OK;
     }
@@ -1272,10 +1218,9 @@ install_q6k_ntile_if_eligible(struct geist_weight *w, const struct cpu_neon_kern
         return GEIST_OK;
     }
     const int pack_status =
-            use_stream ? q6k_predecode_ntile4_stream_pack(
-                                 w->raw, (size_t) w->n_in, (size_t) w->n_out, buf)
-            : use_ntile8
-                    ? q6k_predecode_ntile8_pack(w->raw, (size_t) w->n_in, (size_t) w->n_out, buf)
+            use_stream
+                    ? q6k_predecode_ntile4_stream_pack(
+                              w->raw, (size_t) w->n_in, (size_t) w->n_out, buf)
                     : q6k_predecode_ntile4_pack(w->raw, (size_t) w->n_in, (size_t) w->n_out, buf);
     if (pack_status != 0) {
         safe_free(&buf);
@@ -1284,9 +1229,8 @@ install_q6k_ntile_if_eligible(struct geist_weight *w, const struct cpu_neon_kern
     w->aux_fp32 = (const float *) buf;
     w->aux_n    = (int32_t) bytes;
     w->flags |= GEIST_W_AUX_HEAP_OWNED | GEIST_W_AUX_BACKEND_REPACK;
-    w->backend_layout    = use_stream   ? GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE4_STREAM
-                           : use_ntile8 ? GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE8
-                                        : GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE4;
+    w->backend_layout    = use_stream ? GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE4_STREAM
+                                      : GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE4;
     w->backend_alignment = 64;
     return GEIST_OK;
 }
@@ -1417,9 +1361,6 @@ static void apply_resolver_post_hooks(struct geist_weight                 *w,
         if (w->dtype == GEIST_DTYPE_Q4_K) {
             w->linear_pair_m1 = cpu_neon_w_q4k_pair_m1;
             w->linear_pair_mN = cpu_neon_w_q4k_pair_mN;
-            if (policy.q4k_triple_prefill) {
-                w->linear_triple_mN = cpu_neon_w_q4k_triple_mN;
-            }
         }
         if (w->backend_layout == 0) {
             w->backend_layout = GEIST_W_LAYOUT_SOURCE;

@@ -85,7 +85,6 @@ struct q8k_activation_block {
 };
 
 static constexpr uint32_t Q6K_PREDECODE_NTILE4_MAGIC        = 0x344B3650u; /* "P6K4" */
-static constexpr uint32_t Q6K_PREDECODE_NTILE8_MAGIC        = 0x384B3650u; /* "P6K8" */
 static constexpr uint32_t Q6K_PREDECODE_NTILE4_STREAM_MAGIC = 0x34533650u; /* "P6S4" */
 static constexpr uint32_t Q6K_X8_GEMV_MAGIC                 = 0x38583650u; /* "P6X8" */
 
@@ -94,11 +93,6 @@ static_assert(sizeof(struct q6k_predecode_stream4) == 1280, "q6k_predecode_strea
 static_assert(sizeof(struct q6k_x8_block) == Q6_K_BLOCK_BYTES * 8, "q6k_x8_block layout changed");
 
 static inline const struct q6k_predecode_block *q6k_predecode_ntile4_blocks(const void *packed) {
-    return (const struct q6k_predecode_block *) ((const uint8_t *) packed +
-                                                 sizeof(struct q6k_predecode_header));
-}
-
-static inline const struct q6k_predecode_block *q6k_predecode_ntile8_blocks(const void *packed) {
     return (const struct q6k_predecode_block *) ((const uint8_t *) packed +
                                                  sizeof(struct q6k_predecode_header));
 }
@@ -118,16 +112,6 @@ static inline bool q6k_predecode_ntile4_valid(const void *packed, size_t n_in, s
         return false;
     const struct q6k_predecode_header *h = (const struct q6k_predecode_header *) packed;
     return h->magic == Q6K_PREDECODE_NTILE4_MAGIC && h->n_in == (uint32_t) n_in &&
-           h->n_out == (uint32_t) n_out &&
-           h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS) &&
-           h->block_bytes == sizeof(struct q6k_predecode_block);
-}
-
-static inline bool q6k_predecode_ntile8_valid(const void *packed, size_t n_in, size_t n_out) {
-    if (packed == NULL)
-        return false;
-    const struct q6k_predecode_header *h = (const struct q6k_predecode_header *) packed;
-    return h->magic == Q6K_PREDECODE_NTILE8_MAGIC && h->n_in == (uint32_t) n_in &&
            h->n_out == (uint32_t) n_out &&
            h->n_blocks_per_row == (uint32_t) (n_in / Q6_K_BLOCK_ELEMS) &&
            h->block_bytes == sizeof(struct q6k_predecode_block);
@@ -196,21 +180,6 @@ size_t q6k_predecode_ntile4_size_bytes(size_t n_in, size_t n_out) {
     }
     const size_t n_tiles  = (n_out + 3) / 4;
     const size_t n_blocks = n_tiles * (n_in / Q6_K_BLOCK_ELEMS) * 4;
-    if (n_blocks >
-        (SIZE_MAX - sizeof(struct q6k_predecode_header)) / sizeof(struct q6k_predecode_block)) {
-        return 0;
-    }
-    return sizeof(struct q6k_predecode_header) + n_blocks * sizeof(struct q6k_predecode_block);
-}
-
-size_t q6k_predecode_ntile8_size_bytes(size_t n_in, size_t n_out) {
-    if (n_in == 0 || n_out == 0 || n_in % Q6_K_BLOCK_ELEMS != 0)
-        return 0;
-    if (n_in / Q6_K_BLOCK_ELEMS > UINT32_MAX || n_in > UINT32_MAX || n_out > UINT32_MAX) {
-        return 0;
-    }
-    const size_t n_tiles  = (n_out + 7) / 8;
-    const size_t n_blocks = n_tiles * (n_in / Q6_K_BLOCK_ELEMS) * 8;
     if (n_blocks >
         (SIZE_MAX - sizeof(struct q6k_predecode_header)) / sizeof(struct q6k_predecode_block)) {
         return 0;
@@ -295,45 +264,6 @@ int q6k_predecode_ntile4_pack(const void *w_q6k, size_t n_in, size_t n_out, void
                     continue;
                 const struct block_q6_K_t  *s = src + n * n_blocks_per_row + b;
                 struct q6k_predecode_block *d = dstb + (nt * n_blocks_per_row + b) * 4 + nr;
-                q6k_predecode_one_block(s, d);
-            }
-        }
-    }
-    return 0;
-}
-
-int q6k_predecode_ntile8_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst) {
-    if (w_q6k == NULL || dst == NULL)
-        return -1;
-    const size_t bytes = q6k_predecode_ntile8_size_bytes(n_in, n_out);
-    if (bytes == 0)
-        return -1;
-
-    const size_t                 n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    struct q6k_predecode_header *h                = (struct q6k_predecode_header *) dst;
-    *h                                            = (struct q6k_predecode_header) {
-            .magic            = Q6K_PREDECODE_NTILE8_MAGIC,
-            .n_in             = (uint32_t) n_in,
-            .n_out            = (uint32_t) n_out,
-            .n_blocks_per_row = (uint32_t) n_blocks_per_row,
-            .block_bytes      = (uint32_t) sizeof(struct q6k_predecode_block),
-            .reserved         = 0,
-    };
-
-    const struct block_q6_K_t  *src = (const struct block_q6_K_t *) w_q6k;
-    struct q6k_predecode_block *dstb =
-            (struct q6k_predecode_block *) ((uint8_t *) dst + sizeof(*h));
-    memset(dstb, 0, bytes - sizeof(*h));
-
-    const size_t n_tiles = (n_out + 7) / 8;
-    for (size_t nt = 0; nt < n_tiles; nt++) {
-        for (size_t b = 0; b < n_blocks_per_row; b++) {
-            for (size_t nr = 0; nr < 8; nr++) {
-                const size_t n = nt * 8 + nr;
-                if (n >= n_out)
-                    continue;
-                const struct block_q6_K_t  *s = src + n * n_blocks_per_row + b;
-                struct q6k_predecode_block *d = dstb + (nt * n_blocks_per_row + b) * 8 + nr;
                 q6k_predecode_one_block(s, d);
             }
         }
@@ -1447,161 +1377,6 @@ void linear_q6k_w6a8_prefill_predecoded_ntile4(const int8_t *x_q8,
     (void) n_out;
     (void) y;
     fprintf(stderr, "linear_q6k_w6a8_prefill_predecoded_ntile4: NEON required\n");
-#endif
-}
-
-void linear_q6k_w6a8_prefill_predecoded_ntile8(const int8_t *x_q8,
-                                               const float  *scale_x,
-                                               size_t        m,
-                                               const void   *packed,
-                                               size_t        n_in,
-                                               size_t        n_out,
-                                               float        *y) {
-#if defined(__ARM_NEON)
-    if (m == 0 || m > GEIST_QUANT_M_CAP)
-        return;
-    if (!q6k_predecode_ntile8_valid(packed, n_in, n_out))
-        return;
-
-    const struct q6k_predecode_block *w                = q6k_predecode_ntile8_blocks(packed);
-    const size_t                      n_blocks_per_row = n_in / Q6_K_BLOCK_ELEMS;
-    const size_t                      n_tiles          = (n_out + 7) / 8;
-
-#if defined(_OPENMP)
-#pragma omp parallel for schedule(dynamic, 4)
-#endif
-    for (size_t nt = 0; nt < n_tiles; nt++) {
-        const size_t                      valid_nr = (nt * 8 + 8 <= n_out) ? 8 : (n_out - nt * 8);
-        const struct q6k_predecode_block *tile     = w + nt * n_blocks_per_row * 8;
-
-        size_t mt = 0;
-        for (; mt + 4 <= m; mt += 4) {
-            const float sx0 = scale_x[mt + 0];
-            const float sx1 = scale_x[mt + 1];
-            const float sx2 = scale_x[mt + 2];
-            const float sx3 = scale_x[mt + 3];
-            float       a00 = 0.0f, a01 = 0.0f, a02 = 0.0f, a03 = 0.0f;
-            float       a04 = 0.0f, a05 = 0.0f, a06 = 0.0f, a07 = 0.0f;
-            float       a10 = 0.0f, a11 = 0.0f, a12 = 0.0f, a13 = 0.0f;
-            float       a14 = 0.0f, a15 = 0.0f, a16 = 0.0f, a17 = 0.0f;
-            float       a20 = 0.0f, a21 = 0.0f, a22 = 0.0f, a23 = 0.0f;
-            float       a24 = 0.0f, a25 = 0.0f, a26 = 0.0f, a27 = 0.0f;
-            float       a30 = 0.0f, a31 = 0.0f, a32 = 0.0f, a33 = 0.0f;
-            float       a34 = 0.0f, a35 = 0.0f, a36 = 0.0f, a37 = 0.0f;
-
-            for (size_t b = 0; b < n_blocks_per_row; b++) {
-                const struct q6k_predecode_block *blks = tile + b * 8;
-                for (int is = 0; is < 16; is++) {
-                    const size_t  xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
-                    const int8_t *xb0    = x_q8 + (mt + 0) * n_in + xb_off;
-                    const int8_t *xb1    = x_q8 + (mt + 1) * n_in + xb_off;
-                    const int8_t *xb2    = x_q8 + (mt + 2) * n_in + xb_off;
-                    const int8_t *xb3    = x_q8 + (mt + 3) * n_in + xb_off;
-
-#define Q6K_ACC8_NR(NR, A0, A1, A2, A3)                                               \
-    do {                                                                              \
-        if ((NR) < valid_nr) {                                                        \
-            const struct q6k_predecode_block *blk = blks + (NR);                      \
-            const int8x16_t                   qv  = vld1q_s8(blk->qs + is * 16);      \
-            const float                       ds  = blk->d * (float) blk->scales[is]; \
-            (A0) += sx0 * ds * (float) dot16_i8(xb0, qv);                             \
-            (A1) += sx1 * ds * (float) dot16_i8(xb1, qv);                             \
-            (A2) += sx2 * ds * (float) dot16_i8(xb2, qv);                             \
-            (A3) += sx3 * ds * (float) dot16_i8(xb3, qv);                             \
-        }                                                                             \
-    } while (0)
-                    Q6K_ACC8_NR(0, a00, a10, a20, a30);
-                    Q6K_ACC8_NR(1, a01, a11, a21, a31);
-                    Q6K_ACC8_NR(2, a02, a12, a22, a32);
-                    Q6K_ACC8_NR(3, a03, a13, a23, a33);
-                    Q6K_ACC8_NR(4, a04, a14, a24, a34);
-                    Q6K_ACC8_NR(5, a05, a15, a25, a35);
-                    Q6K_ACC8_NR(6, a06, a16, a26, a36);
-                    Q6K_ACC8_NR(7, a07, a17, a27, a37);
-#undef Q6K_ACC8_NR
-                }
-            }
-
-            float *y0 = y + (mt + 0) * n_out + nt * 8;
-            float *y1 = y + (mt + 1) * n_out + nt * 8;
-            float *y2 = y + (mt + 2) * n_out + nt * 8;
-            float *y3 = y + (mt + 3) * n_out + nt * 8;
-            if (valid_nr > 0) {
-                y0[0] = a00;
-                y1[0] = a10;
-                y2[0] = a20;
-                y3[0] = a30;
-            }
-            if (valid_nr > 1) {
-                y0[1] = a01;
-                y1[1] = a11;
-                y2[1] = a21;
-                y3[1] = a31;
-            }
-            if (valid_nr > 2) {
-                y0[2] = a02;
-                y1[2] = a12;
-                y2[2] = a22;
-                y3[2] = a32;
-            }
-            if (valid_nr > 3) {
-                y0[3] = a03;
-                y1[3] = a13;
-                y2[3] = a23;
-                y3[3] = a33;
-            }
-            if (valid_nr > 4) {
-                y0[4] = a04;
-                y1[4] = a14;
-                y2[4] = a24;
-                y3[4] = a34;
-            }
-            if (valid_nr > 5) {
-                y0[5] = a05;
-                y1[5] = a15;
-                y2[5] = a25;
-                y3[5] = a35;
-            }
-            if (valid_nr > 6) {
-                y0[6] = a06;
-                y1[6] = a16;
-                y2[6] = a26;
-                y3[6] = a36;
-            }
-            if (valid_nr > 7) {
-                y0[7] = a07;
-                y1[7] = a17;
-                y2[7] = a27;
-                y3[7] = a37;
-            }
-        }
-
-        for (; mt < m; mt++) {
-            for (size_t nr = 0; nr < valid_nr; nr++) {
-                float acc = 0.0f;
-                for (size_t b = 0; b < n_blocks_per_row; b++) {
-                    const struct q6k_predecode_block *blk = tile + b * 8 + nr;
-                    for (int is = 0; is < 16; is++) {
-                        const size_t    xb_off = b * Q6_K_BLOCK_ELEMS + (size_t) is * 16;
-                        const int8_t   *xb     = x_q8 + mt * n_in + xb_off;
-                        const int8x16_t qv     = vld1q_s8(blk->qs + is * 16);
-                        const int32_t   dot    = dot16_i8(xb, qv);
-                        acc += scale_x[mt] * blk->d * (float) blk->scales[is] * (float) dot;
-                    }
-                }
-                y[mt * n_out + nt * 8 + nr] = acc;
-            }
-        }
-    }
-#else
-    (void) x_q8;
-    (void) scale_x;
-    (void) m;
-    (void) packed;
-    (void) n_in;
-    (void) n_out;
-    (void) y;
-    fprintf(stderr, "linear_q6k_w6a8_prefill_predecoded_ntile8: NEON required\n");
 #endif
 }
 

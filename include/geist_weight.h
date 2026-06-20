@@ -103,18 +103,6 @@ typedef void (*geist_kernel_linear_pair_mN_fn)(const float               *x,
                                                float                     *y0,
                                                float                     *y1);
 
-/* Optional fused path for three M>1 projections sharing the same X.
- * Attention q/k/v uses this to amortize activation quantization. */
-typedef void (*geist_kernel_linear_triple_mN_fn)(const float               *x,
-                                                 const struct geist_weight *w0,
-                                                 const struct geist_weight *w1,
-                                                 const struct geist_weight *w2,
-                                                 size_t                     m,
-                                                 struct geist_backend      *be,
-                                                 float                     *y0,
-                                                 float                     *y1,
-                                                 float                     *y2);
-
 enum geist_weight_flags {
     /* aux_fp32 holds AWQ inverse-scales of length n_out. */
     GEIST_W_HAS_AWQ_INV  = 1U << 0,
@@ -138,7 +126,6 @@ enum geist_weight_backend_layout {
     GEIST_W_LAYOUT_Q4_K_PREDECODE,
     GEIST_W_LAYOUT_Q4_K_PREDECODE_NTILE4,
     GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE4,
-    GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE8,
     GEIST_W_LAYOUT_Q6_K_PREDECODE_NTILE4_STREAM,
     GEIST_W_LAYOUT_Q6_K_X8_GEMV,
 };
@@ -156,7 +143,6 @@ struct geist_weight {
     geist_kernel_linear_mN_fn linear_mN;
     geist_kernel_linear_pair_m1_fn linear_pair_m1;
     geist_kernel_linear_pair_mN_fn linear_pair_mN;
-    geist_kernel_linear_triple_mN_fn linear_triple_mN;
 
     /* Optional pre-folded auxiliary FP32 data; semantics depend on
      * flags. nullptr if none. Length encoded in aux_n. */

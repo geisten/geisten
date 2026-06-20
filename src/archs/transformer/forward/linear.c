@@ -211,10 +211,6 @@ enum geist_status linear_w_triple_or_legacy(struct geist_backend            *be,
             w1->linear_m1(xp, w1, be, y1p);
         }
         w2->linear_m1(xp, w2, be, y2p);
-    } else if (w0->linear_triple_mN != nullptr && w0->linear_triple_mN == w1->linear_triple_mN &&
-               w0->linear_triple_mN == w2->linear_triple_mN && w0->n_in == w1->n_in &&
-               w0->n_in == w2->n_in) {
-        w0->linear_triple_mN(xp, w0, w1, w2, seq, be, y0p, y1p, y2p);
     } else if (w1->linear_pair_mN != nullptr && w1->linear_pair_mN == w2->linear_pair_mN &&
                w1->n_in == w2->n_in) {
         w0->linear_mN(xp, w0, seq, be, y0p);

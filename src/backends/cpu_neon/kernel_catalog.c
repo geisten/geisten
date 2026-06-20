@@ -89,14 +89,12 @@ struct cpu_neon_kernel_policy cpu_neon_kernel_policy_default(const struct geist_
             .q4k_predecode             = has_accelerate,
             .q4k_mtile_prefill         = has_accelerate,
             .q4k_ntile_prefill         = has_accelerate,
-            .q4k_triple_prefill        = false,
             .q4k_block_q8_prefill      = false,
             .q4k_sgemm_prefill         = has_accelerate || pi5_sgemm_prefill,
             .q6k_sgemm_prefill         = has_accelerate || pi5_sgemm_prefill,
             .qk_sgemm_threshold        = has_accelerate ? 64 : (pi5_sgemm_prefill ? 16 : 32),
             .qk_sgemm_tile_rows        = 64,
             .q6k_ntile_prefill         = has_accelerate,
-            .q6k_ntile8_prefill        = false,
             .q6k_ntile4_stream_prefill = has_accelerate,
             .q8_0_native_mn            = !has_accelerate,
             .tq2_0_native_mn           = !has_accelerate,
@@ -105,15 +103,13 @@ struct cpu_neon_kernel_policy cpu_neon_kernel_policy_default(const struct geist_
             .iq_flat_cache_force       = false,
     };
 
-    p.q5k_native_mn      = cpu_neon_env_bool("GEIST_Q5K_NATIVE_MN", p.q5k_native_mn);
-    p.q4k_predecode      = cpu_neon_env_bool("GEIST_Q4K_PREDECODE", p.q4k_predecode);
-    p.q4k_mtile_prefill  = cpu_neon_env_bool("GEIST_Q4K_MTILE_PREFILL", p.q4k_mtile_prefill);
-    p.q4k_ntile_prefill  = cpu_neon_env_bool("GEIST_Q4K_NTILE_PREFILL", p.q4k_ntile_prefill);
-    p.q4k_triple_prefill = cpu_neon_env_bool("GEIST_Q4K_TRIPLE_PREFILL", p.q4k_triple_prefill);
+    p.q5k_native_mn     = cpu_neon_env_bool("GEIST_Q5K_NATIVE_MN", p.q5k_native_mn);
+    p.q4k_predecode     = cpu_neon_env_bool("GEIST_Q4K_PREDECODE", p.q4k_predecode);
+    p.q4k_mtile_prefill = cpu_neon_env_bool("GEIST_Q4K_MTILE_PREFILL", p.q4k_mtile_prefill);
+    p.q4k_ntile_prefill = cpu_neon_env_bool("GEIST_Q4K_NTILE_PREFILL", p.q4k_ntile_prefill);
     p.q4k_block_q8_prefill =
             cpu_neon_env_bool("GEIST_Q4K_BLOCK_Q8_PREFILL", p.q4k_block_q8_prefill);
-    p.q6k_ntile_prefill  = cpu_neon_env_bool("GEIST_Q6K_NTILE_PREFILL", p.q6k_ntile_prefill);
-    p.q6k_ntile8_prefill = cpu_neon_env_bool("GEIST_Q6K_NTILE8_PREFILL", p.q6k_ntile8_prefill);
+    p.q6k_ntile_prefill = cpu_neon_env_bool("GEIST_Q6K_NTILE_PREFILL", p.q6k_ntile_prefill);
     p.q6k_ntile4_stream_prefill =
             cpu_neon_env_bool("GEIST_Q6K_NTILE4_STREAM_PREFILL", p.q6k_ntile4_stream_prefill);
     p.q4k_sgemm_prefill = cpu_neon_env_bool("GEIST_Q4K_SGEMM_PREFILL", p.q4k_sgemm_prefill);

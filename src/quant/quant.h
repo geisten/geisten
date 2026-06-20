@@ -458,18 +458,9 @@ void   linear_q6k_w6a8_prefill_pre_accum_blocks(const int8_t *x_q8,
                                                 float        *y);
 size_t q6k_predecode_ntile4_size_bytes(size_t n_in, size_t n_out);
 int    q6k_predecode_ntile4_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst);
-size_t q6k_predecode_ntile8_size_bytes(size_t n_in, size_t n_out);
-int    q6k_predecode_ntile8_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst);
 size_t q6k_predecode_ntile4_stream_size_bytes(size_t n_in, size_t n_out);
 int    q6k_predecode_ntile4_stream_pack(const void *w_q6k, size_t n_in, size_t n_out, void *dst);
 void   linear_q6k_w6a8_prefill_predecoded_ntile4(const int8_t *x_q8,
-                                                 const float  *scale_x,
-                                                 size_t        m,
-                                                 const void   *packed,
-                                                 size_t        n_in,
-                                                 size_t        n_out,
-                                                 float        *y);
-void   linear_q6k_w6a8_prefill_predecoded_ntile8(const int8_t *x_q8,
                                                  const float  *scale_x,
                                                  size_t        m,
                                                  const void   *packed,

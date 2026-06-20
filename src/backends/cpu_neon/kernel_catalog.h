@@ -75,7 +75,6 @@ struct cpu_neon_kernel_policy {
     bool q4k_predecode;
     bool q4k_mtile_prefill;
     bool q4k_ntile_prefill;
-    bool q4k_triple_prefill;
     bool q4k_block_q8_prefill;
     /* Mac AMX/Accelerate dequant→cblas_sgemm prefill path. When set AND
      * m ≥ qk_sgemm_threshold, the Q4_K/Q6_K W*A8 NEON kernels are bypassed
@@ -92,7 +91,6 @@ struct cpu_neon_kernel_policy {
      * Env: GEIST_QK_SGEMM_TILE_ROWS. */
     size_t qk_sgemm_tile_rows;
     bool   q6k_ntile_prefill;
-    bool   q6k_ntile8_prefill;
     bool   q6k_ntile4_stream_prefill;
     bool   q8_0_native_mn;
     bool   tq2_0_native_mn;
