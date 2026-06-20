@@ -140,6 +140,37 @@ hotter, which is physically backwards. The discrepancy is an artifact of how the
 API reports `prompt_eval_duration`, not a real win. For a like-for-like ollama
 prefill number, read the **llama.cpp CPU** row above — it is the same runner.
 
+### Total tok/s — the user-facing metric
+
+Prefill t/s alone understates geist: a real generation is **decode-dominated**
+(one prefill, many decode steps), so end-to-end throughput is what a user feels.
+Measured on the Pi for a P=128 prompt + D=128 generated workload, each engine
+cold-started, total = (P+D)/(t_prefill + t_decode). Harness:
+[`total_tps_pi5.py`](total_tps_pi5.py).
+
+| engine | prefill t/s | decode t/s | **total t/s** |
+| --- | :---: | :---: | :---: |
+| **geist** | 34.4 | **7.02** | **11.66** |
+| llama.cpp (CPU) | 38.8 | 6.37 | 10.94 |
+| llama.cpp (OpenBLAS) | 37.6 | 6.25 | 10.72 |
+| ollama | (43.8)\* | 6.97 | (12.79)\* |
+
+**geist leads both standalone llama.cpp builds on total tok/s** (11.66 vs
+10.7–10.9): its decode (7.02) is faster than llama-bench's (6.3), and decode
+dominates the total, so geist's ~13 % prefill deficit is more than repaid. The
+Q4_K prefill kernel work is therefore **not needed for user-facing throughput** —
+it would only improve time-to-first-token.
+
+> \* ollama's prefill (and hence its total) carries the REST-API timing inflation
+> documented above; substituting the real engine prefill (≈ llama.cpp CPU, 38.8)
+> puts ollama's total at ≈ 11.8 ≈ geist. ollama and geist decode the same (~7.0).
+>
+> **Thermal caveat:** geist happened to start coolest (48 °C vs 55–56 °C for the
+> others, all under the 56 °C gate). Prefill is temperature-sensitive so geist's
+> prefill column has a small edge; decode — the dominant term — is
+> bandwidth-bound and temperature-flat, and ollama at 55 °C decodes ~7.0 too, so
+> geist's decode lead is a real engine difference, not the cooler start.
+
 ## Thread placement (quiesced)
 
 The two phases want different core counts, and geist sets each automatically:
