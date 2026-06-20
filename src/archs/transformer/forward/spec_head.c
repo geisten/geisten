@@ -39,8 +39,11 @@
  * near-tie and the continuation diverges — coherent, not reproducible. Tune
  * with GEIST_SPEC_TOPK / GEIST_SPEC_STRIDE.
  *
- * Opt-in via GEIST_SPEC_HEAD=1; default off keeps the exact dense lm_head, and
- * non-greedy sampling always falls back.
+ * Default ON for greedy decode on an eligible tied lm_head (GEIST_SPEC_HEAD=0
+ * forces the exact dense head). Non-greedy sampling, ineligible dtypes, and
+ * non-NEON/dotprod hosts always fall back to the dense head. For source-layout
+ * quantized / F16 heads the finalist logits are bit-exact so greedy output is
+ * byte-identical; repacked layouts use a high-precision (not bit-exact) phase-3.
  */
 #define GEIST_INTERNAL_ARCH_LAYER
 
@@ -99,8 +102,14 @@ static size_t spec_env_sz(const char *name, size_t dflt, size_t lo, size_t hi) {
 static int spec_head_env(void) {
     static int m = -1;
     if (m < 0) {
+        /* Default ON for greedy decode on an eligible tied lm_head: verified
+         * byte-identical to the dense head on Gemma 4 (Q6_K, 256 K vocab) and
+         * BitNet (F16, 128 K) with the vocab-aware TOP_K, for ~+5 % decode on
+         * the Pi 5 (the tied head is ~30-50 % of the per-token read). Non-greedy
+         * sampling, ineligible dtypes, and non-NEON hosts always fall back to
+         * the exact dense head regardless. GEIST_SPEC_HEAD=0 forces it off. */
         const char *e = getenv("GEIST_SPEC_HEAD");
-        m             = (e != nullptr && e[0] == '1') ? 1 : 0;
+        m             = (e != nullptr && e[0] == '0') ? 0 : 1;
     }
     return m;
 }

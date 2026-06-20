@@ -26,7 +26,7 @@ That is the bet, and it is a different one from the universal engines:
   backend, geist does **a few models excellently** (Gemma 4 E2B-it and ternary
   1.58-bit BitNet today) — every tensor bound to a hand-picked kernel at load time,
   not a generic dispatch loop.
-- **Edge-first (Raspberry Pi 5).** Tuned for $50–$100 CPUs: a 4.6 B model fits in
+- **Edge-first (Raspberry Pi 5).** Tuned for \$50–\$100 CPUs: a 4.6 B model fits in
   4 GB of RAM, no GPU or driver stack, decode at parity, on-device audio built in.
   The win is deploying and running *simply* on cheap hardware — not topping the
   prefill chart.
@@ -169,12 +169,13 @@ git clone https://github.com/geisten/geistlib && cd geistlib && make
 curl -L -o bitnet-2b4t.i2_s.gguf \
   https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf/resolve/main/ggml-model-i2_s.gguf
 
-# 3. Generate — GEIST_SPEC_HEAD=1 enables the speculative head (the 17.4 tok/s path)
-GEIST_SPEC_HEAD=1 OMP_WAIT_POLICY=active OMP_NUM_THREADS=2 \
+# 3. Generate — the speculative head is on by default (GEIST_SPEC_HEAD=0 disables)
+OMP_WAIT_POLICY=active OMP_NUM_THREADS=2 \
   ./geist bitnet-2b4t.i2_s.gguf "The capital of France is" -n 64
 ```
 
-The decode win comes from a **speculative output head** (`GEIST_SPEC_HEAD=1`):
+The decode win comes from a **speculative output head** (default on for greedy;
+`GEIST_SPEC_HEAD=0` forces the exact dense head):
 on this model the lm_head is a tied **F16** embedding (656 MB read *per token*,
 ~50 % of decode). geist keeps a stride-subsampled int8 "sketch" of the table
 (~82 MB), rough-ranks the whole 128 K vocabulary with one SDOT pass, then
@@ -215,6 +216,16 @@ simplicity for you, Rust would be the better choice.** We deliberately weighed i
 the other way, and offset the safety cost with strict warnings
 (`-Werror -Wshadow -Wundef`), ASan/UBSan CI (`make MODE=asan`), bit-exact golden
 tests, and a small auditable core (the stable text path is ~70 lines).
+
+---
+
+## 📂 Directory Layout
+
+- [`src/`](src/) — Core inference engine and platform-specific kernels.
+- [`include/`](include/) — Public C API headers.
+- [`examples/`](examples/) — Minimal self-contained integration examples.
+- [`benchmark/`](benchmark/) — Benchmark scripts and performance evaluations.
+- [`docs/`](docs/) — Architectural notes and guides.
 
 ---
 
@@ -260,9 +271,38 @@ includes a small surface:
 | `geist_types.h` | backend authors | low-level tensor / op / dtype types |
 | `geist_backend.h` | backend authors | the backend vtable + descriptor |
 
+### Minimal C API Usage Example
+
+Below is the stable API pattern to load a model and stream generation:
+
 ```c
-#include <geist.h>        // enough to load and run a model
-#include <geist_util.h>   // add this for eos-token stop handling, multimodal, etc.
+#include <geist.h>
+#include <stdio.h>
+
+int main() {
+    struct geist_backend *be = nullptr;
+    geist_backend_create("auto", nullptr, nullptr, &be);
+
+    struct geist_model *model = nullptr;
+    geist_model_load("gemma4.gguf", be, &model);
+
+    struct geist_session *sess = nullptr;
+    struct geist_session_opts opts = {0};
+    geist_session_create(model, be, &opts, &sess);
+
+    geist_session_set_prompt(sess, "The capital of France is");
+
+    geist_token_t tok = 0;
+    while (geist_session_decode_step(sess, &tok) == GEIST_OK) {
+        const char *piece = geist_session_token_to_str(sess, tok);
+        if (piece == nullptr) break;
+        printf("%s", piece);
+    }
+
+    geist_session_destroy(sess);
+    geist_model_destroy(model);
+    geist_backend_destroy(be);
+}
 ```
 
 ### Single-binary builds (model included)
@@ -277,8 +317,8 @@ make EMBED_MODEL=path/to/model.gguf       # bakes the GGUF into ./geist
 
 The weights are aliased **zero-copy** from the binary's read-only data (no extra
 RAM), so this is for **small models** — the binary grows by the model size, and
->~1.5 GB exceeds the 2 GB GitHub-release limit. The model must carry its own
-tokenizer. Your own app gets the same superpower via the public API:
+binaries larger than ~1.5 GB exceed the 2 GB GitHub-release limit. The model
+must carry its own tokenizer. Your own app gets the same superpower via the public API:
 
 ```c
 extern const unsigned char model_start[], model_end[];   // your embedded blob

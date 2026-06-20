@@ -8,6 +8,15 @@ minor release.
 
 ## [Unreleased]
 
+### Changed — speculative output head is now on by default
+
+- The speculative int8-sketch lm_head (below) now defaults **on** for greedy
+  decode on an eligible tied head; `GEIST_SPEC_HEAD=0` forces the exact dense
+  head. Verified byte-identical greedy output on Gemma 4 (Q6_K head, 256 K
+  vocab) and BitNet (F16, 128 K) for ~+5 % Pi 5 decode. Non-greedy sampling,
+  ineligible dtypes, and non-NEON/dotprod hosts always fall back to the dense
+  head, so the default change is a no-op there.
+
 ### Added — speculative int8 output head for BitNet 2B-4T decode (Pi 5)
 
 - `GEIST_SPEC_HEAD=1` enables a speculative lm_head for large **tied F16**
