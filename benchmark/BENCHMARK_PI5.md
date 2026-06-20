@@ -92,6 +92,54 @@ are elsewhere: **decode parity**, a **dependency-free static binary**, and a
 On Apple AMX the picture is geist-favoured at every length (see
 [BENCHMARK.md](BENCHMARK.md), the Apple M1 Max write-up in this folder).
 
+## Re-verification — current llama.cpp + ollama (June 20, 2026)
+
+Re-measured on the same board after the `src/base` / `src/quant` / arch-ops /
+GEMM-provider refactors, and against a **current** llama.cpp (the pinned
+`d05fe1d` above was a year old — a fair comparison should use today's upstream).
+Same GGUF, 4 threads, each engine cold-started; geist is the post-refactor build,
+llama.cpp is `acd79d6` (2026-06-14) built two ways.
+
+| engine / build | pp128 | pp256 | pp512 | pp1024 | decode |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| **geist** (post-refactor) | 33.5 | 33.4 | 32.4 | 31.0 | 6.4 |
+| llama.cpp `acd79d6` **OpenBLAS** | 38.3 | 38.0 | 36.8 | 35.5 | 6.90 |
+| llama.cpp `acd79d6` **CPU** (no BLAS) | 39.2 | 38.1 | 37.3 | 35.2 | 6.88 |
+| llama.cpp `d05fe1d` (the pinned baseline) | 37.4 | 39.4 | 37.6 | 35.9 | 6.8 |
+
+**Two things this settles:**
+
+1. **The refactors did not move geist.** Prefill is within ~1–4 % of the
+   pre-refactor numbers (pure measurement/thermal noise) — expected, since they
+   were structural (file moves, build seams); the compute kernels are byte-identical.
+2. **"Use a current llama.cpp" changes nothing here, and neither does dropping
+   BLAS.** Current upstream (`acd79d6`) ≈ the year-old `d05fe1d` ≈ ~38 t/s, and the
+   modern ggml CPU backend ties OpenBLAS (~39 vs ~38) — the A76 has no `i8mm`, so
+   the repacked int8 path has no SDOT/i8mm edge to exploit over a tuned fp32 sgemm.
+   geist stays ~13–15 % behind on prefill and ~par on decode, exactly as before.
+
+### ollama
+
+Added `ollama` 0.30.10 (its bundled llama.cpp, ggml CPU backend) on the same GGUF
+via a `Modelfile` (`FROM …/gemma4-e2b-Q4_K_M.gguf`). Harness:
+[`ollama_bench_pi5.py`](ollama_bench_pi5.py).
+
+> **ollama OOM-kills on the 4 GB board by default — `use_mmap` is required.**
+> Stock ollama loads weights resident; gemma4-e2b's **1.93 GB PLE table** then sits
+> in anonymous RAM and `llama-server` is OOM-killed at load (`signal: killed`,
+> anon-rss ≈ 1.96 GB), independent of context size. Forcing `use_mmap:true` (plus a
+> small `num_batch` so the prefill buffer fits) keeps the weights file-backed and it
+> loads. **This is exactly the 4 GB constraint geist solves natively** via
+> `GEIST_WEIGHT_MMAP` — geist runs the model here with no tuning.
+
+Decode lands ~par (ollama ~6.2 t/s, measured while the board was already warm vs
+the cold llama.cpp/geist runs). **Its prefill is *not* reported here:** ollama is
+llama.cpp, yet its REST-API timing fields gave ~44 t/s — ~15 % above the same
+engine measured by standalone `llama-bench` (38–39), and that while running
+hotter, which is physically backwards. The discrepancy is an artifact of how the
+API reports `prompt_eval_duration`, not a real win. For a like-for-like ollama
+prefill number, read the **llama.cpp CPU** row above — it is the same runner.
+
 ## Thread placement (quiesced)
 
 The two phases want different core counts, and geist sets each automatically:
