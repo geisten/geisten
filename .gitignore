@@ -22,3 +22,6 @@ bench_runs/
 summary.json
 module_tree.txt
 tokens_ref.txt
+
+# JetBrains IDE
+.idea/
