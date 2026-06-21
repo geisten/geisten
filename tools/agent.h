@@ -252,6 +252,22 @@ agent_system_prompt(const struct geist_agent *a, size_t cap, char out[static cap
     return w;
 }
 
+/* Copy src into resp (cap), truncating safely; returns the written length.
+ * Used instead of snprintf(resp, cap, "%s", turn) so gcc -Wformat-truncation
+ * (under _FORTIFY_SOURCE) can't flag copying a larger fixed buffer into resp. */
+static inline size_t agent_copy(size_t cap, char resp[static cap], const char *src) {
+    if (cap == 0) {
+        return 0;
+    }
+    size_t n = strlen(src);
+    if (n >= cap) {
+        n = cap - 1;
+    }
+    memcpy(resp, src, n);
+    resp[n] = '\0';
+    return n;
+}
+
 /* Run one request to completion: loop generate -> parse -> (whitelist) dispatch
  * -> observe, until the model answers in plain text or max_steps is hit.
  * On any failure resp is left well-defined ("" / *resp_len 0). */
@@ -293,9 +309,9 @@ agent_system_prompt(const struct geist_agent *a, size_t cap, char out[static cap
 
         if (!agent_parse_call(tn, turn, sizeof name, name, sizeof args, args)) {
             /* no tool call -> this turn is the final answer */
-            size_t n = (size_t) snprintf(resp, resp_cap, "%s", turn);
+            size_t n = agent_copy(resp_cap, resp, turn);
             if (resp_len) {
-                *resp_len = n < resp_cap ? n : resp_cap - 1;
+                *resp_len = n;
             }
             return GEIST_OK;
         }
@@ -309,9 +325,9 @@ agent_system_prompt(const struct geist_agent *a, size_t cap, char out[static cap
         }
 
         /* keep a best-effort answer in resp in case we hit max_steps */
-        snprintf(resp, resp_cap, "%s", turn);
+        size_t bn = agent_copy(resp_cap, resp, turn);
         if (resp_len) {
-            *resp_len = strlen(resp);
+            *resp_len = bn;
         }
 
         /* append the model's call + the observation, reopen the model turn */
