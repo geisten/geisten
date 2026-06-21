@@ -5,6 +5,8 @@
  * the args extraction, and the HTML stripper. The real curl fetch is in the
  * _int test. No assert() — checks set a flag, exit code carries PASS/FAIL.
  */
+#define _POSIX_C_SOURCE 200809L
+
 #include "test_helpers.h"
 
 #include "../tools/agent_webfetch.h"

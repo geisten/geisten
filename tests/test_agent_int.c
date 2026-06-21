@@ -6,6 +6,8 @@
  * loop returns OK with a non-empty answer inside max_steps and never runs an
  * off-whitelist tool. SKIPs cleanly without GEIST_GGUF_PATH. No assert().
  */
+#define _POSIX_C_SOURCE 200809L
+
 #include "test_helpers.h"
 
 #include "../tools/agent.h"

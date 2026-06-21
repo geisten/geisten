@@ -6,6 +6,8 @@
  * throwaway doc dir. The model-driven run loop is exercised in the _int test.
  * No assert() — checks set a flag, the exit code carries PASS/FAIL.
  */
+#define _POSIX_C_SOURCE 200809L
+
 #include "test_helpers.h"
 
 #include "../tools/agent.h"

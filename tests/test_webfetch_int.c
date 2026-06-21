@@ -4,6 +4,8 @@
  * no external network. Also checks the security rejections through invoke().
  * SKIPs if curl is not installed. No assert() — exit code carries PASS/FAIL.
  */
+#define _GNU_SOURCE
+
 #include "test_helpers.h"
 
 #include "../tools/agent_webfetch.h"

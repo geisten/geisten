@@ -6,6 +6,8 @@
  * GEIST_MIND_DIR so it never touches a real ./mind. No assert() (AGENT.md):
  * checks set a fail flag and the exit code carries PASS/FAIL.
  */
+#define _POSIX_C_SOURCE 200809L
+
 #include "test_helpers.h"
 
 #include "../tools/mind.h"

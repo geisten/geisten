@@ -10,6 +10,8 @@
  * SKIPs cleanly without a GGUF or if the geist_chat binary can't be located.
  * No assert() — exit codes carry PASS/FAIL/SKIP.
  */
+#define _POSIX_C_SOURCE 200809L
+
 #include "test_helpers.h"
 
 #include "../tools/mind.h" /* mind_slurp */

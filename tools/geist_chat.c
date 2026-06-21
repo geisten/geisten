@@ -17,6 +17,8 @@
  *   /quit
  * Anything else is a chat turn.
  */
+#define _POSIX_C_SOURCE 200809L
+
 #include <geist.h>
 #include <geist_util.h>
 
