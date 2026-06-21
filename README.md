@@ -77,15 +77,26 @@ What you actually feel when you run a model is **end-to-end throughput**: type a
 short prompt, watch tokens stream out. That's decode-dominated. Same GGUF on both
 engines, greedy, on a Pi 5 (Cortex-A76, 2.4 GHz, best thread count).
 
-**Gemma 4 E2B-it (Q4_K_M)** — end-to-end, 32-token prompt + 128 generated:
+**Gemma 4 E2B-it (Q4_K_M)** — end-to-end, 32-token prompt + 128 generated, each
+engine cold-started:
 
-| engine | **total tok/s** | decode tok/s |
-| :-- | --: | --: |
-| **geist** | **8.4** | 7.1 |
-| llama.cpp (OpenBLAS) | 8.3 | 7.2 |
+| engine | **total tok/s** | decode tok/s | prefill tok/s |
+| :-- | --: | --: | --: |
+| **geist** | **8.8** | **7.5** | 30.0 |
+| llama.cpp (CPU) | 8.2 | 6.8 | 38.5 |
+| llama.cpp (OpenBLAS) | 7.9 | 6.6 | 34.7 |
 
-A **dead heat on speed** — geist just gets there as a single **< 1 MB static
-binary** (no OpenBLAS, no Python, no runtime): copy it onto the Pi and it runs.
+geist **leads end-to-end** here: generation is decode-dominated, and geist's
+speculative output head (on by default; [how it works](#bitnet-b158-2b-4t-on-a-raspberry-pi-5))
+gives it the fastest decode — enough to overcome its lower prefill. It also ships
+as a single **< 1 MB static binary** (no OpenBLAS, no Python, no runtime): copy it
+onto the Pi and it runs. The chart shows why — total tracks decode, not prefill:
+
+<img src="assets/pi5_pp_decode_total.svg" alt="Prefill, decode and total tokens/s for geist vs llama.cpp on a Pi 5 at a 32- and 128-token prompt: total sits just above decode for every engine; geist has the lowest prefill but the highest decode, leading total at the short prompt and tying at the long one." width="100%">
+
+At a longer 128-token prompt, prefill weighs more and it's a tie (geist 11.1 vs
+llama 11.1–11.3) — full sweep and the per-phase split in
+[benchmark/BENCHMARK_PI5.md](benchmark/BENCHMARK_PI5.md).
 
 **BitNet b1.58 2B-4T (`i2_s`)** — where 1.58-bit ternary pays off:
 
