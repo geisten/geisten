@@ -4,7 +4,9 @@
  * no external network. Also checks the security rejections through invoke().
  * SKIPs if curl is not installed. No assert() — exit code carries PASS/FAIL.
  */
-#define _GNU_SOURCE
+#ifndef _GNU_SOURCE /* socket extras (INADDR_LOOPBACK …); guard so a build that */
+#define _GNU_SOURCE /* already passes -D_GNU_SOURCE (the musl CI job) doesn't redefine */
+#endif
 
 #include "test_helpers.h"
 
@@ -113,7 +115,7 @@ int main(void) {
         int c = accept(lfd, nullptr, nullptr);
         if (c >= 0) {
             char req[1024];
-            (void) read(c, req, sizeof req); /* drain the request line */
+            (void) !read(c, req, sizeof req); /* drain the request line (gcc: must "use" it) */
             const char *resp = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n" BODY;
             (void) !write(c, resp, strlen(resp));
             close(c);
