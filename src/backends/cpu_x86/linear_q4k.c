@@ -143,6 +143,7 @@ cpu_x86_linear_q4k_resolve(struct cpu_x86_state *st, struct geist_weight *w) {
     w->aux_n     = (int32_t) blob_bytes;
     w->flags    |= GEIST_W_AUX_HEAP_OWNED | GEIST_W_AUX_BACKEND_REPACK;
     w->linear_m1 = cpu_x86_linear_q4k_m1;
+    w->linear_mN = cpu_x86_linear_q4k_mN;
     return GEIST_OK;
 }
 
@@ -169,4 +170,19 @@ void cpu_x86_linear_q4k_m1(const float               *x,
     w4a8_gemv(n_out, n_blocks_per_row,
               weights, w_scales, w_offsets,
               st->acts_scratch, st->sum_a_scratch, scale_x, y);
+}
+
+void cpu_x86_linear_q4k_mN(const float               *x,
+                           const struct geist_weight *w,
+                           size_t                     m,
+                           struct geist_backend      *be,
+                           float                     *y) {
+    /* ponytail: M-times M=1. Phase 1b later fuses the m-tile so each
+     * weight block is streamed once per m tokens; today this still
+     * beats cpu_scalar's per-row Q4_K dequant. */
+    const size_t n_in  = (size_t) w->n_in;
+    const size_t n_out = (size_t) w->n_out;
+    for (size_t row = 0; row < m; row++) {
+        cpu_x86_linear_q4k_m1(x + row * n_in, w, be, y + row * n_out);
+    }
 }

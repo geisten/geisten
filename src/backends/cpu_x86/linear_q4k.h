@@ -43,4 +43,19 @@ void cpu_x86_linear_q4k_m1(const float               *x,
                            struct geist_backend      *be,
                            float                     *y);
 
+/* The M>1 (prefill) kernel installed into w->linear_mN by the resolver.
+ *
+ * Phase-1b-Step-1 implementation: serial loop calling the M=1 kernel
+ * m times. Correct but does not amortize the weight-read across the
+ * batch (every row re-streams the W4A8 SoA). The next iteration in
+ * Phase 1b fuses the inner so each weight block is read once per
+ * m-tile; benchmarks against cpu_scalar should still show a large win
+ * here because cpu_scalar dequants Q4_K → fp32 per row inside the
+ * inner. */
+void cpu_x86_linear_q4k_mN(const float               *x,
+                           const struct geist_weight *w,
+                           size_t                     m,
+                           struct geist_backend      *be,
+                           float                     *y);
+
 #endif /* GEIST_INTERNAL_BACKEND_CPU_X86_LINEAR_Q4K_H */
