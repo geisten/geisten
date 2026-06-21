@@ -22,7 +22,7 @@ def temp():
     except: return -1
 
 def cool(thr=float(os.environ.get("COOL_C", "50"))):
-    # ponytail: auto-skips off-Pi (no vcgencmd -> temp()=-1 < thr); QUIESCE=0 forces skip.
+    # auto-skips off-Pi (no vcgencmd -> temp()=-1 < thr); QUIESCE=0 forces skip.
     if os.environ.get("QUIESCE") == "0": return temp()
     while temp() >= thr: time.sleep(10)
     return temp()
