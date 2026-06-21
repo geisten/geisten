@@ -25,6 +25,7 @@
 
 #include "backend_state.h"
 #include "linear_q4k.h"
+#include "linear_q6k.h"
 
 #include "heap.h"
 
@@ -80,17 +81,23 @@ static void cpu_x86_destroy(struct geist_backend *be) {
     if (base != GEIST_OK) {
         return base;
     }
-    /* Override the M=1 path for Q4_K with the W4A8 fast path. M>1 stays
-     * on cpu_scalar's slow path for now — Phase 1b will fill that in
-     * (see docs/LINUX_X86_SPEC.md §"Prefill kernel topology"). */
-    if ((enum geist_dtype) w->dtype == GEIST_DTYPE_Q4_K) {
+    /* Override the M=1 path per dtype. M>1 stays on cpu_scalar's slow
+     * path for now — Phase 1b wires the W4A8 prefill kernel (see
+     * docs/LINUX_X86_SPEC.md §"Prefill kernel topology").
+     *
+     * Q4_K → W4A8 + VPDPBUSD. Q6_K → fp32 predecode + cblas_sgemv (the
+     * typical Gemma 4 tied lm_head). Other dtypes stay on cpu_scalar. */
+    switch ((enum geist_dtype) w->dtype) {
+    case GEIST_DTYPE_Q4_K: {
         struct cpu_x86_state *st = (struct cpu_x86_state *) be->state;
-        enum geist_status     q4_status = cpu_x86_linear_q4k_resolve(st, w);
-        if (q4_status != GEIST_OK) {
-            /* Fall back to cpu_scalar's M=1 — the descriptor still works,
-             * the user just loses the W4A8 speedup for this weight. */
-            return GEIST_OK;
-        }
+        (void) cpu_x86_linear_q4k_resolve(st, w); /* OOM → keep scalar m1 */
+        break;
+    }
+    case GEIST_DTYPE_Q6_K:
+        (void) cpu_x86_linear_q6k_resolve(w); /* OOM → keep scalar m1 */
+        break;
+    default:
+        break;
     }
     return GEIST_OK;
 }
