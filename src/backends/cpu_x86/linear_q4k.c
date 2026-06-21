@@ -23,6 +23,7 @@
 
 #include "backend_state.h"
 #include "kernel_w4a8.h"
+#include "kernel_w8a8.h" /* W8A8_BLOCK_ELEMS for sum_a sizing */
 #include "q4k_to_w4a8.h"
 
 #include "heap.h"
@@ -111,7 +112,9 @@ static enum geist_status grow_scratch(struct cpu_x86_state *st, size_t n_in) {
     if (new_acts == nullptr) {
         return GEIST_E_OOM;
     }
-    const size_t n_blocks = n_in / W4A8_BLOCK_ELEMS;
+    /* Size sum_a for the SMALLEST block granularity — W8A8 (16 elem) —
+     * so the buffer covers both W4A8 (Q4_K) and W8A8 (Q6_K) callers. */
+    const size_t n_blocks = n_in / W8A8_BLOCK_ELEMS;
     int32_t *new_sum_a    = heap_alloc_aligned(n_blocks * sizeof(int32_t), OPTIMAL_ALIGNMENT);
     if (new_sum_a == nullptr) {
         safe_free((void **) &new_acts);
