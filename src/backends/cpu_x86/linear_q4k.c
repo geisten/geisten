@@ -63,6 +63,44 @@ static void blob_pointers(const uint8_t *blob,
     *offsets_out = *scales_out + scales_count;
 }
 
+/* Grow the per-call mtile scratch to cover at least (m, n_in). Called
+ * from linear_mN on first use and whenever m or n_in exceeds the cached
+ * capacity. Not in the inner hot path. */
+static enum geist_status grow_mtile(struct cpu_x86_state *st, size_t m, size_t n_in) {
+    if (m <= st->mtile_m_cap && n_in <= st->mtile_n_cap) {
+        return GEIST_OK;
+    }
+    const size_t n_blocks   = n_in / W4A8_BLOCK_ELEMS;
+    const size_t acts_bytes = m * n_in * sizeof(int8_t);
+    const size_t suma_bytes = m * n_blocks * sizeof(int32_t);
+    const size_t sx_bytes   = m * sizeof(float);
+
+    int8_t  *new_acts = heap_alloc_aligned(acts_bytes, OPTIMAL_ALIGNMENT);
+    if (new_acts == nullptr) {
+        return GEIST_E_OOM;
+    }
+    int32_t *new_suma = heap_alloc_aligned(suma_bytes, OPTIMAL_ALIGNMENT);
+    if (new_suma == nullptr) {
+        safe_free((void **) &new_acts);
+        return GEIST_E_OOM;
+    }
+    float   *new_sx   = heap_alloc_aligned(sx_bytes, OPTIMAL_ALIGNMENT);
+    if (new_sx == nullptr) {
+        safe_free((void **) &new_acts);
+        safe_free((void **) &new_suma);
+        return GEIST_E_OOM;
+    }
+    safe_free((void **) &st->acts_mtile);
+    safe_free((void **) &st->sum_a_mtile);
+    safe_free((void **) &st->scale_x_mtile);
+    st->acts_mtile    = new_acts;
+    st->sum_a_mtile   = new_suma;
+    st->scale_x_mtile = new_sx;
+    st->mtile_m_cap   = m;
+    st->mtile_n_cap   = n_in;
+    return GEIST_OK;
+}
+
 /* Grow the backend's activation scratch buffers to cover at least n_in
  * elements. Called only at resolve_weight time. Returns OK or E_OOM. */
 static enum geist_status grow_scratch(struct cpu_x86_state *st, size_t n_in) {
@@ -177,12 +215,56 @@ void cpu_x86_linear_q4k_mN(const float               *x,
                            size_t                     m,
                            struct geist_backend      *be,
                            float                     *y) {
-    /* ponytail: M-times M=1. Phase 1b later fuses the m-tile so each
-     * weight block is streamed once per m tokens; today this still
-     * beats cpu_scalar's per-row Q4_K dequant. */
-    const size_t n_in  = (size_t) w->n_in;
-    const size_t n_out = (size_t) w->n_out;
-    for (size_t row = 0; row < m; row++) {
-        cpu_x86_linear_q4k_m1(x + row * n_in, w, be, y + row * n_out);
+    struct cpu_x86_state *st               = (struct cpu_x86_state *) be->state;
+    const size_t          n_in             = (size_t) w->n_in;
+    const size_t          n_out            = (size_t) w->n_out;
+    const size_t          n_blocks_per_row = n_in / W4A8_BLOCK_ELEMS;
+
+    /* Ensure the mtile scratch covers (m, n_in). On allocation failure
+     * fall back to the per-row path — slower, but correct. */
+    if (grow_mtile(st, m, n_in) != GEIST_OK) {
+        for (size_t row = 0; row < m; row++) {
+            cpu_x86_linear_q4k_m1(x + row * n_in, w, be, y + row * n_out);
+        }
+        return;
+    }
+
+    /* Quantize all m activation rows up front into the mtile scratch.
+     * One pass over the input matrix; reuses w4a8_quantize_acts_row. */
+    for (size_t r = 0; r < m; r++) {
+        st->scale_x_mtile[r] = w4a8_quantize_acts_row(
+                n_in,
+                x + r * n_in,
+                st->acts_mtile + r * n_in,
+                st->sum_a_mtile + r * n_blocks_per_row);
+    }
+
+    /* Resolve SoA pointers once. */
+    const uint8_t *weights;
+    const float   *w_scales;
+    const float   *w_offsets;
+    blob_pointers((const uint8_t *) w->aux_fp32, n_in, n_out,
+                  &weights, &w_scales, &w_offsets);
+
+    /* Outer parallel loop over rows; inner serial over m tokens. Weight
+     * row blocks (~16 bytes × n_blocks_per_row ≈ 768 bytes for n_in=1536)
+     * stay L1-resident for the duration of one row's m iterations. */
+    const size_t bytes_per_row  = n_blocks_per_row * W4A8_BLOCK_BYTES_WEIGHTS;
+    const size_t scales_per_row = n_blocks_per_row;
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+    for (size_t row = 0; row < n_out; row++) {
+        const uint8_t *w_row = weights + row * bytes_per_row;
+        const float   *s_row = w_scales + row * scales_per_row;
+        const float   *o_row = w_offsets + row * scales_per_row;
+        for (size_t r = 0; r < m; r++) {
+            y[r * n_out + row] = w4a8_dot(
+                    n_blocks_per_row,
+                    w_row, s_row, o_row,
+                    st->acts_mtile + r * n_in,
+                    st->sum_a_mtile + r * n_blocks_per_row,
+                    st->scale_x_mtile[r]);
+        }
     }
 }

@@ -67,6 +67,9 @@ static void cpu_x86_destroy(struct geist_backend *be) {
     struct cpu_x86_state *st = (struct cpu_x86_state *) be->state;
     safe_free((void **) &st->acts_scratch);
     safe_free((void **) &st->sum_a_scratch);
+    safe_free((void **) &st->acts_mtile);
+    safe_free((void **) &st->sum_a_mtile);
+    safe_free((void **) &st->scale_x_mtile);
     geist_backend_free(be, st);
     be->state = nullptr;
 }
