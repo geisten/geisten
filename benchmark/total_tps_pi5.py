@@ -15,7 +15,7 @@ def temp():
     try: return float(subprocess.check_output(["vcgencmd","measure_temp"]).decode().split("=")[1].split("'")[0])
     except: return -1
 
-def cool(thr=56):
+def cool(thr=float(os.environ.get("COOL_C", "50"))):
     while temp() >= thr: time.sleep(10)
     return temp()
 
