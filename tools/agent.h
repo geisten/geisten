@@ -139,6 +139,38 @@ static inline int agent_parse_call(size_t     raw_len,
     return 1;
 }
 
+/* Extract a JSON string field value:  "<key>":"<value>"  into out (NUL-term).
+ * Returns 1 if a non-empty value was found. Handles a backslash escape so a
+ * quoted value with \" survives. ponytail: flat fields only, no nested objects
+ * or \uXXXX — move to grammar-constrained args if tools need rich inputs. */
+static inline int
+agent_json_str(const char *json, const char *key, size_t cap, char out[static cap]) {
+    out[0] = '\0';
+    char pat[64];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (!p) {
+        return 0;
+    }
+    p += strlen(pat);
+    while (*p && *p != '"') { /* skip ':' + spaces to the opening quote */
+        p++;
+    }
+    if (*p != '"') {
+        return 0;
+    }
+    p++;
+    size_t w = 0;
+    while (*p && *p != '"' && w + 1 < cap) {
+        if (*p == '\\' && p[1]) {
+            p++; /* take the escaped char literally */
+        }
+        out[w++] = *p++;
+    }
+    out[w] = '\0';
+    return w > 0;
+}
+
 static inline const struct geist_tool *agent_find(const struct geist_agent *a, const char *name) {
     for (size_t i = 0; i < a->n_tools; i++) {
         if (strcmp(a->tools[i].name, name) == 0) {

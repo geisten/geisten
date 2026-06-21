@@ -23,32 +23,6 @@
 
 enum { DOCSEARCH_MAX_HITS = 5, DOCSEARCH_LINE_CAP = 1024 };
 
-/* Extract a JSON string field value: "<key>":"<value>". Returns 1 on success. */
-static inline int
-docsearch_field(const char *json, const char *key, size_t cap, char out[static cap]) {
-    out[0] = '\0';
-    char pat[64];
-    snprintf(pat, sizeof pat, "\"%s\"", key);
-    const char *p = strstr(json, pat);
-    if (!p) {
-        return 0;
-    }
-    p += strlen(pat);
-    while (*p && *p != '"') { /* skip ':' + spaces to the opening quote */
-        p++;
-    }
-    if (*p != '"') {
-        return 0;
-    }
-    p++;
-    size_t w = 0;
-    while (*p && *p != '"' && w + 1 < cap) {
-        out[w++] = *p++;
-    }
-    out[w] = '\0';
-    return w > 0;
-}
-
 static inline int ci_contains(const char *hay, const char *needle) {
     size_t nl = strlen(needle);
     if (nl == 0) {
@@ -77,7 +51,7 @@ static inline enum geist_status docsearch_invoke(void      *ctx,
     (void) args_len;
     const char *dir = (const char *) ctx;
     char        query[256];
-    if (!docsearch_field(args, "query", sizeof query, query)) {
+    if (!agent_json_str(args, "query", sizeof query, query)) {
         size_t n = (size_t) snprintf(out, out_cap, "error: missing \"query\"");
         if (out_len) {
             *out_len = n;
