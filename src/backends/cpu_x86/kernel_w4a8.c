@@ -21,9 +21,14 @@
 #include "kernel_w4a8.h"
 
 #include "hw_probe.h"
+#include "quant.h" /* quantize_x_int8_sym */
 
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 typedef float (*w4a8_dot_fn)(size_t        n_blocks,
                              const uint8_t weights[static n_blocks * W4A8_BLOCK_BYTES_WEIGHTS],
@@ -139,6 +144,63 @@ enum w4a8_isa w4a8_dispatcher_current(void) {
         (void) w4a8_dispatcher_init();
     }
     return g_dot(n_blocks, weights, w_scales, w_offsets, acts, sum_a_per_block, scale_x);
+}
+
+void w4a8_gemv(
+        size_t        n_rows,
+        size_t        n_blocks_per_row,
+        const uint8_t weights[static n_rows * n_blocks_per_row * W4A8_BLOCK_BYTES_WEIGHTS],
+        const float   w_scales[static n_rows * n_blocks_per_row],
+        const float   w_offsets[static n_rows * n_blocks_per_row],
+        const int8_t  acts[static n_blocks_per_row * W4A8_BLOCK_ELEMS],
+        const int32_t sum_a_per_block[static n_blocks_per_row],
+        float         scale_x,
+        float         out[static n_rows]) {
+    /* Ensure the dispatcher is wired before the OMP region: lazy init from
+     * inside #pragma omp parallel would race on first-use. */
+    if (g_inited == 0) {
+        (void) w4a8_dispatcher_init();
+    }
+    const size_t bytes_per_row   = n_blocks_per_row * W4A8_BLOCK_BYTES_WEIGHTS;
+    const size_t scales_per_row  = n_blocks_per_row;
+
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+    for (size_t m = 0; m < n_rows; m++) {
+        const uint8_t *w_row = weights + m * bytes_per_row;
+        const float   *s_row = w_scales + m * scales_per_row;
+        const float   *o_row = w_offsets + m * scales_per_row;
+        out[m]               = g_dot(n_blocks_per_row,
+                                     w_row,
+                                     s_row,
+                                     o_row,
+                                     acts,
+                                     sum_a_per_block,
+                                     scale_x);
+    }
+}
+
+[[nodiscard]] float w4a8_quantize_acts_row(
+        size_t      n_in,
+        const float x[static n_in],
+        int8_t      acts_out[static n_in],
+        int32_t     sum_a_per_block_out[static n_in / W4A8_BLOCK_ELEMS]) {
+    const float scale_x = quantize_x_int8_sym(x, n_in, acts_out);
+
+    /* Single pass over the freshly-written int8 buffer (hot in L1) to
+     * compute per-block sums. The block stride matches W4A8's 32-element
+     * quantum from kernel_w4a8.h. */
+    const size_t n_blocks = n_in / W4A8_BLOCK_ELEMS;
+    for (size_t b = 0; b < n_blocks; b++) {
+        const int8_t *blk = acts_out + b * W4A8_BLOCK_ELEMS;
+        int32_t       s   = 0;
+        for (size_t i = 0; i < W4A8_BLOCK_ELEMS; i++) {
+            s += (int32_t) blk[i];
+        }
+        sum_a_per_block_out[b] = s;
+    }
+    return scale_x;
 }
 
 const char *w4a8_isa_name(enum w4a8_isa isa) {

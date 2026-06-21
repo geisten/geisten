@@ -101,6 +101,47 @@ constexpr size_t W4A8_BLOCK_BYTES_WEIGHTS = W4A8_BLOCK_ELEMS / 2;
         const int32_t sum_a_per_block[static n_blocks],
         float         scale_x);
 
+/* W4A8 matrix-vector product (decode m=1 case).
+ *
+ * Computes one row's contribution per output via the dispatched inner
+ * kernel `w4a8_dot`, parallelized across rows with OpenMP. The activation
+ * row (acts, sum_a_per_block, scale_x) is shared across all rows; the
+ * caller computes it once via w4a8_quantize_acts_row.
+ *
+ * Sizes:
+ *   n_blocks_per_row = n_in / W4A8_BLOCK_ELEMS  (rows have uniform n_in).
+ *   weights: n_rows * n_blocks_per_row * W4A8_BLOCK_BYTES_WEIGHTS bytes.
+ *   w_scales / w_offsets: n_rows * n_blocks_per_row fp32.
+ *
+ * Allocation-free; caller owns every buffer. */
+void w4a8_gemv(
+        size_t        n_rows,
+        size_t        n_blocks_per_row,
+        const uint8_t weights[static n_rows * n_blocks_per_row * W4A8_BLOCK_BYTES_WEIGHTS],
+        const float   w_scales[static n_rows * n_blocks_per_row],
+        const float   w_offsets[static n_rows * n_blocks_per_row],
+        const int8_t  acts[static n_blocks_per_row * W4A8_BLOCK_ELEMS],
+        const int32_t sum_a_per_block[static n_blocks_per_row],
+        float         scale_x,
+        float         out[static n_rows]);
+
+/* Quantize one fp32 activation row to int8 + per-block sum_a + per-row
+ * scale_x — the three inputs the W4A8 dot kernel consumes.
+ *
+ * Wraps the existing quantize_x_int8_sym (symmetric int8, per-row scale)
+ * and adds a single int8-buffer pass that sums each 32-element block
+ * into sum_a_per_block.
+ *
+ * Returns scale_x = max|x[i]| / 127  (1.0 if all-zero input).
+ *
+ * n_in must be a positive multiple of W4A8_BLOCK_ELEMS (32). Allocation-
+ * free; caller owns acts_out and sum_a_per_block_out. */
+[[nodiscard]] float w4a8_quantize_acts_row(
+        size_t      n_in,
+        const float x[static n_in],
+        int8_t      acts_out[static n_in],
+        int32_t     sum_a_per_block_out[static n_in / W4A8_BLOCK_ELEMS]);
+
 /* Initialize the dispatcher. Idempotent, thread-safe (first-call wins).
  * Returns the ISA tier the dispatcher will use on this host.
  *
