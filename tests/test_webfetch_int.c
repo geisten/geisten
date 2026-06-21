@@ -18,14 +18,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static int  fails = 0;
-static void check(int cond, const char *what) {
-    if (!cond) {
-        fprintf(stderr, "FAIL: %s\n", what);
-        fails++;
-    }
-}
-
+static int fails = 0;
 /* fork+exec `curl --version`; return 1 if curl is present and runnable. */
 static int curl_present(void) {
     pid_t pid = fork();
@@ -90,7 +83,7 @@ int main(void) {
                     sizeof out,
                     out,
                     &n);
-    check(strstr(out, "only http/https") != nullptr, "reject: file:// scheme");
+    fails += geist_expect(strstr(out, "only http/https") != nullptr, "reject: file:// scheme");
 
     webfetch_invoke((void *) (intptr_t) "example.com",
                     strlen("{\"url\":\"http://127.0.0.1/x\"}"),
@@ -98,10 +91,10 @@ int main(void) {
                     sizeof out,
                     out,
                     &n);
-    check(strstr(out, "not allowed") != nullptr, "reject: host off the allowlist");
+    fails += geist_expect(strstr(out, "not allowed") != nullptr, "reject: host off the allowlist");
 
     webfetch_invoke(nullptr, strlen("{\"q\":\"x\"}"), "{\"q\":\"x\"}", sizeof out, out, &n);
-    check(strstr(out, "missing") != nullptr, "reject: missing url");
+    fails += geist_expect(strstr(out, "missing") != nullptr, "reject: missing url");
 
     /* ---- real fetch from a loopback server ---- */
     int port = 0;
@@ -136,9 +129,10 @@ int main(void) {
     waitpid(srv, &wst, 0);
 
     fprintf(stderr, "fetch -> st=%d, %zu bytes: \"%.120s\"\n", (int) st, n, out);
-    check(st == GEIST_OK, "fetch: returns OK");
-    check(strstr(out, "warranty 24 months") != nullptr, "fetch: body text returned");
-    check(strchr(out, '<') == nullptr, "fetch: HTML tags stripped");
+    fails += geist_expect(st == GEIST_OK, "fetch: returns OK");
+    fails +=
+            geist_expect(strstr(out, "warranty 24 months") != nullptr, "fetch: body text returned");
+    fails += geist_expect(strchr(out, '<') == nullptr, "fetch: HTML tags stripped");
 
     if (fails > 0) {
         fprintf(stderr, "%d check(s) failed\n", fails);

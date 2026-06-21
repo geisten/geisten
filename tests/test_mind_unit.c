@@ -17,13 +17,6 @@
 
 static int fails = 0;
 
-static void check(int cond, const char *what) {
-    if (!cond) {
-        fprintf(stderr, "FAIL: %s\n", what);
-        fails++;
-    }
-}
-
 static void expect_slug(const char *title, const char *want) {
     char got[256];
     mind_slugify(title, got, sizeof got);
@@ -53,26 +46,32 @@ int main(void) {
     expect_slug("", "note");              /* empty title */
 
     /* ---- remember writes a note with frontmatter + body ---- */
-    check(mind_remember("Test Note", "hello world contents") == 0, "remember returns 0");
+    fails += geist_expect(mind_remember("Test Note", "hello world contents") == 0,
+                          "remember returns 0");
     char buf[4096];
     long n = mind_recall("test-note", buf, sizeof buf);
-    check(n > 0, "recall finds the note");
-    check(strstr(buf, "title: Test Note") != nullptr, "note has frontmatter title");
-    check(strstr(buf, "hello world contents") != nullptr, "note has the body");
+    fails += geist_expect(n > 0, "recall finds the note");
+    fails += geist_expect(strstr(buf, "title: Test Note") != nullptr, "note has frontmatter title");
+    fails += geist_expect(strstr(buf, "hello world contents") != nullptr, "note has the body");
 
     /* ---- the index gained a linked line ---- */
     long ni = mind_slurp(MIND_TEST_DIR "/INDEX.md", buf, sizeof buf);
-    check(ni > 0, "INDEX.md exists");
-    check(strstr(buf, "[Test Note](test-note.md)") != nullptr, "index links the note");
+    fails += geist_expect(ni > 0, "INDEX.md exists");
+    fails += geist_expect(strstr(buf, "[Test Note](test-note.md)") != nullptr,
+                          "index links the note");
 
     /* ---- a second note appends, not overwrites ---- */
-    check(mind_remember("Second", "another note") == 0, "remember second returns 0");
+    fails +=
+            geist_expect(mind_remember("Second", "another note") == 0, "remember second returns 0");
     mind_slurp(MIND_TEST_DIR "/INDEX.md", buf, sizeof buf);
-    check(strstr(buf, "[Test Note](test-note.md)") != nullptr, "first index line survives");
-    check(strstr(buf, "[Second](second.md)") != nullptr, "second index line appended");
+    fails += geist_expect(strstr(buf, "[Test Note](test-note.md)") != nullptr,
+                          "first index line survives");
+    fails += geist_expect(strstr(buf, "[Second](second.md)") != nullptr,
+                          "second index line appended");
 
     /* ---- recall of a missing note fails cleanly ---- */
-    check(mind_recall("does-not-exist", buf, sizeof buf) < 0, "recall missing note returns -1");
+    fails += geist_expect(mind_recall("does-not-exist", buf, sizeof buf) < 0,
+                          "recall missing note returns -1");
 
     cleanup();
     if (fails > 0) {

@@ -66,6 +66,9 @@ static inline void mind_today(char *out, size_t cap) {
 /* Read a whole small file into buf (truncates at cap-1, NUL-terminated).
  * Returns bytes read, or -1 if the file can't be opened. */
 static inline long mind_slurp(const char *path, char *buf, size_t cap) {
+    if (cap) {
+        buf[0] = '\0'; /* always leave buf NUL-terminated, even on failure */
+    }
     FILE *f = fopen(path, "r");
     if (!f) {
         return -1;

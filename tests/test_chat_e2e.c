@@ -12,6 +12,8 @@
  */
 #include "test_helpers.h"
 
+#include "../tools/mind.h" /* mind_slurp */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,25 +23,7 @@
 #define SCRIPT E2E_DIR "/script.txt"
 #define OUTFILE E2E_DIR "/out.txt"
 
-static int  fails = 0;
-static void check(int cond, const char *what) {
-    if (!cond) {
-        fprintf(stderr, "FAIL: %s\n", what);
-        fails++;
-    }
-}
-
-/* slurp a file into buf (cap-1, NUL-terminated); "" if it can't be opened. */
-static void slurp(const char *path, char *buf, size_t cap) {
-    buf[0]  = '\0';
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        return;
-    }
-    size_t n = fread(buf, 1, cap - 1, f);
-    buf[n]   = '\0';
-    fclose(f);
-}
+static int fails = 0;
 
 int main(int argc, char **argv) {
     (void) argc;
@@ -85,18 +69,22 @@ int main(int argc, char **argv) {
              SCRIPT,
              OUTFILE);
     int rc = system(cmd);
-    check(rc == 0, "geist_chat exited 0");
+    fails += geist_expect(rc == 0, "geist_chat exited 0");
 
     char buf[8192];
     /* on-disk side effects */
-    slurp(E2E_DIR "/e2e-note.md", buf, sizeof buf);
-    check(strstr(buf, "stored by the e2e test") != nullptr, "note file written with the body");
-    slurp(E2E_DIR "/INDEX.md", buf, sizeof buf);
-    check(strstr(buf, "[E2E Note](e2e-note.md)") != nullptr, "INDEX.md links the note");
+    mind_slurp(E2E_DIR "/e2e-note.md", buf, sizeof buf);
+    fails += geist_expect(strstr(buf, "stored by the e2e test") != nullptr,
+                          "note file written with the body");
+    mind_slurp(E2E_DIR "/INDEX.md", buf, sizeof buf);
+    fails += geist_expect(strstr(buf, "[E2E Note](e2e-note.md)") != nullptr,
+                          "INDEX.md links the note");
     /* REPL stdout proves the commands ran */
-    slurp(OUTFILE, buf, sizeof buf);
-    check(strstr(buf, "[E2E Note](e2e-note.md)") != nullptr, "/notes printed the index");
-    check(strstr(buf, "recalled e2e-note into context") != nullptr, "/recall acknowledged");
+    mind_slurp(OUTFILE, buf, sizeof buf);
+    fails += geist_expect(strstr(buf, "[E2E Note](e2e-note.md)") != nullptr,
+                          "/notes printed the index");
+    fails += geist_expect(strstr(buf, "recalled e2e-note into context") != nullptr,
+                          "/recall acknowledged");
 
     remove(E2E_DIR "/e2e-note.md");
     remove(E2E_DIR "/INDEX.md");
