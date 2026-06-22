@@ -22,12 +22,13 @@
 #include "linear_q4k.h"
 
 #include "backend_state.h"
+#include "kernel_bf16_gemm.h"
 #include "kernel_w4a8.h"
 #include "kernel_w8a8.h" /* sum_a sized for W8A8 to also cover Q6_K */
 #include "q4k_to_w4a8.h"
 
 #include "heap.h"
-#include "quant.h" /* Q4_K_BLOCK_ELEMS / Q4_K_BLOCK_BYTES */
+#include "quant.h" /* Q4_K_BLOCK_ELEMS / Q4_K_BLOCK_BYTES / dequant_q4_K_row */
 
 #include <geist_backend.h>
 
@@ -50,62 +51,36 @@ static inline size_t scales_count_per_row(size_t n_in) {
 }
 
 /* SoA pointer reconstruction. The blob layout is:
- *   [weights : n_out * weights_bytes_per_row(n_in)]
- *   [w_scales: n_out * scales_count_per_row(n_in) fp32]
- *   [w_offsets:n_out * scales_count_per_row(n_in) fp32]
- * The fp32 arrays are placed after the byte array, aligned to alignof(float)
- * by construction (heap_alloc_aligned is 64-byte-aligned, weights size is
- * a multiple of 32 — so the fp32 start is 32+-aligned). */
+ *   [weights      : n_out * weights_bytes_per_row(n_in)]    (W4A8 for m=1)
+ *   [w_scales     : n_out * scales_count_per_row(n_in) fp32]
+ *   [w_offsets    : n_out * scales_count_per_row(n_in) fp32]
+ *   [bf16_packed  : n_out * n_in bf16 (packed N_TILE=16, K-pair=2)]  (Phase 2)
+ * Aligned by construction: heap_alloc_aligned gives 64 B, each preceding
+ * section is a multiple of 64. */
+static size_t bf16_bytes_total(size_t n_in, size_t n_out) {
+    return n_out * n_in * sizeof(bf16_t);
+}
+
+static size_t blob_total_bytes(size_t n_in, size_t n_out) {
+    const size_t weights_total = n_out * weights_bytes_per_row(n_in);
+    const size_t scales_total  = n_out * scales_count_per_row(n_in) * sizeof(float);
+    return weights_total + 2 * scales_total + bf16_bytes_total(n_in, n_out);
+}
+
 static void blob_pointers(const uint8_t *blob,
                           size_t         n_in,
                           size_t         n_out,
                           const uint8_t **weights_out,
                           const float  **scales_out,
-                          const float  **offsets_out) {
+                          const float  **offsets_out,
+                          const bf16_t **bf16_packed_out) {
     const size_t weights_bytes = n_out * weights_bytes_per_row(n_in);
     const size_t scales_count  = n_out * scales_count_per_row(n_in);
 
-    *weights_out = blob;
-    *scales_out  = (const float *) (blob + weights_bytes);
-    *offsets_out = *scales_out + scales_count;
-}
-
-/* Grow the per-call mtile scratch to cover at least (m, n_in). Called
- * from linear_mN on first use and whenever m or n_in exceeds the cached
- * capacity. Not in the inner hot path. */
-static enum geist_status grow_mtile(struct cpu_x86_state *st, size_t m, size_t n_in) {
-    if (m <= st->mtile_m_cap && n_in <= st->mtile_n_cap) {
-        return GEIST_OK;
-    }
-    const size_t n_blocks   = n_in / W4A8_BLOCK_ELEMS;
-    const size_t acts_bytes = m * n_in * sizeof(int8_t);
-    const size_t suma_bytes = m * n_blocks * sizeof(int32_t);
-    const size_t sx_bytes   = m * sizeof(float);
-
-    int8_t  *new_acts = heap_alloc_aligned(acts_bytes, OPTIMAL_ALIGNMENT);
-    if (new_acts == nullptr) {
-        return GEIST_E_OOM;
-    }
-    int32_t *new_suma = heap_alloc_aligned(suma_bytes, OPTIMAL_ALIGNMENT);
-    if (new_suma == nullptr) {
-        safe_free((void **) &new_acts);
-        return GEIST_E_OOM;
-    }
-    float   *new_sx   = heap_alloc_aligned(sx_bytes, OPTIMAL_ALIGNMENT);
-    if (new_sx == nullptr) {
-        safe_free((void **) &new_acts);
-        safe_free((void **) &new_suma);
-        return GEIST_E_OOM;
-    }
-    safe_free((void **) &st->acts_mtile);
-    safe_free((void **) &st->sum_a_mtile);
-    safe_free((void **) &st->scale_x_mtile);
-    st->acts_mtile    = new_acts;
-    st->sum_a_mtile   = new_suma;
-    st->scale_x_mtile = new_sx;
-    st->mtile_m_cap   = m;
-    st->mtile_n_cap   = n_in;
-    return GEIST_OK;
+    *weights_out     = blob;
+    *scales_out      = (const float *) (blob + weights_bytes);
+    *offsets_out     = *scales_out + scales_count;
+    *bf16_packed_out = (const bf16_t *) (*offsets_out + scales_count);
 }
 
 /* Grow the backend's activation scratch buffers to cover at least n_in
@@ -146,10 +121,8 @@ cpu_x86_linear_q4k_resolve(struct cpu_x86_state *st, struct geist_weight *w) {
         return GEIST_E_INVALID_ARG;
     }
 
-    /* SoA blob: weights bytes + n_out * 2 * fp32 per W4A8 block. */
-    const size_t weights_total_bytes = n_out * weights_bytes_per_row(n_in);
-    const size_t scales_total_bytes  = n_out * scales_count_per_row(n_in) * sizeof(float);
-    const size_t blob_bytes          = weights_total_bytes + 2 * scales_total_bytes;
+    /* SoA blob: W4A8 nibbles + scales + offsets + packed bf16 cache. */
+    const size_t blob_bytes = blob_total_bytes(n_in, n_out);
 
     uint8_t *blob = heap_alloc_aligned(blob_bytes, OPTIMAL_ALIGNMENT);
     if (blob == nullptr) {
@@ -158,14 +131,32 @@ cpu_x86_linear_q4k_resolve(struct cpu_x86_state *st, struct geist_weight *w) {
     const uint8_t *blob_w_const;
     const float   *blob_s_const;
     const float   *blob_o_const;
-    blob_pointers(blob, n_in, n_out, &blob_w_const, &blob_s_const, &blob_o_const);
-    /* Cast away const so we can write the freshly-allocated blob. */
-    uint8_t *blob_w = (uint8_t *) blob_w_const;
-    float   *blob_s = (float *) blob_s_const;
-    float   *blob_o = (float *) blob_o_const;
+    const bf16_t  *blob_bf_const;
+    blob_pointers(blob, n_in, n_out,
+                  &blob_w_const, &blob_s_const, &blob_o_const, &blob_bf_const);
+    uint8_t *blob_w  = (uint8_t *) blob_w_const;
+    float   *blob_s  = (float *) blob_s_const;
+    float   *blob_o  = (float *) blob_o_const;
+    bf16_t  *blob_bf = (bf16_t *) blob_bf_const;
 
-    /* Predecode row-major. Q4_K row stride is (n_in / Q4_K_BLOCK_ELEMS)
-     * super-blocks, each Q4_K_BLOCK_BYTES bytes. */
+    /* Per-row scratch for the fp32 dequant before bf16 conversion. */
+    float *fp32_row = heap_alloc_aligned(n_in * sizeof(float), OPTIMAL_ALIGNMENT);
+    if (fp32_row == nullptr) {
+        safe_free((void **) &blob);
+        return GEIST_E_OOM;
+    }
+    /* Temporary flat bf16 buffer for the whole matrix; we pack into the
+     * blob's packed section at the end. (Allocating one flat per-matrix
+     * is cheap at load time and avoids a row-wise pack-into-packed
+     * scatter; predecoded once per weight at model load. */
+    bf16_t *bf16_flat = heap_alloc_aligned(bf16_bytes_total(n_in, n_out),
+                                           OPTIMAL_ALIGNMENT);
+    if (bf16_flat == nullptr) {
+        safe_free((void **) &fp32_row);
+        safe_free((void **) &blob);
+        return GEIST_E_OOM;
+    }
+
     const size_t q4k_row_bytes = (n_in / Q4_K_BLOCK_ELEMS) * Q4_K_BLOCK_BYTES;
     const size_t w_row_bytes   = weights_bytes_per_row(n_in);
     const size_t s_row_count   = scales_count_per_row(n_in);
@@ -176,7 +167,16 @@ cpu_x86_linear_q4k_resolve(struct cpu_x86_state *st, struct geist_weight *w) {
                         blob_w + m * w_row_bytes,
                         blob_s + m * s_row_count,
                         blob_o + m * s_row_count);
+        /* Dequant to fp32 then convert to bf16 row-by-row. */
+        dequant_q4_K_row(q4k_raw + m * q4k_row_bytes, fp32_row, n_in);
+        for (size_t k = 0; k < n_in; k++) {
+            bf16_flat[m * n_in + k] = fp32_to_bf16(fp32_row[k]);
+        }
     }
+    /* Pack bf16 into the blob's packed section. */
+    bf16_pack_weights_ntile16(n_out, n_in, bf16_flat, blob_bf);
+    safe_free((void **) &bf16_flat);
+    safe_free((void **) &fp32_row);
 
     /* Grow scratch to cover this n_in. */
     enum geist_status scratch_st = grow_scratch(st, n_in);
@@ -207,8 +207,10 @@ void cpu_x86_linear_q4k_m1(const float               *x,
     const uint8_t *weights;
     const float   *w_scales;
     const float   *w_offsets;
+    const bf16_t  *bf16_unused;
     blob_pointers((const uint8_t *) w->aux_fp32, n_in, n_out,
-                  &weights, &w_scales, &w_offsets);
+                  &weights, &w_scales, &w_offsets, &bf16_unused);
+    (void) bf16_unused;
 
     /* Per-row activation quantization → int8 acts + per-block sum_a. */
     const float scale_x = w4a8_quantize_acts_row(
@@ -253,20 +255,6 @@ static inline __m256i unpack_w4a8_block_to_u8(const uint8_t weight_packed[16]) {
     return _mm256_permute2x128_si256(nibs_lo, nibs_hi, 0x20);
 }
 
-/* M-tile width for the tiled prefill kernel. 4 output rows × inner-loop
- * VPDPBUSDs gives the compiler enough independent destinations to keep
- * the 4-cycle fmadd_ps latency hidden, and stays within Zen 5's
- * 32-register file with headroom (4 weight blocks + 4 broadcasted
- * scales + activations + accumulators). M=8 was empirically slightly
- * worse — likely register spill — so 4 stays. */
-constexpr size_t Q4K_MTILE = 4;
-/* N-tile width — the slab of m tokens processed in one (row-tile × block-
- * sweep) inner pass. 64 gives us a 4×64 = 256-cell tile resident in L1
- * (256 × (32 + 4) = ~9 KB for the fp32 + int32 accumulators) while
- * letting activations for the n-tile stay L2-resident across all row-
- * tiles. m > N_TILE is processed in serial n-tile chunks. */
-constexpr size_t Q4K_NTILE = 64;
-
 /* Phase 1b Step 3 (c): tiled int8 GEMM for Q4_K prefill (M>1).
  *
  * Outer OMP parallelization over row-tiles. Per tile, hold M_TILE=4
@@ -278,120 +266,32 @@ constexpr size_t Q4K_NTILE = 64;
  * once per m tokens in the per-row gemv path), and each activation
  * block is read M_TILE times instead of n_out times — the standard
  * tiled-GEMM amortization. */
-__attribute__((target(VNNI_TARGET)))
+/* Phase 2: BF16 SGEMM via VDPBF16PS. Replaces the tiled int8 GEMM for
+ * Q4_K M>1 prefill. The bf16 packed cache is predecoded at resolve_weight
+ * time; the hot path is purely fp32 acts × bf16 weights → fp32 out, with
+ * each VDPBF16PS producing 16 fully-summed output cells (one per fp32
+ * lane). No hsum needed; no per-cell horizontal reduction. */
 void cpu_x86_linear_q4k_mN(const float               *x,
                            const struct geist_weight *w,
                            size_t                     m,
                            struct geist_backend      *be,
                            float                     *y) {
-    struct cpu_x86_state *st               = (struct cpu_x86_state *) be->state;
-    const size_t          n_in             = (size_t) w->n_in;
-    const size_t          n_out            = (size_t) w->n_out;
-    const size_t          n_blocks_per_row = n_in / W4A8_BLOCK_ELEMS;
+    (void) be;
+    const size_t          n_in  = (size_t) w->n_in;
+    const size_t          n_out = (size_t) w->n_out;
 
-    /* Fallback to the per-row M=1 path on mtile OOM. */
-    if (grow_mtile(st, m, n_in) != GEIST_OK) {
-        for (size_t row = 0; row < m; row++) {
-            cpu_x86_linear_q4k_m1(x + row * n_in, w, be, y + row * n_out);
-        }
-        return;
-    }
-
-    /* Quantize all m activation rows up front into the mtile scratch.
-     * Layout: acts_mtile[r * n_in + b * 32 + l],
-     *         sum_a_mtile[r * n_blocks_per_row + b]. */
-    for (size_t r = 0; r < m; r++) {
-        st->scale_x_mtile[r] = w4a8_quantize_acts_row(
-                n_in,
-                x + r * n_in,
-                st->acts_mtile + r * n_in,
-                st->sum_a_mtile + r * n_blocks_per_row);
-    }
-
-    /* Resolve SoA pointers once. */
-    const uint8_t *weights;
-    const float   *w_scales;
-    const float   *w_offsets;
+    const uint8_t *weights_unused;
+    const float   *scales_unused;
+    const float   *offsets_unused;
+    const bf16_t  *bf16_packed;
     blob_pointers((const uint8_t *) w->aux_fp32, n_in, n_out,
-                  &weights, &w_scales, &w_offsets);
+                  &weights_unused, &scales_unused, &offsets_unused, &bf16_packed);
+    (void) weights_unused;
+    (void) scales_unused;
+    (void) offsets_unused;
 
-    const size_t bytes_per_row  = n_blocks_per_row * W4A8_BLOCK_BYTES_WEIGHTS;
-    const size_t scales_per_row = n_blocks_per_row;
-
-    /* Outer loop over n-tiles (slabs of m tokens). For each n-tile the
-     * activation slab (this_N × n_in) stays L2-resident across every
-     * row-tile iteration, amortizing the act bandwidth across rows. */
-    for (size_t n_tile = 0; n_tile < m; n_tile += Q4K_NTILE) {
-        const size_t this_N = (n_tile + Q4K_NTILE <= m)
-                                      ? Q4K_NTILE
-                                      : (m - n_tile);
-
-#if defined(_OPENMP)
-#pragma omp parallel for schedule(static)
-#endif
-        for (size_t row_tile = 0; row_tile < n_out; row_tile += Q4K_MTILE) {
-            const size_t this_M = (row_tile + Q4K_MTILE <= n_out)
-                                          ? Q4K_MTILE
-                                          : (n_out - row_tile);
-
-            /* Per-thread accumulator tile [this_M × this_N].
-             *   acc_v: 8-lane fp32 vector — running sum of dot_lanes * w_scale
-             *          across blocks. Hsum'd ONCE at end of tile.
-             *   acc_s: scalar offset accumulator — sum of w_offset * sum_a
-             *          across blocks. Subtracted from hsum at end.
-             * Stack budget: 4 × 64 × 36 B ≈ 9 KB per thread, fits L1. */
-            __m256 acc_v[Q4K_MTILE * Q4K_NTILE];
-            float  acc_s[Q4K_MTILE * Q4K_NTILE];
-            for (size_t k = 0; k < this_M * this_N; k++) {
-                acc_v[k] = _mm256_setzero_ps();
-                acc_s[k] = 0.0f;
-            }
-
-            for (size_t b = 0; b < n_blocks_per_row; b++) {
-                /* Load + unpack 4 weight blocks; broadcast scales. */
-                __m256i u_w[Q4K_MTILE];
-                __m256  ws_v[Q4K_MTILE];
-                float   wo[Q4K_MTILE];
-                for (size_t i = 0; i < this_M; i++) {
-                    const uint8_t *w_row =
-                            weights + (row_tile + i) * bytes_per_row;
-                    u_w[i]  = unpack_w4a8_block_to_u8(
-                            w_row + b * W4A8_BLOCK_BYTES_WEIGHTS);
-                    ws_v[i] = _mm256_set1_ps(
-                            w_scales[(row_tile + i) * scales_per_row + b]);
-                    wo[i] = w_offsets[(row_tile + i) * scales_per_row + b];
-                }
-
-                for (size_t jj = 0; jj < this_N; jj++) {
-                    const size_t j = n_tile + jj;
-                    const __m256i s_a = _mm256_loadu_si256(
-                            (const __m256i *) (st->acts_mtile +
-                                               j * n_in +
-                                               b * W4A8_BLOCK_ELEMS));
-                    const float sa_j = (float) st->sum_a_mtile
-                            [j * n_blocks_per_row + b];
-
-                    for (size_t i = 0; i < this_M; i++) {
-                        const __m256i dot = _mm256_dpbusd_epi32(
-                                _mm256_setzero_si256(), u_w[i], s_a);
-                        const __m256  dot_f = _mm256_cvtepi32_ps(dot);
-                        acc_v[i * this_N + jj] = _mm256_fmadd_ps(
-                                dot_f, ws_v[i], acc_v[i * this_N + jj]);
-                        acc_s[i * this_N + jj] += wo[i] * sa_j;
-                    }
-                }
-            }
-
-            /* Write tile: y[j, row] = scale_x[j] * (hsum(acc_v) - acc_s). */
-            for (size_t i = 0; i < this_M; i++) {
-                for (size_t jj = 0; jj < this_N; jj++) {
-                    const size_t j      = n_tile + jj;
-                    const float  v_sum  = hsum_f32_avx(acc_v[i * this_N + jj]);
-                    const float  total  = v_sum - acc_s[i * this_N + jj];
-                    y[j * n_out + row_tile + i] =
-                            st->scale_x_mtile[j] * total;
-                }
-            }
-        }
-    }
+    /* For Q4_K we predecode to bf16 with N_TILE=16 packing. n_out must
+     * be a multiple of 16; every Gemma 4 Q4_K body matrix satisfies this
+     * (1536, 8960, 2560 all divisible by 16). */
+    bf16_gemm_avx512_bf16(m, n_out, n_in, x, bf16_packed, y);
 }

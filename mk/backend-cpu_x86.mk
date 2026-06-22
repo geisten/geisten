@@ -21,7 +21,9 @@ BACKEND_SOURCES += \
     src/backends/cpu_x86/kernel_w8a8.c \
     src/backends/cpu_x86/kernel_w8a8_scalar.c \
     src/backends/cpu_x86/kernel_w8a8_avx512_vnni.c \
-    src/backends/cpu_x86/q6k_to_w8a8.c
+    src/backends/cpu_x86/q6k_to_w8a8.c \
+    src/backends/cpu_x86/kernel_bf16_gemm_scalar.c \
+    src/backends/cpu_x86/kernel_bf16_gemm_avx512_bf16.c
 
 # Per-TU ISA flags. CFLAGS_STRICT is set globally in mk/common.mk with `:=`,
 # but the compile recipe expands $(CFLAGS_STRICT) at recipe-run time, so the
@@ -33,3 +35,5 @@ $(BUILD_DIR)/src/backends/cpu_x86/kernel_w4a8_avx512_vnni.o: CFLAGS_STRICT += \
     -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vnni
 $(BUILD_DIR)/src/backends/cpu_x86/kernel_w8a8_avx512_vnni.o: CFLAGS_STRICT += \
     -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vnni
+$(BUILD_DIR)/src/backends/cpu_x86/kernel_bf16_gemm_avx512_bf16.o: CFLAGS_STRICT += \
+    -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512bf16
