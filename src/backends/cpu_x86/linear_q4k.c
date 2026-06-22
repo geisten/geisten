@@ -23,7 +23,7 @@
 
 #include "backend_state.h"
 #include "kernel_w4a8.h"
-#include "kernel_w8a8.h" /* W8A8_BLOCK_ELEMS for sum_a sizing */
+#include "kernel_w8a8.h" /* sum_a sized for W8A8 to also cover Q6_K */
 #include "q4k_to_w4a8.h"
 
 #include "heap.h"
@@ -31,9 +31,15 @@
 
 #include <geist_backend.h>
 
+#include <immintrin.h>
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 /* Layout sizes for one weight (row-major SoA). Per-row blocks = n_in/32. */
 static inline size_t weights_bytes_per_row(size_t n_in) {
@@ -112,8 +118,9 @@ static enum geist_status grow_scratch(struct cpu_x86_state *st, size_t n_in) {
     if (new_acts == nullptr) {
         return GEIST_E_OOM;
     }
-    /* Size sum_a for the SMALLEST block granularity — W8A8 (16 elem) —
-     * so the buffer covers both W4A8 (Q4_K) and W8A8 (Q6_K) callers. */
+    /* Size sum_a for the SMALLEST block granularity — W8A8 (16) — so the
+     * buffer covers both Q4_K (W4A8, 32-elem blocks) and Q6_K (W8A8) callers
+     * sharing this scratch. */
     const size_t n_blocks = n_in / W8A8_BLOCK_ELEMS;
     int32_t *new_sum_a    = heap_alloc_aligned(n_blocks * sizeof(int32_t), OPTIMAL_ALIGNMENT);
     if (new_sum_a == nullptr) {
@@ -213,6 +220,60 @@ void cpu_x86_linear_q4k_m1(const float               *x,
               st->acts_scratch, st->sum_a_scratch, scale_x, y);
 }
 
+/* These helpers + the tiled mN below use AVX-512+VNNI intrinsics. The
+ * `target` attribute tells gcc to allow them in this TU even though
+ * the file is compiled at baseline -march=x86-64-v3; the dispatcher
+ * only calls cpu_x86_linear_q4k_mN on hosts whose cpuid confirms VNNI
+ * support, so there is no SIGILL risk on AVX2-only CPUs. */
+#define VNNI_TARGET "avx2,avx512f,avx512bw,avx512dq,avx512vl,avx512vnni"
+
+/* Horizontal sum of 8 int32 lanes → one int32. */
+__attribute__((target(VNNI_TARGET)))
+static inline int32_t hsum_i32_avx2(__m256i v) {
+    const __m128i lo = _mm256_castsi256_si128(v);
+    const __m128i hi = _mm256_extracti128_si256(v, 1);
+    __m128i       s  = _mm_add_epi32(lo, hi);
+    s                = _mm_hadd_epi32(s, s);
+    s                = _mm_hadd_epi32(s, s);
+    return _mm_cvtsi128_si32(s);
+}
+
+/* Unpack 16 packed Q4_K bytes (= one 32-element block) into 32 unsigned
+ * int8 values in element order, returned in a 256-bit register. The
+ * caller will feed the result to VPDPBUSD against int8 activations. */
+__attribute__((target(VNNI_TARGET)))
+static inline __m256i unpack_w4a8_block_to_u8(const uint8_t weight_packed[16]) {
+    const __m128i packed_128 = _mm_loadu_si128((const __m128i *) weight_packed);
+    const __m256i packed_256 = _mm256_set_m128i(packed_128, packed_128);
+    const __m256i lo_mask    = _mm256_set1_epi8(0x0F);
+    const __m256i lo_nibs    = _mm256_and_si256(packed_256, lo_mask);
+    const __m256i hi_nibs    = _mm256_and_si256(_mm256_srli_epi16(packed_256, 4), lo_mask);
+    const __m256i nibs_lo    = _mm256_unpacklo_epi8(lo_nibs, hi_nibs);
+    const __m256i nibs_hi    = _mm256_unpackhi_epi8(lo_nibs, hi_nibs);
+    return _mm256_permute2x128_si256(nibs_lo, nibs_hi, 0x20);
+}
+
+/* M-tile width for the tiled prefill kernel. 4 output rows held in
+ * registers across the K-block sweep — one VPDPBUSD per (i, j, b) tuple
+ * with per-block scale/offset applied immediately so the kernel never
+ * needs to spill the int32 partial sums. */
+constexpr size_t Q4K_MTILE      = 4;
+/* Max m supported by the stack-resident accumulator tile. m > this
+ * falls back to the per-row M=1 loop (still correct, just slower). */
+constexpr size_t Q4K_MTILE_MMAX = 2048;
+
+/* Phase 1b Step 3 (c): tiled int8 GEMM for Q4_K prefill (M>1).
+ *
+ * Outer OMP parallelization over row-tiles. Per tile, hold M_TILE=4
+ * fp32 accumulators for each of m output cells (in a stack-resident
+ * acc[]), then sweep all K-blocks: per block, load 4 unpacked weight
+ * blocks + 4 scale/offset pairs, iterate j∈[0,m) loading one activation
+ * block + one sum_a value, and do M_TILE VPDPBUSDs + scale/offset
+ * applications per j. Each weight block is read once per row-tile (vs
+ * once per m tokens in the per-row gemv path), and each activation
+ * block is read M_TILE times instead of n_out times — the standard
+ * tiled-GEMM amortization. */
+__attribute__((target(VNNI_TARGET)))
 void cpu_x86_linear_q4k_mN(const float               *x,
                            const struct geist_weight *w,
                            size_t                     m,
@@ -223,9 +284,11 @@ void cpu_x86_linear_q4k_mN(const float               *x,
     const size_t          n_out            = (size_t) w->n_out;
     const size_t          n_blocks_per_row = n_in / W4A8_BLOCK_ELEMS;
 
-    /* Ensure the mtile scratch covers (m, n_in). On allocation failure
-     * fall back to the per-row path — slower, but correct. */
-    if (grow_mtile(st, m, n_in) != GEIST_OK) {
+    /* Fallback to the per-row M=1 path when:
+     *   - the mtile scratch can't grow (OOM),
+     *   - or m > Q4K_MTILE_MMAX (stack acc bound).
+     * Both are slow but correct. */
+    if (m > Q4K_MTILE_MMAX || grow_mtile(st, m, n_in) != GEIST_OK) {
         for (size_t row = 0; row < m; row++) {
             cpu_x86_linear_q4k_m1(x + row * n_in, w, be, y + row * n_out);
         }
@@ -233,7 +296,8 @@ void cpu_x86_linear_q4k_mN(const float               *x,
     }
 
     /* Quantize all m activation rows up front into the mtile scratch.
-     * One pass over the input matrix; reuses w4a8_quantize_acts_row. */
+     * Layout: acts_mtile[r * n_in + b * 32 + l],
+     *         sum_a_mtile[r * n_blocks_per_row + b]. */
     for (size_t r = 0; r < m; r++) {
         st->scale_x_mtile[r] = w4a8_quantize_acts_row(
                 n_in,
@@ -249,25 +313,52 @@ void cpu_x86_linear_q4k_mN(const float               *x,
     blob_pointers((const uint8_t *) w->aux_fp32, n_in, n_out,
                   &weights, &w_scales, &w_offsets);
 
-    /* Outer parallel loop over rows; inner serial over m tokens. Weight
-     * row blocks (~16 bytes × n_blocks_per_row ≈ 768 bytes for n_in=1536)
-     * stay L1-resident for the duration of one row's m iterations. */
     const size_t bytes_per_row  = n_blocks_per_row * W4A8_BLOCK_BYTES_WEIGHTS;
     const size_t scales_per_row = n_blocks_per_row;
+
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static)
 #endif
-    for (size_t row = 0; row < n_out; row++) {
-        const uint8_t *w_row = weights + row * bytes_per_row;
-        const float   *s_row = w_scales + row * scales_per_row;
-        const float   *o_row = w_offsets + row * scales_per_row;
-        for (size_t r = 0; r < m; r++) {
-            y[r * n_out + row] = w4a8_dot(
-                    n_blocks_per_row,
-                    w_row, s_row, o_row,
-                    st->acts_mtile + r * n_in,
-                    st->sum_a_mtile + r * n_blocks_per_row,
-                    st->scale_x_mtile[r]);
+    for (size_t row_tile = 0; row_tile < n_out; row_tile += Q4K_MTILE) {
+        const size_t this_M = (row_tile + Q4K_MTILE <= n_out)
+                                      ? Q4K_MTILE
+                                      : (n_out - row_tile);
+
+        /* Per-thread fp32 accumulator tile [this_M × m]. Stack-resident,
+         * fits in L1 (4 × 2048 × 4 = 32 KiB worst case). */
+        float acc[Q4K_MTILE * Q4K_MTILE_MMAX];
+        memset(acc, 0, this_M * m * sizeof(float));
+
+        for (size_t b = 0; b < n_blocks_per_row; b++) {
+            /* Load + unpack 4 weight blocks; cache scales/offsets. */
+            __m256i u_w[Q4K_MTILE];
+            float   ws[Q4K_MTILE];
+            float   wo[Q4K_MTILE];
+            for (size_t i = 0; i < this_M; i++) {
+                const uint8_t *w_row = weights + (row_tile + i) * bytes_per_row;
+                u_w[i] = unpack_w4a8_block_to_u8(w_row + b * W4A8_BLOCK_BYTES_WEIGHTS);
+                ws[i]  = w_scales[(row_tile + i) * scales_per_row + b];
+                wo[i]  = w_offsets[(row_tile + i) * scales_per_row + b];
+            }
+
+            for (size_t j = 0; j < m; j++) {
+                const __m256i s_a = _mm256_loadu_si256(
+                        (const __m256i *) (st->acts_mtile + j * n_in + b * W4A8_BLOCK_ELEMS));
+                const float sa_j = (float) st->sum_a_mtile[j * n_blocks_per_row + b];
+                for (size_t i = 0; i < this_M; i++) {
+                    const __m256i dot = _mm256_dpbusd_epi32(_mm256_setzero_si256(),
+                                                            u_w[i], s_a);
+                    const int32_t d   = hsum_i32_avx2(dot);
+                    acc[i * m + j] += ws[i] * (float) d - wo[i] * sa_j;
+                }
+            }
+        }
+
+        /* Write tile to y, applying per-row scale_x. */
+        for (size_t i = 0; i < this_M; i++) {
+            for (size_t j = 0; j < m; j++) {
+                y[j * n_out + row_tile + i] = st->scale_x_mtile[j] * acc[i * m + j];
+            }
         }
     }
 }
