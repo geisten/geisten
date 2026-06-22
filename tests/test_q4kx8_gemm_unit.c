@@ -123,9 +123,15 @@ static int scenario_endtoend(void) {
     struct block_q8_Kx4 X_q8kx4[N_SUPER];
     quantize_q8_Kx4(K, X_fp32, X_q8kx4);
 
-    /* Run the Q4_Kx8 GEMM. */
+    /* Run the Q4_Kx8 GEMM (scalar reference). */
     float Y_test[M * N];
     q4kx8_gemm_scalar(M, N, K, X_q8kx4, W_q4kx8, Y_test);
+
+    /* Also run the AVX-512 path. The current scaffold re-quantizes acts
+     * per row internally so the result differs from the scalar reference
+     * by an additional int8-quant rounding (~1.5% RMS). */
+    float Y_avx[M * N];
+    q4kx8_gemm_avx512(M, N, K, X_q8kx4, W_q4kx8, Y_avx);
 
     /* Reference: dequant each weight row → fp32 sgemm against fp32 acts. */
     float W_fp32[N * K];
@@ -151,24 +157,29 @@ static int scenario_endtoend(void) {
     const float rms = (float) sqrt(rms_sq / (M * N));
     const float tol = 0.10f + 0.20f * rms;
 
-    int   fails    = 0;
-    float max_diff = 0.0f;
+    int   fails        = 0;
+    float max_diff_scl = 0.0f;
+    float max_diff_avx = 0.0f;
     for (size_t i = 0; i < M * N; i++) {
-        const float d = fabsf(Y_test[i] - Y_ref[i]);
-        if (d > tol) {
-            fprintf(stderr, "i=%zu ref=%g test=%g diff=%g tol=%g\n",
-                    i, (double) Y_ref[i], (double) Y_test[i], (double) d, (double) tol);
+        const float d_scl = fabsf(Y_test[i] - Y_ref[i]);
+        const float d_avx = fabsf(Y_avx[i] - Y_ref[i]);
+        if (d_scl > tol) {
+            fprintf(stderr, "scalar: i=%zu ref=%g test=%g diff=%g tol=%g\n",
+                    i, (double) Y_ref[i], (double) Y_test[i], (double) d_scl, (double) tol);
             fails++;
-            if (fails > 4) {
-                break;
-            }
         }
-        if (d > max_diff) {
-            max_diff = d;
+        if (d_avx > tol) {
+            fprintf(stderr, "avx: i=%zu ref=%g avx=%g diff=%g tol=%g\n",
+                    i, (double) Y_ref[i], (double) Y_avx[i], (double) d_avx, (double) tol);
+            fails++;
         }
+        if (d_scl > max_diff_scl) max_diff_scl = d_scl;
+        if (d_avx > max_diff_avx) max_diff_avx = d_avx;
+        if (fails > 8) break;
     }
-    fprintf(stdout, "[q4kx8_gemm] max |Δ| = %g, rms = %g, tol = %g\n",
-            (double) max_diff, (double) rms, (double) tol);
+    fprintf(stdout, "[q4kx8_gemm] scalar max |Δ| = %g, avx max |Δ| = %g, rms = %g, tol = %g\n",
+            (double) max_diff_scl, (double) max_diff_avx,
+            (double) rms, (double) tol);
     return fails;
 }
 

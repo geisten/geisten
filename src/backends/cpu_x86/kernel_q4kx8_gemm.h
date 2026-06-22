@@ -39,4 +39,15 @@ void q4kx8_gemm_scalar(size_t                     M,
                        const struct block_q4_Kx8 *W,
                        float                      Y[static M * N]);
 
+/* AVX-512 GEMV-style implementation (Phase 3 Step 3 scaffold). Iterates
+ * m-rows externally, computes 8 cells per output tile via the Q4_Kx8
+ * layout. Correctness verified against the scalar reference; lane-
+ * parallel VPMADDUBSW inner is the next optimization (Step 3b). */
+void q4kx8_gemm_avx512(size_t                     M,
+                       size_t                     N,
+                       size_t                     K,
+                       const struct block_q8_Kx4 *X,
+                       const struct block_q4_Kx8 *W,
+                       float                      Y[static M * N]);
+
 #endif /* GEIST_INTERNAL_BACKEND_CPU_X86_KERNEL_Q4KX8_GEMM_H */
