@@ -23,9 +23,12 @@
 
 #include "backend_state.h"
 #include "kernel_bf16_gemm.h"
+#include "kernel_q4kx8_gemm.h" /* Phase 3 lane-parallel Q4_Kx8 GEMV */
 #include "kernel_w4a8.h"
 #include "kernel_w8a8.h" /* sum_a sized for W8A8 to also cover Q6_K */
+#include "q4k_to_q4kx8.h"
 #include "q4k_to_w4a8.h"
+#include "q8_kx4.h"
 
 #include "heap.h"
 #include "quant.h" /* Q4_K_BLOCK_ELEMS / Q4_K_BLOCK_BYTES / dequant_q4_K_row */
@@ -51,36 +54,35 @@ static inline size_t scales_count_per_row(size_t n_in) {
 }
 
 /* SoA pointer reconstruction. The blob layout is:
- *   [weights      : n_out * weights_bytes_per_row(n_in)]    (W4A8 for m=1)
+ *   [weights      : n_out * weights_bytes_per_row(n_in)]      (W4A8 for m=1)
  *   [w_scales     : n_out * scales_count_per_row(n_in) fp32]
  *   [w_offsets    : n_out * scales_count_per_row(n_in) fp32]
- *   [bf16_packed  : n_out * n_in bf16 (packed N_TILE=16, K-pair=2)]  (Phase 2)
- * Aligned by construction: heap_alloc_aligned gives 64 B, each preceding
- * section is a multiple of 64. */
-static size_t bf16_bytes_total(size_t n_in, size_t n_out) {
-    return n_out * n_in * sizeof(bf16_t);
+ *   [q4kx8        : (n_out/8) * (n_in/256) * sizeof(block_q4_Kx8)] (Phase 3 prefill)
+ * Aligned by construction. */
+static size_t q4kx8_bytes_total(size_t n_in, size_t n_out) {
+    return (n_out / 8) * (n_in / Q4_K_BLOCK_ELEMS) * sizeof(struct block_q4_Kx8);
 }
 
 static size_t blob_total_bytes(size_t n_in, size_t n_out) {
     const size_t weights_total = n_out * weights_bytes_per_row(n_in);
     const size_t scales_total  = n_out * scales_count_per_row(n_in) * sizeof(float);
-    return weights_total + 2 * scales_total + bf16_bytes_total(n_in, n_out);
+    return weights_total + 2 * scales_total + q4kx8_bytes_total(n_in, n_out);
 }
 
 static void blob_pointers(const uint8_t *blob,
                           size_t         n_in,
                           size_t         n_out,
-                          const uint8_t **weights_out,
-                          const float  **scales_out,
-                          const float  **offsets_out,
-                          const bf16_t **bf16_packed_out) {
+                          const uint8_t              **weights_out,
+                          const float                **scales_out,
+                          const float                **offsets_out,
+                          const struct block_q4_Kx8 **q4kx8_out) {
     const size_t weights_bytes = n_out * weights_bytes_per_row(n_in);
     const size_t scales_count  = n_out * scales_count_per_row(n_in);
 
-    *weights_out     = blob;
-    *scales_out      = (const float *) (blob + weights_bytes);
-    *offsets_out     = *scales_out + scales_count;
-    *bf16_packed_out = (const bf16_t *) (*offsets_out + scales_count);
+    *weights_out = blob;
+    *scales_out  = (const float *) (blob + weights_bytes);
+    *offsets_out = *scales_out + scales_count;
+    *q4kx8_out   = (const struct block_q4_Kx8 *) (*offsets_out + scales_count);
 }
 
 /* Grow the backend's activation scratch buffers to cover at least n_in
@@ -128,34 +130,16 @@ cpu_x86_linear_q4k_resolve(struct cpu_x86_state *st, struct geist_weight *w) {
     if (blob == nullptr) {
         return GEIST_E_OOM;
     }
-    const uint8_t *blob_w_const;
-    const float   *blob_s_const;
-    const float   *blob_o_const;
-    const bf16_t  *blob_bf_const;
+    const uint8_t              *blob_w_const;
+    const float                *blob_s_const;
+    const float                *blob_o_const;
+    const struct block_q4_Kx8  *blob_q4kx8_const;
     blob_pointers(blob, n_in, n_out,
-                  &blob_w_const, &blob_s_const, &blob_o_const, &blob_bf_const);
-    uint8_t *blob_w  = (uint8_t *) blob_w_const;
-    float   *blob_s  = (float *) blob_s_const;
-    float   *blob_o  = (float *) blob_o_const;
-    bf16_t  *blob_bf = (bf16_t *) blob_bf_const;
-
-    /* Per-row scratch for the fp32 dequant before bf16 conversion. */
-    float *fp32_row = heap_alloc_aligned(n_in * sizeof(float), OPTIMAL_ALIGNMENT);
-    if (fp32_row == nullptr) {
-        safe_free((void **) &blob);
-        return GEIST_E_OOM;
-    }
-    /* Temporary flat bf16 buffer for the whole matrix; we pack into the
-     * blob's packed section at the end. (Allocating one flat per-matrix
-     * is cheap at load time and avoids a row-wise pack-into-packed
-     * scatter; predecoded once per weight at model load. */
-    bf16_t *bf16_flat = heap_alloc_aligned(bf16_bytes_total(n_in, n_out),
-                                           OPTIMAL_ALIGNMENT);
-    if (bf16_flat == nullptr) {
-        safe_free((void **) &fp32_row);
-        safe_free((void **) &blob);
-        return GEIST_E_OOM;
-    }
+                  &blob_w_const, &blob_s_const, &blob_o_const, &blob_q4kx8_const);
+    uint8_t              *blob_w     = (uint8_t *) blob_w_const;
+    float                *blob_s     = (float *) blob_s_const;
+    float                *blob_o     = (float *) blob_o_const;
+    struct block_q4_Kx8  *blob_q4kx8 = (struct block_q4_Kx8 *) blob_q4kx8_const;
 
     const size_t q4k_row_bytes = (n_in / Q4_K_BLOCK_ELEMS) * Q4_K_BLOCK_BYTES;
     const size_t w_row_bytes   = weights_bytes_per_row(n_in);
@@ -167,16 +151,13 @@ cpu_x86_linear_q4k_resolve(struct cpu_x86_state *st, struct geist_weight *w) {
                         blob_w + m * w_row_bytes,
                         blob_s + m * s_row_count,
                         blob_o + m * s_row_count);
-        /* Dequant to fp32 then convert to bf16 row-by-row. */
-        dequant_q4_K_row(q4k_raw + m * q4k_row_bytes, fp32_row, n_in);
-        for (size_t k = 0; k < n_in; k++) {
-            bf16_flat[m * n_in + k] = fp32_to_bf16(fp32_row[k]);
-        }
     }
-    /* Pack bf16 into the blob's packed section. */
-    bf16_pack_weights_ntile16(n_out, n_in, bf16_flat, blob_bf);
-    safe_free((void **) &bf16_flat);
-    safe_free((void **) &fp32_row);
+
+    /* Repack into Q4_Kx8 interleaved layout for prefill. n_out must be a
+     * multiple of 8 — every Gemma 4 Q4_K body matrix satisfies this. */
+    if (n_out % 8 == 0) {
+        q4k_to_q4kx8_matrix(n_in, n_out, q4k_raw, blob_q4kx8);
+    }
 
     /* Grow scratch to cover this n_in. */
     enum geist_status scratch_st = grow_scratch(st, n_in);
@@ -204,13 +185,13 @@ void cpu_x86_linear_q4k_m1(const float               *x,
     const size_t          n_out = (size_t) w->n_out;
     const size_t          n_blocks_per_row = n_in / W4A8_BLOCK_ELEMS;
 
-    const uint8_t *weights;
-    const float   *w_scales;
-    const float   *w_offsets;
-    const bf16_t  *bf16_unused;
+    const uint8_t              *weights;
+    const float                *w_scales;
+    const float                *w_offsets;
+    const struct block_q4_Kx8  *q4kx8_unused;
     blob_pointers((const uint8_t *) w->aux_fp32, n_in, n_out,
-                  &weights, &w_scales, &w_offsets, &bf16_unused);
-    (void) bf16_unused;
+                  &weights, &w_scales, &w_offsets, &q4kx8_unused);
+    (void) q4kx8_unused;
 
     /* Per-row activation quantization → int8 acts + per-block sum_a. */
     const float scale_x = w4a8_quantize_acts_row(
@@ -266,32 +247,61 @@ static inline __m256i unpack_w4a8_block_to_u8(const uint8_t weight_packed[16]) {
  * once per m tokens in the per-row gemv path), and each activation
  * block is read M_TILE times instead of n_out times — the standard
  * tiled-GEMM amortization. */
-/* Phase 2: BF16 SGEMM via VDPBF16PS. Replaces the tiled int8 GEMM for
- * Q4_K M>1 prefill. The bf16 packed cache is predecoded at resolve_weight
- * time; the hot path is purely fp32 acts × bf16 weights → fp32 out, with
- * each VDPBF16PS producing 16 fully-summed output cells (one per fp32
- * lane). No hsum needed; no per-cell horizontal reduction. */
+/* Phase 3: Q4_Kx8 lane-parallel GEMM via VPMADDUBSW. 8 cells per inst
+ * (vs our previous 1 cell per VPDPBUSD) — the 8× compute-density lift
+ * identified empirically in docs/LINUX_X86_PERF_PROFILE.md (IPC 0.47 →
+ * target 3.01). The per-row acts get quantized to Q8_Kx4 (4 m-rows
+ * interleaved in 8-byte stripes) in heap scratch; the GEMV-style
+ * AVX kernel handles the 8-cell tile per (m, n_tile) call.
+ *
+ * Fallback: if n_out is not divisible by 8 (no Gemma 4 matrix is, this
+ * is purely defensive), drop to the bf16 path. */
 void cpu_x86_linear_q4k_mN(const float               *x,
                            const struct geist_weight *w,
                            size_t                     m,
                            struct geist_backend      *be,
                            float                     *y) {
     (void) be;
-    const size_t          n_in  = (size_t) w->n_in;
-    const size_t          n_out = (size_t) w->n_out;
+    const size_t n_in  = (size_t) w->n_in;
+    const size_t n_out = (size_t) w->n_out;
 
-    const uint8_t *weights_unused;
-    const float   *scales_unused;
-    const float   *offsets_unused;
-    const bf16_t  *bf16_packed;
+    const uint8_t              *weights_unused;
+    const float                *scales_unused;
+    const float                *offsets_unused;
+    const struct block_q4_Kx8  *q4kx8;
     blob_pointers((const uint8_t *) w->aux_fp32, n_in, n_out,
-                  &weights_unused, &scales_unused, &offsets_unused, &bf16_packed);
+                  &weights_unused, &scales_unused, &offsets_unused, &q4kx8);
     (void) weights_unused;
     (void) scales_unused;
     (void) offsets_unused;
 
-    /* For Q4_K we predecode to bf16 with N_TILE=16 packing. n_out must
-     * be a multiple of 16; every Gemma 4 Q4_K body matrix satisfies this
-     * (1536, 8960, 2560 all divisible by 16). */
-    bf16_gemm_avx512_bf16(m, n_out, n_in, x, bf16_packed, y);
+    if (n_out % 8 != 0 || m % 4 != 0) {
+        /* Defensive scalar fallback for shapes the Q4_Kx8 kernel doesn't
+         * cover. Gemma 4 never hits this. */
+        for (size_t row = 0; row < m; row++) {
+            cpu_x86_linear_q4k_m1(x + row * n_in, w, be, y + row * n_out);
+        }
+        return;
+    }
+
+    /* Quantize acts into block_q8_Kx4 scratch — 4 rows interleaved per
+     * super-block. Allocated per call from heap.h (small: m/4 × n_in/256
+     * × ~1.2 KB ≈ 36 KB for m=128, n_in=1536). */
+    const size_t n_super_k = n_in / 256;
+    const size_t q8kx4_count = (m / 4) * n_super_k;
+    struct block_q8_Kx4 *acts =
+            heap_alloc_aligned(q8kx4_count * sizeof(struct block_q8_Kx4),
+                               OPTIMAL_ALIGNMENT);
+    if (acts == nullptr) {
+        for (size_t row = 0; row < m; row++) {
+            cpu_x86_linear_q4k_m1(x + row * n_in, w, be, y + row * n_out);
+        }
+        return;
+    }
+    for (size_t mt = 0; mt < m / 4; mt++) {
+        quantize_q8_Kx4(n_in, x + mt * 4 * n_in, acts + mt * n_super_k);
+    }
+
+    q4kx8_gemm_avx512(m, n_out, n_in, acts, q4kx8, y);
+    safe_free((void **) &acts);
 }
