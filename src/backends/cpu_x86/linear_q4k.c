@@ -227,15 +227,15 @@ void cpu_x86_linear_q4k_m1(const float               *x,
  * support, so there is no SIGILL risk on AVX2-only CPUs. */
 #define VNNI_TARGET "avx2,avx512f,avx512bw,avx512dq,avx512vl,avx512vnni"
 
-/* Horizontal sum of 8 int32 lanes → one int32. */
+/* Horizontal sum of 8 fp32 lanes → one fp32. */
 __attribute__((target(VNNI_TARGET)))
-static inline int32_t hsum_i32_avx2(__m256i v) {
-    const __m128i lo = _mm256_castsi256_si128(v);
-    const __m128i hi = _mm256_extracti128_si256(v, 1);
-    __m128i       s  = _mm_add_epi32(lo, hi);
-    s                = _mm_hadd_epi32(s, s);
-    s                = _mm_hadd_epi32(s, s);
-    return _mm_cvtsi128_si32(s);
+static inline float hsum_f32_avx(__m256 v) {
+    const __m128 lo = _mm256_castps256_ps128(v);
+    const __m128 hi = _mm256_extractf128_ps(v, 1);
+    __m128       s  = _mm_add_ps(lo, hi);
+    s               = _mm_hadd_ps(s, s);
+    s               = _mm_hadd_ps(s, s);
+    return _mm_cvtss_f32(s);
 }
 
 /* Unpack 16 packed Q4_K bytes (= one 32-element block) into 32 unsigned
@@ -253,14 +253,19 @@ static inline __m256i unpack_w4a8_block_to_u8(const uint8_t weight_packed[16]) {
     return _mm256_permute2x128_si256(nibs_lo, nibs_hi, 0x20);
 }
 
-/* M-tile width for the tiled prefill kernel. 4 output rows held in
- * registers across the K-block sweep — one VPDPBUSD per (i, j, b) tuple
- * with per-block scale/offset applied immediately so the kernel never
- * needs to spill the int32 partial sums. */
-constexpr size_t Q4K_MTILE      = 4;
-/* Max m supported by the stack-resident accumulator tile. m > this
- * falls back to the per-row M=1 loop (still correct, just slower). */
-constexpr size_t Q4K_MTILE_MMAX = 2048;
+/* M-tile width for the tiled prefill kernel. 4 output rows × inner-loop
+ * VPDPBUSDs gives the compiler enough independent destinations to keep
+ * the 4-cycle fmadd_ps latency hidden, and stays within Zen 5's
+ * 32-register file with headroom (4 weight blocks + 4 broadcasted
+ * scales + activations + accumulators). M=8 was empirically slightly
+ * worse — likely register spill — so 4 stays. */
+constexpr size_t Q4K_MTILE = 4;
+/* N-tile width — the slab of m tokens processed in one (row-tile × block-
+ * sweep) inner pass. 64 gives us a 4×64 = 256-cell tile resident in L1
+ * (256 × (32 + 4) = ~9 KB for the fp32 + int32 accumulators) while
+ * letting activations for the n-tile stay L2-resident across all row-
+ * tiles. m > N_TILE is processed in serial n-tile chunks. */
+constexpr size_t Q4K_NTILE = 64;
 
 /* Phase 1b Step 3 (c): tiled int8 GEMM for Q4_K prefill (M>1).
  *
@@ -284,11 +289,8 @@ void cpu_x86_linear_q4k_mN(const float               *x,
     const size_t          n_out            = (size_t) w->n_out;
     const size_t          n_blocks_per_row = n_in / W4A8_BLOCK_ELEMS;
 
-    /* Fallback to the per-row M=1 path when:
-     *   - the mtile scratch can't grow (OOM),
-     *   - or m > Q4K_MTILE_MMAX (stack acc bound).
-     * Both are slow but correct. */
-    if (m > Q4K_MTILE_MMAX || grow_mtile(st, m, n_in) != GEIST_OK) {
+    /* Fallback to the per-row M=1 path on mtile OOM. */
+    if (grow_mtile(st, m, n_in) != GEIST_OK) {
         for (size_t row = 0; row < m; row++) {
             cpu_x86_linear_q4k_m1(x + row * n_in, w, be, y + row * n_out);
         }
@@ -316,48 +318,79 @@ void cpu_x86_linear_q4k_mN(const float               *x,
     const size_t bytes_per_row  = n_blocks_per_row * W4A8_BLOCK_BYTES_WEIGHTS;
     const size_t scales_per_row = n_blocks_per_row;
 
+    /* Outer loop over n-tiles (slabs of m tokens). For each n-tile the
+     * activation slab (this_N × n_in) stays L2-resident across every
+     * row-tile iteration, amortizing the act bandwidth across rows. */
+    for (size_t n_tile = 0; n_tile < m; n_tile += Q4K_NTILE) {
+        const size_t this_N = (n_tile + Q4K_NTILE <= m)
+                                      ? Q4K_NTILE
+                                      : (m - n_tile);
+
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static)
 #endif
-    for (size_t row_tile = 0; row_tile < n_out; row_tile += Q4K_MTILE) {
-        const size_t this_M = (row_tile + Q4K_MTILE <= n_out)
-                                      ? Q4K_MTILE
-                                      : (n_out - row_tile);
+        for (size_t row_tile = 0; row_tile < n_out; row_tile += Q4K_MTILE) {
+            const size_t this_M = (row_tile + Q4K_MTILE <= n_out)
+                                          ? Q4K_MTILE
+                                          : (n_out - row_tile);
 
-        /* Per-thread fp32 accumulator tile [this_M × m]. Stack-resident,
-         * fits in L1 (4 × 2048 × 4 = 32 KiB worst case). */
-        float acc[Q4K_MTILE * Q4K_MTILE_MMAX];
-        memset(acc, 0, this_M * m * sizeof(float));
-
-        for (size_t b = 0; b < n_blocks_per_row; b++) {
-            /* Load + unpack 4 weight blocks; cache scales/offsets. */
-            __m256i u_w[Q4K_MTILE];
-            float   ws[Q4K_MTILE];
-            float   wo[Q4K_MTILE];
-            for (size_t i = 0; i < this_M; i++) {
-                const uint8_t *w_row = weights + (row_tile + i) * bytes_per_row;
-                u_w[i] = unpack_w4a8_block_to_u8(w_row + b * W4A8_BLOCK_BYTES_WEIGHTS);
-                ws[i]  = w_scales[(row_tile + i) * scales_per_row + b];
-                wo[i]  = w_offsets[(row_tile + i) * scales_per_row + b];
+            /* Per-thread accumulator tile [this_M × this_N].
+             *   acc_v: 8-lane fp32 vector — running sum of dot_lanes * w_scale
+             *          across blocks. Hsum'd ONCE at end of tile.
+             *   acc_s: scalar offset accumulator — sum of w_offset * sum_a
+             *          across blocks. Subtracted from hsum at end.
+             * Stack budget: 4 × 64 × 36 B ≈ 9 KB per thread, fits L1. */
+            __m256 acc_v[Q4K_MTILE * Q4K_NTILE];
+            float  acc_s[Q4K_MTILE * Q4K_NTILE];
+            for (size_t k = 0; k < this_M * this_N; k++) {
+                acc_v[k] = _mm256_setzero_ps();
+                acc_s[k] = 0.0f;
             }
 
-            for (size_t j = 0; j < m; j++) {
-                const __m256i s_a = _mm256_loadu_si256(
-                        (const __m256i *) (st->acts_mtile + j * n_in + b * W4A8_BLOCK_ELEMS));
-                const float sa_j = (float) st->sum_a_mtile[j * n_blocks_per_row + b];
+            for (size_t b = 0; b < n_blocks_per_row; b++) {
+                /* Load + unpack 4 weight blocks; broadcast scales. */
+                __m256i u_w[Q4K_MTILE];
+                __m256  ws_v[Q4K_MTILE];
+                float   wo[Q4K_MTILE];
                 for (size_t i = 0; i < this_M; i++) {
-                    const __m256i dot = _mm256_dpbusd_epi32(_mm256_setzero_si256(),
-                                                            u_w[i], s_a);
-                    const int32_t d   = hsum_i32_avx2(dot);
-                    acc[i * m + j] += ws[i] * (float) d - wo[i] * sa_j;
+                    const uint8_t *w_row =
+                            weights + (row_tile + i) * bytes_per_row;
+                    u_w[i]  = unpack_w4a8_block_to_u8(
+                            w_row + b * W4A8_BLOCK_BYTES_WEIGHTS);
+                    ws_v[i] = _mm256_set1_ps(
+                            w_scales[(row_tile + i) * scales_per_row + b]);
+                    wo[i] = w_offsets[(row_tile + i) * scales_per_row + b];
+                }
+
+                for (size_t jj = 0; jj < this_N; jj++) {
+                    const size_t j = n_tile + jj;
+                    const __m256i s_a = _mm256_loadu_si256(
+                            (const __m256i *) (st->acts_mtile +
+                                               j * n_in +
+                                               b * W4A8_BLOCK_ELEMS));
+                    const float sa_j = (float) st->sum_a_mtile
+                            [j * n_blocks_per_row + b];
+
+                    for (size_t i = 0; i < this_M; i++) {
+                        const __m256i dot = _mm256_dpbusd_epi32(
+                                _mm256_setzero_si256(), u_w[i], s_a);
+                        const __m256  dot_f = _mm256_cvtepi32_ps(dot);
+                        acc_v[i * this_N + jj] = _mm256_fmadd_ps(
+                                dot_f, ws_v[i], acc_v[i * this_N + jj]);
+                        acc_s[i * this_N + jj] += wo[i] * sa_j;
+                    }
                 }
             }
-        }
 
-        /* Write tile to y, applying per-row scale_x. */
-        for (size_t i = 0; i < this_M; i++) {
-            for (size_t j = 0; j < m; j++) {
-                y[j * n_out + row_tile + i] = st->scale_x_mtile[j] * acc[i * m + j];
+            /* Write tile: y[j, row] = scale_x[j] * (hsum(acc_v) - acc_s). */
+            for (size_t i = 0; i < this_M; i++) {
+                for (size_t jj = 0; jj < this_N; jj++) {
+                    const size_t j      = n_tile + jj;
+                    const float  v_sum  = hsum_f32_avx(acc_v[i * this_N + jj]);
+                    const float  total  = v_sum - acc_s[i * this_N + jj];
+                    y[j * n_out + row_tile + i] =
+                            st->scale_x_mtile[j] * total;
+                }
             }
         }
     }
