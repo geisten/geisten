@@ -83,7 +83,7 @@ static void set_scale_min_k4(int j, uint8_t scales[12], uint8_t d_in, uint8_t m_
     }
 }
 
-static int scenario_endtoend(void) {
+static int scenario_endtoend_m4(void) {
     /* 8 weight rows × 1 super-block (K=256). M=4 activation rows. */
     constexpr size_t N      = 8;
     constexpr size_t M      = 4;
@@ -177,16 +177,110 @@ static int scenario_endtoend(void) {
         if (d_avx > max_diff_avx) max_diff_avx = d_avx;
         if (fails > 8) break;
     }
-    fprintf(stdout, "[q4kx8_gemm] scalar max |Δ| = %g, avx max |Δ| = %g, rms = %g, tol = %g\n",
+    fprintf(stdout, "[q4kx8_gemm M=4] scalar max |Δ| = %g, avx max |Δ| = %g, rms = %g, tol = %g\n",
             (double) max_diff_scl, (double) max_diff_avx,
             (double) rms, (double) tol);
     return fails;
 }
 
+/* Exercises the AVX-512 16x16 panel: M=16 m-rows × N=16 cells × K=512
+ * (= 2 super-blocks so the inter-super-block accumulator is exercised). */
+static int scenario_endtoend_m16(size_t M, size_t N, size_t K) {
+    const size_t N_SUPER = K / 256;
+
+    /* Synthesize Q4_K weights. */
+    struct block_q4_K_t *W_q4k = (struct block_q4_K_t *) calloc(N * N_SUPER, sizeof(*W_q4k));
+    if (!W_q4k) return 1;
+    uint32_t            s = 0xCAFEF00Du;
+    for (size_t r = 0; r < N * N_SUPER; r++) {
+        memset(&W_q4k[r], 0, sizeof(W_q4k[r]));
+        const float df    = 0.002f + 0.005f * ((prng_next(&s) & 0xFFFFu) / 65536.0f);
+        const float mf    = 0.001f + 0.003f * ((prng_next(&s) & 0xFFFFu) / 65536.0f);
+        W_q4k[r].d        = fp32_to_fp16(df);
+        W_q4k[r].dmin     = fp32_to_fp16(mf);
+        for (int sb = 0; sb < 8; sb++) {
+            const uint8_t sc = (uint8_t) (prng_next(&s) & 0x3Fu);
+            const uint8_t mn = (uint8_t) (prng_next(&s) & 0x3Fu);
+            set_scale_min_k4(sb, W_q4k[r].scales, sc, mn);
+        }
+        for (size_t k = 0; k < 128; k++) {
+            W_q4k[r].qs[k] = (uint8_t) (prng_next(&s) & 0xFFu);
+        }
+    }
+
+    /* Repack to Q4_Kx8 — N/8 octets × N_SUPER super-blocks. */
+    struct block_q4_Kx8 *W_q4kx8 = (struct block_q4_Kx8 *) calloc((N / 8) * N_SUPER, sizeof(*W_q4kx8));
+    if (!W_q4kx8) { free(W_q4k); return 1; }
+    q4k_to_q4kx8_matrix(K, N, (const uint8_t *) W_q4k, W_q4kx8);
+
+    /* Synthesize fp32 activations. */
+    float *X_fp32 = (float *) calloc(M * K, sizeof(float));
+    if (!X_fp32) { free(W_q4k); free(W_q4kx8); return 1; }
+    for (size_t i = 0; i < M * K; i++) {
+        X_fp32[i] = 1.0f * prng_uniform_pm1(prng_next(&s));
+    }
+
+    /* Quantize to Q8_Kx4 (M/4 = 4 m-tiles × N_SUPER per row group). */
+    struct block_q8_Kx4 *X_q8kx4 = (struct block_q8_Kx4 *) calloc((M / 4) * N_SUPER, sizeof(*X_q8kx4));
+    if (!X_q8kx4) { free(W_q4k); free(W_q4kx8); free(X_fp32); return 1; }
+    for (size_t mt = 0; mt < M / 4; mt++) {
+        quantize_q8_Kx4(K, X_fp32 + mt * 4 * K, X_q8kx4 + mt * N_SUPER);
+    }
+
+    /* Scalar reference. */
+    float *Y_scalar = (float *) calloc(M * N, sizeof(float));
+    q4kx8_gemm_scalar(M, N, K, X_q8kx4, W_q4kx8, Y_scalar);
+
+    /* AVX-512 16x16 path. */
+    float *Y_avx = (float *) calloc(M * N, sizeof(float));
+    q4kx8_gemm_avx512(M, N, K, X_q8kx4, W_q4kx8, Y_avx);
+
+    /* Compare AVX-512 vs scalar (both run the same Q8_Kx4 quant). */
+    int   fails        = 0;
+    float max_diff     = 0.0f;
+    for (size_t i = 0; i < M * N; i++) {
+        const float d = fabsf(Y_avx[i] - Y_scalar[i]);
+        if (d > 0.5f) {
+            if (fails < 8) {
+                fprintf(stderr, "M=%zu N=%zu: i=%zu (row=%zu col=%zu) scalar=%g avx=%g diff=%g\n",
+                        M, N, i, i / N, i % N,
+                        (double) Y_scalar[i], (double) Y_avx[i], (double) d);
+            }
+            fails++;
+        }
+        if (d > max_diff) max_diff = d;
+    }
+    fprintf(stdout, "[q4kx8_gemm M=%zu N=%zu K=%zu] max |Δ vs scalar| = %g, fails=%d\n",
+            M, N, K, (double) max_diff, fails);
+
+    free(W_q4k); free(W_q4kx8); free(X_fp32); free(X_q8kx4); free(Y_scalar); free(Y_avx);
+    return fails;
+}
+
 int main(void) {
     int fails = 0;
-    if (scenario_endtoend() != 0) {
-        fputs("scenario_endtoend FAILED\n", stderr);
+    if (scenario_endtoend_m4() != 0) {
+        fputs("scenario_endtoend_m4 FAILED\n", stderr);
+        fails++;
+    }
+    /* Sanity: M=16 N=8 K=256 — runs through AVX2 GEMV fallback. */
+    if (scenario_endtoend_m16(16, 8, 256) != 0) {
+        fputs("scenario_endtoend_m16(16,8,256) FAILED\n", stderr);
+        fails++;
+    }
+    /* M=16 N=16 K=256 — single super-block × 16x16 panel. */
+    if (scenario_endtoend_m16(16, 16, 256) != 0) {
+        fputs("scenario_endtoend_m16(16,16,256) FAILED\n", stderr);
+        fails++;
+    }
+    /* Full M=16 N=16 K=512 — exercises multi-super-block accumulation. */
+    if (scenario_endtoend_m16(16, 16, 512) != 0) {
+        fputs("scenario_endtoend_m16(16,16,512) FAILED\n", stderr);
+        fails++;
+    }
+    /* M=32 N=32 K=256 — exercises OMP outer + multiple panels. */
+    if (scenario_endtoend_m16(32, 32, 256) != 0) {
+        fputs("scenario_endtoend_m16(32,32,256) FAILED\n", stderr);
         fails++;
     }
     return fails == 0 ? GEIST_TEST_PASS : GEIST_TEST_FAIL;
