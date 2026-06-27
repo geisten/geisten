@@ -22,6 +22,8 @@
 #include <geist_backend.h>
 
 #include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 
 static void *op_state_create(struct geist_backend            *be,
                                       const char                      *gguf_path,
@@ -75,9 +77,21 @@ static void op_prefill(void *arch_state, size_t n,
     if (st == nullptr || n == 0) {
         return;
     }
-    (void) transformer_prefill_text_batch(st, n, ids);
-    /* On failure the next decode_step will surface the error indirectly
-     * via the engine. */
+    enum geist_status s = transformer_prefill_text_batch(st, n, ids);
+    if (s != GEIST_OK && st->backend != nullptr) {
+        const char *detail = geist_backend_errmsg(st->backend);
+        char detail_copy[512];
+        detail_copy[0] = '\0';
+        if (detail != nullptr && detail[0] != '\0' &&
+            strcmp(detail, "(no error)") != 0) {
+            (void) snprintf(detail_copy, sizeof(detail_copy), "%s", detail);
+        }
+        geist_backend_set_error(st->backend, s,
+                                "transformer prefill failed: %s%s%s",
+                                geist_status_to_string(s),
+                                detail_copy[0] != '\0' ? ": " : "",
+                                detail_copy);
+    }
 }
 
 /* Append `n` audio soft-tokens to the KV cache via the batched seq>1
@@ -150,6 +164,7 @@ static const float *op_peek_logits(void *arch_state, size_t *n_logits) {
     struct transformer_arch_state *st = arch_state;
     if (n_logits == nullptr) return nullptr;
     if (st == nullptr || !st->sess->logits_valid ||
+        !st->sess->logits_host_valid || st->sess->logits_on_device ||
         st->sess->scratch_logits == nullptr) {
         *n_logits = 0;
         return nullptr;

@@ -1,0 +1,96 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer X { float x[]; };
+layout(set = 0, binding = 1) readonly buffer W { uint w[]; };
+layout(set = 0, binding = 2) writeonly buffer Y { float y[]; };
+
+layout(push_constant) uniform Push {
+    uint n_in;
+    uint n_out;
+    uint blocks_per_row;
+    uint x_offset;
+    uint w_byte_offset;
+    uint y_offset;
+} pc;
+
+shared float partial0[64];
+shared float partial1[64];
+shared float partial2[64];
+shared float partial3[64];
+
+uint load_u8(uint byte_offset) {
+    uint word = w[byte_offset >> 2];
+    return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;
+}
+
+float load_f32(uint byte_offset) {
+    return uintBitsToFloat(w[byte_offset >> 2]);
+}
+
+float q4k_nt4_weight(uint row, uint k) {
+    uint nt = row >> 2;
+    uint nr = row & 3u;
+    uint block_in_row = k >> 8;
+    uint in_block = k & 255u;
+    uint sub = in_block >> 5;
+    uint idx = in_block & 31u;
+    uint block_byte = pc.w_byte_offset + 24u +
+        ((nt * pc.blocks_per_row + block_in_row) * 4u + nr) * 280u;
+
+    float d = load_f32(block_byte);
+    float dmin = load_f32(block_byte + 4u);
+    float sc = float(load_u8(block_byte + 8u + sub));
+    float mn = float(load_u8(block_byte + 16u + sub));
+    float q = float(load_u8(block_byte + 24u + in_block));
+    return d * sc * q - dmin * mn;
+}
+
+void main() {
+    uint row0 = gl_WorkGroupID.x * 4u;
+    uint lid = gl_LocalInvocationID.x;
+
+    if (row0 >= pc.n_out) {
+        return;
+    }
+
+    bool has1 = row0 + 1u < pc.n_out;
+    bool has2 = row0 + 2u < pc.n_out;
+    bool has3 = row0 + 3u < pc.n_out;
+    float sum0 = 0.0;
+    float sum1 = 0.0;
+    float sum2 = 0.0;
+    float sum3 = 0.0;
+
+    for (uint k = lid; k < pc.n_in; k += 64u) {
+        float xv = x[pc.x_offset + k];
+        sum0 += xv * q4k_nt4_weight(row0, k);
+        if (has1) { sum1 += xv * q4k_nt4_weight(row0 + 1u, k); }
+        if (has2) { sum2 += xv * q4k_nt4_weight(row0 + 2u, k); }
+        if (has3) { sum3 += xv * q4k_nt4_weight(row0 + 3u, k); }
+    }
+
+    partial0[lid] = sum0;
+    partial1[lid] = sum1;
+    partial2[lid] = sum2;
+    partial3[lid] = sum3;
+    barrier();
+
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (lid < stride) {
+            partial0[lid] += partial0[lid + stride];
+            partial1[lid] += partial1[lid + stride];
+            partial2[lid] += partial2[lid + stride];
+            partial3[lid] += partial3[lid + stride];
+        }
+        barrier();
+    }
+
+    if (lid == 0u) {
+        y[pc.y_offset + row0] = partial0[0];
+        if (has1) { y[pc.y_offset + row0 + 1u] = partial1[0]; }
+        if (has2) { y[pc.y_offset + row0 + 2u] = partial2[0]; }
+        if (has3) { y[pc.y_offset + row0 + 3u] = partial3[0]; }
+    }
+}

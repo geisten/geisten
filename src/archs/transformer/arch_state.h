@@ -38,6 +38,7 @@
 #include <geist_weight.h>
 
 #include "arch_config.h"
+#include "accel.h"
 #include "arena.h"
 #include "exec_plan.h"
 #include "sampler.h"
@@ -166,19 +167,21 @@ struct transformer_layer_weights {
 struct transformer_arch_session {
     /* ---- KV-cache state. Layers 0..14 own buffers; 15..34 alias them
      * via GEMMA4_KV_*_SRC. One of three representations is active:
-     *   FP32 (default on Apple): k_cache[] / v_cache[].
+     *   FP32 (default on non-Metal Apple): k_cache[] / v_cache[].
+     *   F16 (default on Metal): k_cache[] / v_cache[] with half storage.
      *   INT8 (GEIST_KV_INT8=1; default non-Apple): k_cache_q8[] /
      *        v_cache_q8[] + per-(token, kv_head) scales.
      *   KIVI (GEIST_KV_KIVI=1): 2-bit channel-grouped K + 2-bit per-
      *        token V + R-token FP32 residual ring (k_residual /
      *        v_residual); kivi_residual_count + kivi_drained_count
      *        shared across layers (lock-step drain). */
+    bool                  kv_f16_enabled;
     bool                  kv_int8_enabled;
     bool                  kv_kivi_enabled;
     struct transformer_session_exec_plan exec_plan;
     /* P1.4.c: per-layer KV slot arrays are heap-allocated at
      * session_alloc, sized to state->n_layers. Exactly one of the
-     * three representations (FP32 / INT8 / KIVI) holds non-null slots
+     * four representations (FP32 / F16 / INT8 / KIVI) holds non-null slots
      * per non-KV-shared layer per the kv_*_enabled flags. */
     struct geist_buffer **k_cache;
     struct geist_buffer **v_cache;
@@ -237,7 +240,15 @@ struct transformer_arch_session {
 
     /* ---- Last-decode prediction (consumed by next decode_step). */
     bool          logits_valid;
+    bool          logits_on_device;
+    bool          logits_host_valid;
     geist_token_t next_token_pending;
+
+    /* Optional accelerator-private session state. Owned by this session and
+     * destroyed via transformer_accel_session_destroy before CPU buffers go
+     * away. nullptr means the CPU path owns logits/scratch/KV exclusively. */
+    struct transformer_accel_session *accel_session;
+    bool backend_command_sequence_active;
 
     /* ---- Sampler state.
      * temperature == 0.0 → greedy argmax; top_k>1 / top_p<1 narrow the
@@ -338,6 +349,10 @@ struct transformer_arch_state {
     struct geist_buffer *rope_sin_sliding;
     struct geist_buffer *rope_cos_full;
     struct geist_buffer *rope_sin_full;
+
+    /* Optional model-level accelerator. Owned by state, nullptr when no
+     * backend/model/session configuration is eligible. */
+    struct transformer_accel *accel;
 
     /* ---- Per-session mutable state (P1.2.d/e/f).
      *

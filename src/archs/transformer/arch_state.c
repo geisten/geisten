@@ -22,6 +22,7 @@
 #include "forward.h"
 #include "scratch_plan.h"
 #include "weight_load.h"
+#include "weight_load/internal.h"
 
 #include "gguf_quant.h"
 #include "gguf_reader.h"
@@ -107,6 +108,24 @@ static void release_layer_weight_aux(struct transformer_layer_weights *L) {
     void *p = be->desc->vtbl->buffer_map(*out);
     if (p != nullptr) {
         memset(p, 0, bytes);
+    } else {
+        void *zero = heap_alloc_aligned(bytes, 64);
+        if (zero == nullptr) {
+            be->desc->vtbl->buffer_destroy(be, *out);
+            *out = nullptr;
+            geist_backend_set_error(be, GEIST_E_OOM,
+                                    "transformer: zero-fill scratch alloc failed (%zu bytes)",
+                                    bytes);
+            return GEIST_E_OOM;
+        }
+        memset(zero, 0, bytes);
+        s = be->desc->vtbl->buffer_upload(*out, bytes, (const uint8_t *) zero);
+        safe_free(&zero);
+        if (s != GEIST_OK) {
+            be->desc->vtbl->buffer_destroy(be, *out);
+            *out = nullptr;
+            return s;
+        }
     }
     be->desc->vtbl->buffer_unmap(*out);
     return GEIST_OK;
@@ -143,8 +162,8 @@ static void release_layer_weight_aux(struct transformer_layer_weights *L) {
     void *p = (uint8_t *) st->sess->scratch_pool_base + aligned;
     memset(p, 0, bytes);
     st->sess->scratch_pool_used = aligned + bytes;
-    return be->desc->vtbl->buffer_create_aliased(be, p, bytes,
-                                                   GEIST_BUFFER_SCRATCH, out_buf);
+    return weight_load_buffer_from_host(be, p, bytes,
+                                        GEIST_BUFFER_SCRATCH, true, out_buf);
 }
 
 /* Upload a host-side cos or sin table into a backend buffer. */
@@ -278,6 +297,11 @@ static void release_layer_weight_aux(struct transformer_layer_weights *L) {
             if (s != GEIST_OK) { return s; }
             s = alloc_scratch(be, n_scales * sizeof(float), &st->sess->v_cache_scale[li]);
             if (s != GEIST_OK) { return s; }
+        } else if (st->sess->kv_f16_enabled) {
+            s = alloc_scratch(be, n_elems * sizeof(uint16_t), &st->sess->k_cache[li]);
+            if (s != GEIST_OK) { return s; }
+            s = alloc_scratch(be, n_elems * sizeof(uint16_t), &st->sess->v_cache[li]);
+            if (s != GEIST_OK) { return s; }
         } else {
             s = alloc_scratch(be, n_elems * sizeof(float), &st->sess->k_cache[li]);
             if (s != GEIST_OK) { return s; }
@@ -382,9 +406,12 @@ static void release_layer_weight_aux(struct transformer_layer_weights *L) {
     s = alloc_scratch(be, head_dim_max * F, &st->sess->scratch_ones_headdim_max);
     if (s != GEIST_OK) { return s; }
     {
-        float *p = (float *) be->desc->vtbl->buffer_map(st->sess->scratch_ones_headdim_max);
-        for (size_t i = 0; i < head_dim_max; i++) { p[i] = 1.0f; }
-        be->desc->vtbl->buffer_unmap(st->sess->scratch_ones_headdim_max);
+        float ones[head_dim_max];
+        for (size_t i = 0; i < head_dim_max; i++) { ones[i] = 1.0f; }
+        s = be->desc->vtbl->buffer_upload(st->sess->scratch_ones_headdim_max,
+                                          head_dim_max * F,
+                                          (const uint8_t *) ones);
+        if (s != GEIST_OK) { return s; }
     }
 
     return GEIST_OK;
@@ -577,6 +604,12 @@ transformer_state_create_from_gguf(struct geist_backend            *be,
         return s;
     }
 
+    s = transformer_accel_try_create(st, &st->accel);
+    if (s != GEIST_OK) {
+        transformer_state_destroy(st);
+        return s;
+    }
+
     /* P1.2.f: allocate the default session (KV + scratch pool + arena +
      * sampler). transformer_session_alloc reads kv_mode + m_max from
      * opts; AUTO falls back to env / platform default for full backward
@@ -679,6 +712,8 @@ void transformer_state_destroy(struct transformer_arch_state *st) {
         st->default_sess = nullptr;
         st->sess         = nullptr;
     }
+    transformer_accel_destroy(st->accel);
+    st->accel = nullptr;
 
     if (be != nullptr) {
         for (size_t l = 0; l < (size_t) st->n_layers; l++) {
@@ -746,7 +781,18 @@ void transformer_state_destroy(struct transformer_arch_state *st) {
 
 /* ---- Multi-session API (P1.2.f) --------------------------------------- */
 
+[[nodiscard]] static bool backend_is_metal(
+    const struct transformer_arch_state *state) {
+
+    return state != nullptr &&
+           state->backend != nullptr &&
+           state->backend->desc != nullptr &&
+           state->backend->desc->name != nullptr &&
+           strcmp(state->backend->desc->name, "metal") == 0;
+}
+
 [[nodiscard]] static enum geist_kv_mode resolve_kv_mode(
+    const struct transformer_arch_state *state,
     const struct geist_session_opts *opts) {
     enum geist_kv_mode m = (opts != nullptr) ? opts->kv_mode : GEIST_KV_AUTO;
     if (m != GEIST_KV_AUTO) {
@@ -754,11 +800,18 @@ void transformer_state_destroy(struct transformer_arch_state *st) {
     }
     const char *env_kivi = getenv("GEIST_KV_KIVI");
     const char *env_int8 = getenv("GEIST_KV_INT8");
+    const char *env_f16 = getenv("GEIST_KV_F16");
     if (env_kivi != nullptr && env_kivi[0] == '1') {
         return GEIST_KV_KIVI;
     }
     if (env_int8 != nullptr) {
         return (env_int8[0] == '1') ? GEIST_KV_INT8 : GEIST_KV_FP32;
+    }
+    if (env_f16 != nullptr) {
+        return (env_f16[0] == '1') ? GEIST_KV_F16 : GEIST_KV_FP32;
+    }
+    if (backend_is_metal(state)) {
+        return GEIST_KV_F16;
     }
 #if defined(__APPLE__)
     return GEIST_KV_FP32;
@@ -828,9 +881,19 @@ transformer_session_alloc(struct transformer_arch_state *state,
     sess->v_residual      = kv_block + 13 * n_layers;
 
     /* KV-mode resolution: opts override > env > platform default. */
-    const enum geist_kv_mode mode = resolve_kv_mode(opts);
+    const enum geist_kv_mode mode = resolve_kv_mode(state, opts);
+    if (mode == GEIST_KV_F16 && !backend_is_metal(state)) {
+        geist_backend_set_error(be, GEIST_E_UNSUPPORTED,
+                                "transformer_session_alloc: F16 KV requires metal backend");
+        void *p_kv = kv_block;
+        safe_free(&p_kv);
+        void *p_sess = sess;
+        safe_free(&p_sess);
+        return nullptr;
+    }
     sess->kv_kivi_enabled = (mode == GEIST_KV_KIVI);
     sess->kv_int8_enabled = (mode == GEIST_KV_INT8);
+    sess->kv_f16_enabled = (mode == GEIST_KV_F16);
     transformer_session_exec_plan_build(sess);
     sess->kivi_residual_count = 0;
     sess->kivi_drained_count  = 0;
@@ -854,6 +917,10 @@ transformer_session_alloc(struct transformer_arch_state *state,
     if (s == GEIST_OK && opts != nullptr) {
         transformer_state_apply_opts(state, opts);
     }
+    if (s == GEIST_OK) {
+        s = transformer_accel_session_create(state->accel, sess,
+                                             &sess->accel_session);
+    }
     state->sess = prev;
 
     if (s != GEIST_OK) {
@@ -869,6 +936,11 @@ void transformer_session_free(struct transformer_arch_state *state,
         return;
     }
     struct geist_backend *be = (state != nullptr) ? state->backend : nullptr;
+
+    transformer_accel_session_destroy(
+        state != nullptr ? state->accel : nullptr,
+        sess->accel_session);
+    sess->accel_session = nullptr;
 
     /* Per-layer KV cache buffers. Each slot may be NULL — exactly one
      * representation (FP32 / INT8 / KIVI) was allocated per non-shared

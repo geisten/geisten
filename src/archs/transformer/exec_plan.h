@@ -51,12 +51,14 @@ struct transformer_layer_exec_plan {
 
 enum transformer_kv_append_kind {
     TRANSFORMER_KV_APPEND_FP32 = 0,
+    TRANSFORMER_KV_APPEND_F16,
     TRANSFORMER_KV_APPEND_INT8,
     TRANSFORMER_KV_APPEND_KIVI,
 };
 
 enum transformer_attention_kind {
     TRANSFORMER_ATTENTION_FP32 = 0,
+    TRANSFORMER_ATTENTION_F16,
     TRANSFORMER_ATTENTION_INT8,
     TRANSFORMER_ATTENTION_KIVI,
 };
@@ -65,6 +67,7 @@ enum transformer_attention_kind {
  * rebuilt for every session because KV representation is a session option.
  */
 struct transformer_session_exec_plan {
+    bool kv_f16_enabled;
     bool kv_int8_enabled;
     bool kv_kivi_enabled;
     enum transformer_kv_append_kind kv_append_kind;

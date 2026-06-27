@@ -162,6 +162,9 @@ struct geist_weight;
 [[nodiscard]] enum geist_status cpu_neon_mul(
     struct geist_backend *be, const struct geist_tensor *a, const struct geist_tensor *b,
     struct geist_tensor *y);
+[[nodiscard]] enum geist_status cpu_neon_scale_f32(
+    struct geist_backend *be, const struct geist_tensor *x, float scale,
+    struct geist_tensor *y);
 [[nodiscard]] enum geist_status cpu_neon_gelu_tanh(
     struct geist_backend *be, const struct geist_tensor *x, struct geist_tensor *y);
 [[nodiscard]] enum geist_status cpu_neon_gelu_tanh_mul(

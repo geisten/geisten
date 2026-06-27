@@ -45,6 +45,16 @@ Capabilities are queryable up front via `geist_backend_supports_op` returning
 `NONE` / `EMULATED` / `NATIVE`, so an arch can pick the best available path or
 fail cleanly rather than discovering an unsupported combination mid-forward.
 
+## Planned Vulkan fastpath
+
+The CPU backend model is built around host-resident buffers and load-time
+kernel binding. A high-performance Vulkan route should therefore not be wired as
+another set of Level-2 op implementations. The planned route enters at the
+transformer level, keeps weights/KV/scratch resident on the device, repacks
+weights into Vulkan-specific layouts at load time, and executes persistent
+layer/full-stack command buffers. See
+[`docs/proposals/vulkan-fastpath.md`](proposals/vulkan-fastpath.md).
+
 ## Tensors: dtype vs layout
 
 A `geist_tensor` separates the **logical** dtype (`F32`, `Q4_K`, `TQ2_0`, …)

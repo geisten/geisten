@@ -1,0 +1,154 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer X { float x[]; };
+layout(set = 0, binding = 1) readonly buffer WG { uint wg[]; };
+layout(set = 0, binding = 2) readonly buffer WU { uint wu[]; };
+layout(set = 0, binding = 3) writeonly buffer Y { float y[]; };
+
+layout(push_constant) uniform Push {
+    uint n_in;
+    uint n_out;
+    uint blocks_per_row;
+    uint x_offset;
+    uint wg_byte_offset;
+    uint wu_byte_offset;
+    uint y_offset;
+} pc;
+
+shared float gate0[64];
+shared float gate1[64];
+shared float gate2[64];
+shared float gate3[64];
+shared float up0[64];
+shared float up1[64];
+shared float up2[64];
+shared float up3[64];
+
+uint load_u8_g(uint byte_offset) {
+    uint word = wg[byte_offset >> 2];
+    return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;
+}
+
+uint load_u8_u(uint byte_offset) {
+    uint word = wu[byte_offset >> 2];
+    return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;
+}
+
+float load_f32_g(uint byte_offset) {
+    return uintBitsToFloat(wg[byte_offset >> 2]);
+}
+
+float load_f32_u(uint byte_offset) {
+    return uintBitsToFloat(wu[byte_offset >> 2]);
+}
+
+float q4k_nt4_gate(uint row, uint k) {
+    uint nt = row >> 2;
+    uint nr = row & 3u;
+    uint block_in_row = k >> 8;
+    uint in_block = k & 255u;
+    uint sub = in_block >> 5;
+    uint block_byte = pc.wg_byte_offset + 24u +
+        ((nt * pc.blocks_per_row + block_in_row) * 4u + nr) * 280u;
+
+    float d = load_f32_g(block_byte);
+    float dmin = load_f32_g(block_byte + 4u);
+    float sc = float(load_u8_g(block_byte + 8u + sub));
+    float mn = float(load_u8_g(block_byte + 16u + sub));
+    float q = float(load_u8_g(block_byte + 24u + in_block));
+    return d * sc * q - dmin * mn;
+}
+
+float q4k_nt4_up(uint row, uint k) {
+    uint nt = row >> 2;
+    uint nr = row & 3u;
+    uint block_in_row = k >> 8;
+    uint in_block = k & 255u;
+    uint sub = in_block >> 5;
+    uint block_byte = pc.wu_byte_offset + 24u +
+        ((nt * pc.blocks_per_row + block_in_row) * 4u + nr) * 280u;
+
+    float d = load_f32_u(block_byte);
+    float dmin = load_f32_u(block_byte + 4u);
+    float sc = float(load_u8_u(block_byte + 8u + sub));
+    float mn = float(load_u8_u(block_byte + 16u + sub));
+    float q = float(load_u8_u(block_byte + 24u + in_block));
+    return d * sc * q - dmin * mn;
+}
+
+float gelu_tanh(float v) {
+    float u = 0.7978845608028654 * (v + 0.044715 * v * v * v);
+    return 0.5 * v * (1.0 + tanh(u));
+}
+
+void main() {
+    uint row0 = gl_WorkGroupID.x * 4u;
+    uint lid = gl_LocalInvocationID.x;
+
+    if (row0 >= pc.n_out) {
+        return;
+    }
+
+    bool has1 = row0 + 1u < pc.n_out;
+    bool has2 = row0 + 2u < pc.n_out;
+    bool has3 = row0 + 3u < pc.n_out;
+    float g0 = 0.0;
+    float g1 = 0.0;
+    float g2 = 0.0;
+    float g3 = 0.0;
+    float u0 = 0.0;
+    float u1 = 0.0;
+    float u2 = 0.0;
+    float u3 = 0.0;
+
+    for (uint k = lid; k < pc.n_in; k += 64u) {
+        float xv = x[pc.x_offset + k];
+        g0 += xv * q4k_nt4_gate(row0, k);
+        u0 += xv * q4k_nt4_up(row0, k);
+        if (has1) {
+            g1 += xv * q4k_nt4_gate(row0 + 1u, k);
+            u1 += xv * q4k_nt4_up(row0 + 1u, k);
+        }
+        if (has2) {
+            g2 += xv * q4k_nt4_gate(row0 + 2u, k);
+            u2 += xv * q4k_nt4_up(row0 + 2u, k);
+        }
+        if (has3) {
+            g3 += xv * q4k_nt4_gate(row0 + 3u, k);
+            u3 += xv * q4k_nt4_up(row0 + 3u, k);
+        }
+    }
+
+    gate0[lid] = g0;
+    gate1[lid] = g1;
+    gate2[lid] = g2;
+    gate3[lid] = g3;
+    up0[lid] = u0;
+    up1[lid] = u1;
+    up2[lid] = u2;
+    up3[lid] = u3;
+    barrier();
+
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (lid < stride) {
+            gate0[lid] += gate0[lid + stride];
+            gate1[lid] += gate1[lid + stride];
+            gate2[lid] += gate2[lid + stride];
+            gate3[lid] += gate3[lid + stride];
+            up0[lid] += up0[lid + stride];
+            up1[lid] += up1[lid + stride];
+            up2[lid] += up2[lid + stride];
+            up3[lid] += up3[lid + stride];
+        }
+        barrier();
+    }
+
+    if (lid == 0u) {
+        y[pc.y_offset + row0] = gelu_tanh(gate0[0]) * up0[0];
+        if (has1) { y[pc.y_offset + row0 + 1u] = gelu_tanh(gate1[0]) * up1[0]; }
+        if (has2) { y[pc.y_offset + row0 + 2u] = gelu_tanh(gate2[0]) * up2[0]; }
+        if (has3) { y[pc.y_offset + row0 + 3u] = gelu_tanh(gate3[0]) * up3[0]; }
+    }
+}

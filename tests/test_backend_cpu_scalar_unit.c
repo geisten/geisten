@@ -82,6 +82,29 @@ int main(void) {
         fails += check(s == GEIST_OK, "buffer_download OK");
         fails += check(memcmp(dst, src, 64) == 0, "downloaded data matches");
 
+        struct geist_buffer *copy_buf = nullptr;
+        s = be->desc->vtbl->buffer_create(be, 64, GEIST_BUFFER_ACTIVATION,
+                                          GEIST_MEMORY_AUTO, &copy_buf);
+        fails += check(s == GEIST_OK, "copy target buffer_create OK");
+        fails += check(copy_buf != nullptr, "copy target buffer handle non-null");
+        if (copy_buf != nullptr) {
+            memset(dst, 0, sizeof dst);
+            s = be->desc->vtbl->buffer_upload(copy_buf, 64, dst);
+            fails += check(s == GEIST_OK, "copy target zero upload OK");
+            s = be->desc->vtbl->buffer_copy(copy_buf, 8, buf, 4, 16);
+            fails += check(s == GEIST_OK, "buffer_copy offset range OK");
+            s = be->desc->vtbl->buffer_download(64, dst, copy_buf);
+            fails += check(s == GEIST_OK, "copy target buffer_download OK");
+            fails += check(memcmp(dst + 8, src + 4, 16) == 0,
+                           "buffer_copy copied requested bytes");
+            fails += check(dst[7] == 0 && dst[24] == 0,
+                           "buffer_copy leaves surrounding bytes untouched");
+            s = be->desc->vtbl->buffer_copy(copy_buf, 60, buf, 0, 8);
+            fails += check(s == GEIST_E_INVALID_ARG,
+                           "buffer_copy rejects out-of-range copy");
+            be->desc->vtbl->buffer_destroy(be, copy_buf);
+        }
+
         be->desc->vtbl->buffer_destroy(be, buf);
     }
 

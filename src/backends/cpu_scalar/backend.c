@@ -21,6 +21,7 @@
 
 #include "heap.h"
 
+#include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -200,6 +201,27 @@ static void cpu_scalar_buffer_destroy(struct geist_backend *be, struct geist_buf
     return GEIST_OK;
 }
 
+[[nodiscard]] static enum geist_status cpu_scalar_buffer_copy(
+    struct geist_buffer *dst,
+    size_t dst_offset,
+    const struct geist_buffer *src,
+    size_t src_offset,
+    size_t n_bytes) {
+
+    if (dst == nullptr || src == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    if (dst_offset > dst->bytes || src_offset > src->bytes ||
+        n_bytes > dst->bytes - dst_offset ||
+        n_bytes > src->bytes - src_offset) {
+        return GEIST_E_INVALID_ARG;
+    }
+    memmove((uint8_t *) dst->host + dst_offset,
+            (const uint8_t *) src->host + src_offset,
+            n_bytes);
+    return GEIST_OK;
+}
+
 static void *cpu_scalar_buffer_map(struct geist_buffer *buf) {
     return buf != nullptr ? buf->host : nullptr;
 }
@@ -207,6 +229,53 @@ static void *cpu_scalar_buffer_map(struct geist_buffer *buf) {
 static void cpu_scalar_buffer_unmap(struct geist_buffer *buf) {
     /* No-op on CPU; nothing to sync. */
     (void) buf;
+}
+
+[[nodiscard]] static enum geist_status cpu_scalar_argmax_f32_batch(
+    struct geist_backend *be,
+    const struct geist_tensor *logits,
+    geist_token_t out_tokens[static logits->shape[0]]) {
+
+    if (logits == nullptr || out_tokens == nullptr ||
+        logits->buffer == nullptr || logits->buffer->host == nullptr ||
+        logits->dtype != GEIST_DTYPE_F32 ||
+        logits->layout != GEIST_LAYOUT_DENSE ||
+        logits->ndim != 2 ||
+        logits->shape[0] <= 0 ||
+        logits->shape[1] <= 0 ||
+        logits->shape[1] > INT32_MAX ||
+        logits->stride[0] != logits->shape[1] ||
+        logits->stride[1] != 1 ||
+        (logits->offset % sizeof(float)) != 0) {
+        geist_backend_set_error(
+            be, GEIST_E_UNSUPPORTED,
+            "cpu_scalar argmax_f32_batch: expected F32 DENSE [rows,n]");
+        return GEIST_E_UNSUPPORTED;
+    }
+    const size_t rows = (size_t) logits->shape[0];
+    const size_t n = (size_t) logits->shape[1];
+    if (rows > SIZE_MAX / n ||
+        logits->offset > logits->buffer->bytes ||
+        rows * n > (logits->buffer->bytes - logits->offset) / sizeof(float)) {
+        return GEIST_E_INVALID_ARG;
+    }
+
+    const float *base =
+        (const float *) ((const uint8_t *) logits->buffer->host +
+                         logits->offset);
+    for (size_t row = 0; row < rows; row++) {
+        const float *x = base + row * n;
+        float best = x[0];
+        size_t best_i = 0;
+        for (size_t i = 1; i < n; i++) {
+            if (x[i] > best) {
+                best = x[i];
+                best_i = i;
+            }
+        }
+        out_tokens[row] = (geist_token_t) best_i;
+    }
+    return GEIST_OK;
 }
 
 /* ---------- Op dispatcher: linear() -------------------------------------
@@ -226,11 +295,14 @@ static const struct geist_backend_vtbl cpu_scalar_vtbl = {
     .resolve_weight        = cpu_scalar_resolve_weight,
     .buffer_upload     = cpu_scalar_buffer_upload,
     .buffer_download   = cpu_scalar_buffer_download,
+    .buffer_copy       = cpu_scalar_buffer_copy,
     .buffer_map        = cpu_scalar_buffer_map,
     .buffer_unmap      = cpu_scalar_buffer_unmap,
+    .argmax_f32_batch  = cpu_scalar_argmax_f32_batch,
     .rmsnorm           = cpu_scalar_rmsnorm,
     .add               = cpu_scalar_add,
     .mul               = cpu_scalar_mul,
+    .scale_f32         = cpu_scalar_scale_f32,
     .gelu_tanh         = cpu_scalar_gelu_tanh,
     .gelu_tanh_mul     = cpu_scalar_gelu_tanh_mul,
     .gelu_tanh_mul_scaled = cpu_scalar_gelu_tanh_mul_scaled,

@@ -299,6 +299,27 @@ static void cpu_neon_buffer_destroy(struct geist_backend *be, struct geist_buffe
     return GEIST_OK;
 }
 
+[[nodiscard]] static enum geist_status cpu_neon_buffer_copy(
+    struct geist_buffer *dst,
+    size_t dst_offset,
+    const struct geist_buffer *src,
+    size_t src_offset,
+    size_t n_bytes) {
+
+    if (dst == nullptr || src == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    if (dst_offset > dst->bytes || src_offset > src->bytes ||
+        n_bytes > dst->bytes - dst_offset ||
+        n_bytes > src->bytes - src_offset) {
+        return GEIST_E_INVALID_ARG;
+    }
+    memmove((uint8_t *) dst->host + dst_offset,
+            (const uint8_t *) src->host + src_offset,
+            n_bytes);
+    return GEIST_OK;
+}
+
 static void *cpu_neon_buffer_map(struct geist_buffer *buf) {
     return buf != nullptr ? buf->host : nullptr;
 }
@@ -433,11 +454,13 @@ static const struct geist_backend_vtbl cpu_neon_vtbl = {
     .resolve_weight        = cpu_neon_resolve_weight,
     .buffer_upload     = cpu_neon_buffer_upload,
     .buffer_download   = cpu_neon_buffer_download,
+    .buffer_copy       = cpu_neon_buffer_copy,
     .buffer_map        = cpu_neon_buffer_map,
     .buffer_unmap      = cpu_neon_buffer_unmap,
     .rmsnorm           = cpu_neon_rmsnorm,
     .add               = cpu_neon_add,
     .mul               = cpu_neon_mul,
+    .scale_f32         = cpu_neon_scale_f32,
     .gelu_tanh         = cpu_neon_gelu_tanh,
     .gelu_tanh_mul     = cpu_neon_gelu_tanh_mul,
     .gelu_tanh_mul_scaled = cpu_neon_gelu_tanh_mul_scaled,

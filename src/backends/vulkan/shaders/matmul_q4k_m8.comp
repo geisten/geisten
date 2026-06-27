@@ -1,0 +1,137 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) readonly buffer X { float x[]; };
+layout(set = 0, binding = 1) readonly buffer W { uint w[]; };
+layout(set = 0, binding = 2) writeonly buffer Y { float y[]; };
+
+layout(push_constant) uniform Push {
+    uint n_in;
+    uint n_out;
+    uint blocks_per_row;
+    uint rows;
+    uint x_offset;
+    uint w_byte_offset;
+    uint y_offset;
+    uint x_stride;
+    uint y_stride;
+} pc;
+
+shared float partial0[256];
+shared float partial1[256];
+shared float partial2[256];
+shared float partial3[256];
+shared float partial4[256];
+shared float partial5[256];
+shared float partial6[256];
+shared float partial7[256];
+
+uint load_u8(uint byte_offset) {
+    uint word = w[byte_offset >> 2];
+    return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;
+}
+
+float load_f16(uint byte_offset) {
+    uint lo = load_u8(byte_offset);
+    uint hi = load_u8(byte_offset + 1u);
+    return unpackHalf2x16(lo | (hi << 8u)).x;
+}
+
+void get_scale_min(uint j, uint scales_base, out uint sc, out uint mn) {
+    if (j < 4u) {
+        sc = load_u8(scales_base + j) & 63u;
+        mn = load_u8(scales_base + j + 4u) & 63u;
+    } else {
+        uint q_j4 = load_u8(scales_base + j + 4u);
+        uint q_jm4 = load_u8(scales_base + j - 4u);
+        uint q_j = load_u8(scales_base + j);
+        sc = (q_j4 & 15u) | ((q_jm4 >> 6u) << 4u);
+        mn = (q_j4 >> 4u) | ((q_j >> 6u) << 4u);
+    }
+}
+
+void main() {
+    uint out_row = gl_WorkGroupID.x;
+    uint batch_base = gl_WorkGroupID.y * 8u;
+    uint lid = gl_LocalInvocationID.x;
+
+    if (out_row >= pc.n_out || batch_base >= pc.rows) {
+        return;
+    }
+
+    float sum0 = 0.0;
+    float sum1 = 0.0;
+    float sum2 = 0.0;
+    float sum3 = 0.0;
+    float sum4 = 0.0;
+    float sum5 = 0.0;
+    float sum6 = 0.0;
+    float sum7 = 0.0;
+
+    for (uint k = lid; k < pc.n_in; k += 256u) {
+        uint block_in_row = k / 256u;
+        uint in_block = k - block_in_row * 256u;
+        uint sub = in_block / 32u;
+        uint idx = in_block - sub * 32u;
+        uint block_byte = pc.w_byte_offset +
+            (out_row * pc.blocks_per_row + block_in_row) * 144u;
+
+        float d = load_f16(block_byte);
+        float dmin = load_f16(block_byte + 2u);
+
+        uint sc_u;
+        uint mn_u;
+        get_scale_min(sub, block_byte + 4u, sc_u, mn_u);
+
+        uint q_byte = load_u8(block_byte + 16u + (sub / 2u) * 32u + idx);
+        uint q = (sub & 1u) == 0u ? (q_byte & 15u) : (q_byte >> 4u);
+        float wv = d * float(sc_u) * float(q) - dmin * float(mn_u);
+
+        uint x_base = pc.x_offset + batch_base * pc.x_stride + k;
+        sum0 += x[x_base] * wv;
+        if (batch_base + 1u < pc.rows) { sum1 += x[x_base + pc.x_stride] * wv; }
+        if (batch_base + 2u < pc.rows) { sum2 += x[x_base + 2u * pc.x_stride] * wv; }
+        if (batch_base + 3u < pc.rows) { sum3 += x[x_base + 3u * pc.x_stride] * wv; }
+        if (batch_base + 4u < pc.rows) { sum4 += x[x_base + 4u * pc.x_stride] * wv; }
+        if (batch_base + 5u < pc.rows) { sum5 += x[x_base + 5u * pc.x_stride] * wv; }
+        if (batch_base + 6u < pc.rows) { sum6 += x[x_base + 6u * pc.x_stride] * wv; }
+        if (batch_base + 7u < pc.rows) { sum7 += x[x_base + 7u * pc.x_stride] * wv; }
+    }
+
+    partial0[lid] = sum0;
+    partial1[lid] = sum1;
+    partial2[lid] = sum2;
+    partial3[lid] = sum3;
+    partial4[lid] = sum4;
+    partial5[lid] = sum5;
+    partial6[lid] = sum6;
+    partial7[lid] = sum7;
+    barrier();
+
+    for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+        if (lid < stride) {
+            partial0[lid] += partial0[lid + stride];
+            partial1[lid] += partial1[lid + stride];
+            partial2[lid] += partial2[lid + stride];
+            partial3[lid] += partial3[lid + stride];
+            partial4[lid] += partial4[lid + stride];
+            partial5[lid] += partial5[lid + stride];
+            partial6[lid] += partial6[lid + stride];
+            partial7[lid] += partial7[lid + stride];
+        }
+        barrier();
+    }
+
+    if (lid == 0u) {
+        uint y_base = pc.y_offset + batch_base * pc.y_stride + out_row;
+        y[y_base] = partial0[0];
+        if (batch_base + 1u < pc.rows) { y[y_base + pc.y_stride] = partial1[0]; }
+        if (batch_base + 2u < pc.rows) { y[y_base + 2u * pc.y_stride] = partial2[0]; }
+        if (batch_base + 3u < pc.rows) { y[y_base + 3u * pc.y_stride] = partial3[0]; }
+        if (batch_base + 4u < pc.rows) { y[y_base + 4u * pc.y_stride] = partial4[0]; }
+        if (batch_base + 5u < pc.rows) { y[y_base + 5u * pc.y_stride] = partial5[0]; }
+        if (batch_base + 6u < pc.rows) { y[y_base + 6u * pc.y_stride] = partial6[0]; }
+        if (batch_base + 7u < pc.rows) { y[y_base + 7u * pc.y_stride] = partial7[0]; }
+    }
+}

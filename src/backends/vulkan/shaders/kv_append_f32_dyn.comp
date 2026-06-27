@@ -1,0 +1,30 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) readonly buffer KSrc { float k_src[]; };
+layout(set = 0, binding = 1) readonly buffer VSrc { float v_src[]; };
+layout(set = 0, binding = 2) writeonly buffer KDst { float k_dst[]; };
+layout(set = 0, binding = 3) writeonly buffer VDst { float v_dst[]; };
+layout(set = 0, binding = 4) readonly buffer DecodeParams {
+    uint decode_params[];
+};
+
+layout(push_constant) uniform Push {
+    uint n;
+    uint kv_out;
+    uint k_src_offset;
+    uint v_src_offset;
+    uint k_dst_offset;
+    uint v_dst_offset;
+} pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.n) {
+        return;
+    }
+    uint dst_i = decode_params[1] * pc.kv_out + i;
+    k_dst[pc.k_dst_offset + dst_i] = k_src[pc.k_src_offset + i];
+    v_dst[pc.v_dst_offset + dst_i] = v_src[pc.v_src_offset + i];
+}

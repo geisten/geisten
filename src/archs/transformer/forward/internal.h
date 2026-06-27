@@ -61,6 +61,7 @@ struct transformer_layer_forward_ctx {
     bool apply_gemma_attn_norms;
     bool rope_interleaved;
     bool apply_ple;
+    bool kv_f16_enabled;
     bool kv_int8_enabled;
     bool kv_kivi_enabled;
     enum geist_ffn_activation_kind ffn_activation;
@@ -88,6 +89,20 @@ struct transformer_layer_forward_ctx {
     struct geist_buffer *k_residual_buf;
     struct geist_buffer *v_residual_buf;
 };
+
+static inline bool transformer_state_command_sequence_active(
+    const struct transformer_arch_state *st) {
+
+    return st != nullptr &&
+           st->sess != nullptr &&
+           st->sess->backend_command_sequence_active;
+}
+
+static inline bool transformer_layer_command_sequence_active(
+    const struct transformer_layer_forward_ctx *ctx) {
+
+    return ctx != nullptr && transformer_state_command_sequence_active(ctx->st);
+}
 
 /* ---- Tensor view builders --------------------------------------------- *
  *
@@ -123,15 +138,23 @@ static inline struct geist_tensor view_2d(struct geist_buffer *b,
     return view_2d_at(b, 0, s0, s1);
 }
 
-static inline struct geist_tensor view_3d(struct geist_buffer *b,
-                                           int64_t s0, int64_t s1, int64_t s2) {
+static inline struct geist_tensor view_3d_dtype(struct geist_buffer *b,
+                                                enum geist_dtype dtype,
+                                                int64_t s0,
+                                                int64_t s1,
+                                                int64_t s2) {
     struct geist_tensor t = {
         .buffer = b, .offset = 0,
-        .dtype = GEIST_DTYPE_F32, .layout = GEIST_LAYOUT_DENSE,
+        .dtype = dtype, .layout = GEIST_LAYOUT_DENSE,
         .ndim = 3, .shape = {s0, s1, s2, 0, 0, 0, 0, 0},
         .stride = {s1 * s2, s2, 1, 0, 0, 0, 0, 0},
     };
     return t;
+}
+
+static inline struct geist_tensor view_3d(struct geist_buffer *b,
+                                           int64_t s0, int64_t s1, int64_t s2) {
+    return view_3d_dtype(b, GEIST_DTYPE_F32, s0, s1, s2);
 }
 
 /* ---- Per-row activation-quant helpers --------------------------------- *
@@ -230,7 +253,8 @@ void attention_int8_via_buffers(
 /* forward/layer_ple.c */
 [[nodiscard]] enum geist_status transformer_layer_run_ple_or_copy(
     struct transformer_layer_forward_ctx *ctx);
-void transformer_layer_scale_output(struct transformer_layer_forward_ctx *ctx);
+[[nodiscard]] enum geist_status transformer_layer_scale_output(
+    struct transformer_layer_forward_ctx *ctx);
 
 /* forward/probes.c */
 void transformer_probe_ffn_sparsity(
@@ -246,6 +270,12 @@ void transformer_probe_ffn_sparsity(
     const struct geist_backend_vtbl *v,
     struct geist_buffer *x_buf, struct geist_buffer *y_buf,
     const struct geist_weight *w,
+    size_t seq,
+    const struct geist_tensor *t_x, const struct geist_tensor *t_w,
+    struct geist_tensor *t_y);
+[[nodiscard]] enum geist_status linear_w_no_host_fallback(
+    struct geist_backend *be,
+    const struct geist_backend_vtbl *v,
     size_t seq,
     const struct geist_tensor *t_x, const struct geist_tensor *t_w,
     struct geist_tensor *t_y);

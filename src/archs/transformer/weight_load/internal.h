@@ -102,3 +102,11 @@ static inline void *arena_alloc(struct transformer_arch_state *st,
     struct transformer_arch_state *st, struct gguf_ctx *gguf, const char *name,
     size_t expected_elems, const struct gguf_tensor_t **out_t,
     struct geist_buffer **out_buf);
+
+[[nodiscard]] enum geist_status weight_load_buffer_from_host(
+    struct geist_backend *be,
+    void *host_ptr,
+    size_t n_bytes,
+    enum geist_buffer_role role,
+    bool prefer_alias,
+    struct geist_buffer **out_buf);

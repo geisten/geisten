@@ -53,6 +53,34 @@ static bool ffn_tile_fusion_enabled(void) {
     return enabled != 0;
 }
 
+static bool ffn_block_fastpath_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char *env = getenv("GEIST_FFN_BLOCK_FASTPATH");
+        enabled = (env == nullptr || env[0] != '0') ? 1 : 0;
+    }
+    return enabled != 0;
+}
+
+static bool ffn_block_fastpath_eligible(
+    const struct transformer_layer_forward_ctx *ctx,
+    const struct transformer_layer_weights *L,
+    const struct geist_backend_vtbl *v,
+    bool has_ffn_sub_norm) {
+
+    return ctx != nullptr &&
+           L != nullptr &&
+           v != nullptr &&
+           v->ffn_geglu_block != nullptr &&
+           ffn_block_fastpath_enabled() &&
+           ctx->ffn_activation == GEIST_FFN_GEGLU &&
+           !has_ffn_sub_norm &&
+           !ctx->st->runtime_flags.dump_act_sparsity &&
+           (!ctx->apply_gemma_attn_norms ||
+            L->post_ffw_norm.buffer != nullptr) &&
+           L->down_awq_inv_scale == nullptr;
+}
+
 enum geist_status transformer_layer_run_ffn_block(
     struct transformer_layer_forward_ctx *ctx) {
 
@@ -67,13 +95,60 @@ enum geist_status transformer_layer_run_ffn_block(
     struct geist_tensor t_pre_ff_2d = view_2d(st->sess->scratch_pre_ff,
                                               ctx->SEQ, st->d_model);
     struct geist_tensor t_w_ffn_norm = view_1d(L->ffn_norm.buffer, st->d_model);
+    const bool has_ffn_sub_norm = ctx->apply_sub_ln && L->ffn_sub_norm.buffer != nullptr;
     const bool profile = transformer_profile_enabled(&g_ffn_profile);
     uint64_t t0 = profile ? transformer_profile_now_ns() : 0;
+    if (ffn_block_fastpath_eligible(ctx, L, v, has_ffn_sub_norm)) {
+        struct geist_tensor t_gate_2d = view_2d(st->sess->scratch_gate,
+                                                ctx->SEQ, (int64_t) ctx->inter);
+        struct geist_tensor t_up_2d = view_2d(st->sess->scratch_up,
+                                              ctx->SEQ, (int64_t) ctx->inter);
+        struct geist_tensor t_ffn_out_2d = view_2d(st->sess->scratch_ffn_out,
+                                                   ctx->SEQ, st->d_model);
+        struct geist_tensor t_h_post_ff_2d =
+            view_2d(st->sess->scratch_h_post_ff, ctx->SEQ, st->d_model);
+        struct geist_tensor t_post_ff_2d =
+            view_2d(st->sess->scratch_post_ff, ctx->SEQ, st->d_model);
+        struct geist_tensor t_w_post_ffw =
+            view_1d(L->post_ffw_norm.buffer, st->d_model);
+        const struct geist_backend_ffn_geglu_block block = {
+            .struct_size = sizeof(block),
+            .seq = ctx->seq,
+            .d_model = st->d_model,
+            .inter = ctx->inter,
+            .eps = ctx->eps,
+            .residual = &t_h_post_attn_2d,
+            .ffn_norm_weight = &t_w_ffn_norm,
+            .gate_weight = &L->gate_proj,
+            .up_weight = &L->up_proj,
+            .down_weight = &L->down_proj,
+            .post_ffw_norm_weight =
+                ctx->apply_gemma_attn_norms ? &t_w_post_ffw : nullptr,
+            .pre_ff_scratch = &t_pre_ff_2d,
+            .gate_scratch = &t_gate_2d,
+            .up_scratch = &t_up_2d,
+            .ffn_out_scratch = &t_ffn_out_2d,
+            .post_ff_scratch =
+                ctx->apply_gemma_attn_norms ? &t_post_ff_2d : nullptr,
+            .out = &t_h_post_ff_2d,
+        };
+        enum geist_status bs = v->ffn_geglu_block(be, &block);
+        if (bs == GEIST_OK) {
+            transformer_profile_add(&g_ffn_profile, FFN_PROFILE_GATE_UP, t0);
+            return GEIST_OK;
+        }
+        if (bs != GEIST_E_UNSUPPORTED) {
+            return bs;
+        }
+    }
+    if (transformer_layer_command_sequence_active(ctx)) {
+        return GEIST_E_UNSUPPORTED;
+    }
+
     s = v->rmsnorm(be, &t_h_post_attn_2d, &t_w_ffn_norm, ctx->eps, &t_pre_ff_2d);
     transformer_profile_add(&g_ffn_profile, FFN_PROFILE_NORM, t0);
     if (s != GEIST_OK) { return s; }
 
-    const bool has_ffn_sub_norm = ctx->apply_sub_ln && L->ffn_sub_norm.buffer != nullptr;
     struct geist_tensor t_ffn_out_2d = view_2d(st->sess->scratch_ffn_out,
                                                ctx->SEQ, st->d_model);
     if (ctx->seq > 1 &&
@@ -115,6 +190,12 @@ enum geist_status transformer_layer_run_ffn_block(
                                &t_pre_ff_2d, &L->up_proj, &t_up_2d);
         transformer_profile_add(&g_ffn_profile, FFN_PROFILE_GATE_UP, t0);
         if (s != GEIST_OK) { return s; }
+        if (v->relu_squared == nullptr) {
+            geist_backend_set_error(be, GEIST_E_UNSUPPORTED,
+                                    "ffn: backend has no relu_squared kernel "
+                                    "(required for squared-ReLU activation)");
+            return GEIST_E_UNSUPPORTED;
+        }
         t0 = profile ? transformer_profile_now_ns() : 0;
         s = v->relu_squared(be, &t_up_2d, &t_up_2d);
         transformer_profile_add(&g_ffn_profile, FFN_PROFILE_ACT, t0);
@@ -136,6 +217,13 @@ enum geist_status transformer_layer_run_ffn_block(
         if (s != GEIST_OK) { return s; }
 
         if (ctx->ffn_activation == GEIST_FFN_GATED_SQUARED_RELU) {
+            if (v->relu_squared == nullptr) {
+                geist_backend_set_error(be, GEIST_E_UNSUPPORTED,
+                                        "ffn: backend has no relu_squared kernel "
+                                        "(required for gated squared-ReLU "
+                                        "activation)");
+                return GEIST_E_UNSUPPORTED;
+            }
             t0 = profile ? transformer_profile_now_ns() : 0;
             s = v->relu_squared(be, &t_gate_2d, &t_gate_2d);
             transformer_profile_add(&g_ffn_profile, FFN_PROFILE_ACT, t0);

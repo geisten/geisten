@@ -61,6 +61,7 @@ void transformer_session_exec_plan_build(struct transformer_arch_session *sess) 
         return;
     }
     sess->exec_plan = (struct transformer_session_exec_plan){
+        .kv_f16_enabled = sess->kv_f16_enabled,
         .kv_int8_enabled = sess->kv_int8_enabled,
         .kv_kivi_enabled = sess->kv_kivi_enabled,
         .kv_append_kind = TRANSFORMER_KV_APPEND_FP32,
@@ -72,5 +73,8 @@ void transformer_session_exec_plan_build(struct transformer_arch_session *sess) 
     } else if (sess->kv_int8_enabled) {
         sess->exec_plan.kv_append_kind = TRANSFORMER_KV_APPEND_INT8;
         sess->exec_plan.attention_kind = TRANSFORMER_ATTENTION_INT8;
+    } else if (sess->kv_f16_enabled) {
+        sess->exec_plan.kv_append_kind = TRANSFORMER_KV_APPEND_F16;
+        sess->exec_plan.attention_kind = TRANSFORMER_ATTENTION_F16;
     }
 }

@@ -20,6 +20,7 @@
 #define GEIST_INTERNAL_ARCH_LAYER
 
 #include "internal.h"
+#include "../accel.h"
 #include "../arch_state.h"
 #include "../forward.h"
 
@@ -72,6 +73,20 @@ void transformer_kivi_drain_full(struct transformer_arch_state *st) {
     }
 }
 
+static bool transformer_step_accel_debug_enabled(void) {
+    const char *value = getenv("GEIST_ACCEL_DEBUG");
+    return value != nullptr && value[0] != '\0' && strcmp(value, "0") != 0;
+}
+
+static void transformer_step_debug_unsupported(
+    struct geist_backend *be, const char *where) {
+
+    if (!transformer_step_accel_debug_enabled()) { return; }
+    const char *msg = geist_backend_errmsg(be);
+    fprintf(stderr, "transformer_accel: %s unsupported: %s\n",
+            where, msg != nullptr ? msg : "(no backend error)");
+}
+
 /* ---- Layer loop + end-to-end decode_step ------------------------------ */
 
 /* Run all 35 layers for seq tokens starting at q_position.
@@ -83,9 +98,11 @@ void transformer_kivi_drain_full(struct transformer_arch_state *st) {
  *                              is at offset t*PLE_OUT + li*HIDDEN_PER_LAYER).
  *   out_h_buf:               [seq, HIDDEN]
  *
- * Internally ping-pongs between scratch_h_a and scratch_h_b. Each layer's
- * PLE input is gathered into scratch_ple_lookup as a contiguous
- * [seq, HIDDEN_PER_LAYER] slab before the forward call. */
+ * Internally ping-pongs between scratch_h_a and scratch_h_b. For seq == 1,
+ * each layer reads its PLE slice directly from per_layer_input_buf via an
+ * offset view. For seq > 1, each layer's PLE input is gathered into
+ * scratch_ple_lookup as a contiguous [seq, HIDDEN_PER_LAYER] slab before the
+ * forward call. */
 [[nodiscard]] enum geist_status transformer_run_all_layers(
     struct transformer_arch_state *st, size_t q_position, size_t seq,
     struct geist_buffer *initial_h_buf,
@@ -97,44 +114,71 @@ void transformer_kivi_drain_full(struct transformer_arch_state *st) {
     const size_t row_bytes_h   = st->d_model * sizeof(float);
     const size_t row_bytes_ple = st->hidden_per_layer * sizeof(float);
     const size_t row_bytes_per_tok_ple = st->ple_out * sizeof(float);
+    enum geist_status s = GEIST_OK;
+    bool command_sequence_active = false;
+    int command_sequence_token = 0;
+
+    if (seq == 1 &&
+        transformer_accel_session_decode_greedy_enabled(
+            st->sess->accel_session) &&
+        !st->sess->backend_command_sequence_active &&
+        v->command_sequence_begin != nullptr &&
+        v->command_sequence_end != nullptr) {
+        s = v->command_sequence_begin(
+            be, GEIST_COMMAND_SEQUENCE_DECODE_LAYER_LOOP,
+            &command_sequence_token);
+        if (s == GEIST_OK) {
+            command_sequence_active = true;
+            st->sess->backend_command_sequence_active = true;
+        } else if (s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    }
 
     /* Seed scratch_h_a with seq rows of HIDDEN. */
-    {
-        const uint8_t *src = (const uint8_t *) v->buffer_map(initial_h_buf);
-        uint8_t *dst = (uint8_t *) v->buffer_map(st->sess->scratch_h_a);
-        memcpy(dst, src, seq * row_bytes_h);
-        v->buffer_unmap(initial_h_buf);
-        v->buffer_unmap(st->sess->scratch_h_a);
+    if (st->sess->scratch_h_a != initial_h_buf) {
+        s = v->buffer_copy(st->sess->scratch_h_a, 0,
+                           initial_h_buf, 0,
+                           seq * row_bytes_h);
+        if (s != GEIST_OK) {
+            goto fail;
+        }
     }
 
     struct geist_buffer *h_in  = st->sess->scratch_h_a;
     struct geist_buffer *h_out = st->sess->scratch_h_b;
 
     for (size_t li = 0; li < st->n_layers; li++) {
-        /* P1.5.b: gather this layer's per_layer_input slices into
-         * scratch_ple_lookup, but only when the family actually has
-         * PLE (per_layer_input_buf != nullptr). Non-PLE families
-         * (Llama / Mistral) pass nullptr through to forward_one_layer
-         * which then skips the PLE injection block. */
+        /* P1.5.b: only seq > 1 needs a gather, because the per-token,
+         * per-layer slices are not contiguous across tokens. Decode seq == 1
+         * can pass the full per-layer input buffer; layer_ple.c applies the
+         * per-layer offset view. Non-PLE families pass nullptr through and
+         * skip the PLE injection block. */
         struct geist_buffer *layer_ple_buf = nullptr;
         if (per_layer_input_buf != nullptr) {
-            const uint8_t *src = (const uint8_t *) v->buffer_map(per_layer_input_buf);
-            uint8_t *dst = (uint8_t *) v->buffer_map(st->sess->scratch_ple_lookup);
-            for (size_t t = 0; t < seq; t++) {
-                memcpy(dst + t * row_bytes_ple,
-                        src + t * row_bytes_per_tok_ple + li * row_bytes_ple,
+            if (seq == 1u) {
+                layer_ple_buf = per_layer_input_buf;
+            } else {
+                for (size_t t = 0; t < seq; t++) {
+                    s = v->buffer_copy(
+                        st->sess->scratch_ple_lookup,
+                        t * row_bytes_ple,
+                        per_layer_input_buf,
+                        t * row_bytes_per_tok_ple + li * row_bytes_ple,
                         row_bytes_ple);
+                    if (s != GEIST_OK) {
+                        goto fail;
+                    }
+                }
+                layer_ple_buf = st->sess->scratch_ple_lookup;
             }
-            v->buffer_unmap(per_layer_input_buf);
-            v->buffer_unmap(st->sess->scratch_ple_lookup);
-            layer_ple_buf = st->sess->scratch_ple_lookup;
         }
 
-        enum geist_status s = transformer_forward_one_layer(
+        s = transformer_forward_one_layer(
             st, (int) li, q_position, seq, /* advance_kv = */ false,
             h_in, layer_ple_buf, h_out);
         if (s != GEIST_OK) {
-            return s;
+            goto fail;
         }
 
 
@@ -146,14 +190,30 @@ void transformer_kivi_drain_full(struct transformer_arch_state *st) {
 
     /* After the loop, h_in is the latest output (post-swap). Copy seq rows
      * to out_h_buf. */
-    {
-        const uint8_t *src = (const uint8_t *) v->buffer_map(h_in);
-        uint8_t *dst = (uint8_t *) v->buffer_map(out_h_buf);
-        memcpy(dst, src, seq * row_bytes_h);
-        v->buffer_unmap(h_in);
-        v->buffer_unmap(out_h_buf);
+    if (out_h_buf != h_in) {
+        s = v->buffer_copy(out_h_buf, 0, h_in, 0, seq * row_bytes_h);
+        if (s != GEIST_OK) {
+            goto fail;
+        }
+    }
+    if (command_sequence_active) {
+        st->sess->backend_command_sequence_active = false;
+        s = v->command_sequence_end(be, command_sequence_token,
+                                    /* submit = */ true);
+        if (s != GEIST_OK) {
+            return s;
+        }
+        command_sequence_active = false;
     }
     return GEIST_OK;
+
+fail:
+    if (command_sequence_active) {
+        st->sess->backend_command_sequence_active = false;
+        (void) v->command_sequence_end(be, command_sequence_token,
+                                       /* submit = */ false);
+    }
+    return s;
 }
 
 /* Dequantize one row of the embed_table (Q-format) into a host-pointer
@@ -170,8 +230,45 @@ void transformer_kivi_drain_full(struct transformer_arch_state *st) {
     }
     struct geist_backend *be = st->backend;
     const struct geist_backend_vtbl *v = be->desc->vtbl;
+    const bool no_host_fallback = transformer_state_command_sequence_active(st);
+
+    if (st->config.has_ple && v->embedding_lookup_scaled != nullptr) {
+        struct geist_tensor t_out = view_1d(out_h_buf, st->d_model);
+        const float scale = sqrtf((float) st->d_model);
+        enum geist_status s =
+            v->embedding_lookup_scaled(be, &st->embed_table, token_id,
+                                       scale, &t_out);
+        if (s == GEIST_OK) {
+            return GEIST_OK;
+        }
+        if (s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    }
+
+    if (!st->config.has_ple && v->embedding_lookup != nullptr) {
+        struct geist_tensor t_out = view_1d(out_h_buf, st->d_model);
+        enum geist_status s =
+            v->embedding_lookup(be, &st->embed_table, token_id, &t_out);
+        if (s == GEIST_OK) {
+            return GEIST_OK;
+        }
+        if (s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    }
+
+    if (no_host_fallback) {
+        geist_backend_set_error(be, GEIST_E_UNSUPPORTED,
+                                "transformer: command sequence requires "
+                                "device embedding lookup");
+        return GEIST_E_UNSUPPORTED;
+    }
 
     float *dst = (float *) v->buffer_map(out_h_buf);
+    if (dst == nullptr) {
+        return GEIST_E_BACKEND;
+    }
     enum geist_status s = dequant_one_row(be, &st->embed_table,
                                             (size_t) token_id, dst);
     if (s != GEIST_OK) { v->buffer_unmap(out_h_buf); return s; }
@@ -233,11 +330,38 @@ void transformer_kivi_drain_full(struct transformer_arch_state *st) {
         st->sess->kivi_residual_count += 1;
         transformer_kivi_drain_full(st);
     }
-    st->sess->next_token_pending = best_id;
-    st->sess->logits_valid       = true;
 
     *out_token = best_id;
     return GEIST_OK;
+}
+
+static void transformer_restore_decode_session_metadata(
+    struct transformer_arch_state *st,
+    size_t kv_len,
+    bool logits_valid,
+    bool logits_on_device,
+    bool logits_host_valid,
+    geist_token_t next_token_pending) {
+
+    st->sess->kv_len = kv_len;
+    st->sess->logits_valid = logits_valid;
+    st->sess->logits_on_device = logits_on_device;
+    st->sess->logits_host_valid = logits_host_valid;
+    st->sess->next_token_pending = next_token_pending;
+}
+
+[[nodiscard]] static enum geist_status transformer_decode_step_body(
+    struct transformer_arch_state *st,
+    geist_token_t input_token,
+    geist_token_t *out_token) {
+
+    enum geist_status s =
+        embed_lookup_and_scale(st, input_token, st->sess->scratch_h_a);
+    if (s == GEIST_OK) {
+        /* PLE uses the token's actual id (text path). */
+        s = transformer_run_one_step(st, input_token, out_token);
+    }
+    return s;
 }
 
 enum geist_status
@@ -255,11 +379,103 @@ transformer_decode_step(struct transformer_arch_state *st,
         v->parallel_region_begin
             ? v->parallel_region_begin(be, GEIST_REGION_DECODE_STEP)
             : 0;
-    /* Embed the input token into scratch_h_a, scale by sqrt(HIDDEN). */
-    enum geist_status s = embed_lookup_and_scale(st, input_token, st->sess->scratch_h_a);
-    if (s == GEIST_OK) {
-        /* PLE uses the token's actual id (text path). */
-        s = transformer_run_one_step(st, input_token, out_token);
+    bool command_sequence_active = false;
+    int command_sequence_token = 0;
+    const size_t kv_len_before = st->sess->kv_len;
+    const bool logits_valid_before = st->sess->logits_valid;
+    const bool logits_on_device_before = st->sess->logits_on_device;
+    const bool logits_host_valid_before = st->sess->logits_host_valid;
+    const geist_token_t next_token_before = st->sess->next_token_pending;
+    bool retry_without_command_sequence = false;
+    if (transformer_accel_session_decode_greedy_enabled(
+            st->sess->accel_session) &&
+        !st->sess->kv_kivi_enabled &&
+        v->command_sequence_replay_decode_greedy_step != nullptr) {
+        geist_token_t token = -1;
+        enum geist_status rs =
+            v->command_sequence_replay_decode_greedy_step(
+                be, input_token, st->sess->kv_len, &token);
+        if (rs == GEIST_OK) {
+            *out_token = token;
+            st->sess->kv_len = kv_len_before + 1;
+            st->sess->next_token_pending = token;
+            st->sess->logits_valid = true;
+            st->sess->logits_host_valid = false;
+            st->sess->logits_on_device = true;
+            if (v->parallel_region_end) {
+                v->parallel_region_end(be, region_tok);
+            }
+            return GEIST_OK;
+        }
+        if (rs != GEIST_E_UNSUPPORTED) {
+            if (v->parallel_region_end) {
+                v->parallel_region_end(be, region_tok);
+            }
+            return rs;
+        }
+    }
+    if (transformer_accel_session_decode_greedy_enabled(
+            st->sess->accel_session) &&
+        v->command_sequence_begin != nullptr &&
+        v->command_sequence_end != nullptr &&
+        v->command_sequence_read_token != nullptr) {
+        enum geist_status cs = v->command_sequence_begin(
+            be, GEIST_COMMAND_SEQUENCE_DECODE_GREEDY_STEP,
+            &command_sequence_token);
+        if (cs == GEIST_OK) {
+            command_sequence_active = true;
+            st->sess->backend_command_sequence_active = true;
+        } else if (cs != GEIST_E_UNSUPPORTED) {
+            if (v->parallel_region_end) { v->parallel_region_end(be, region_tok); }
+            return cs;
+        }
+    }
+    enum geist_status s =
+        transformer_decode_step_body(st, input_token, out_token);
+    if (command_sequence_active) {
+        st->sess->backend_command_sequence_active = false;
+        enum geist_status cs = v->command_sequence_end(
+            be, command_sequence_token, s == GEIST_OK);
+        if (cs != GEIST_OK) {
+            transformer_restore_decode_session_metadata(
+                st, kv_len_before, logits_valid_before,
+                logits_on_device_before, logits_host_valid_before,
+                next_token_before);
+            s = cs;
+        } else if (s == GEIST_E_UNSUPPORTED) {
+            transformer_restore_decode_session_metadata(
+                st, kv_len_before, logits_valid_before,
+                logits_on_device_before, logits_host_valid_before,
+                next_token_before);
+            transformer_step_debug_unsupported(
+                be, "decode command sequence");
+            retry_without_command_sequence = true;
+        } else if (s == GEIST_OK) {
+            geist_token_t token = -1;
+            cs = v->command_sequence_read_token(be, &token);
+            if (cs == GEIST_OK) {
+                *out_token = token;
+                st->sess->next_token_pending = token;
+                st->sess->logits_valid = true;
+                st->sess->logits_host_valid = false;
+                st->sess->logits_on_device = true;
+            } else {
+                transformer_restore_decode_session_metadata(
+                    st, kv_len_before, logits_valid_before,
+                    logits_on_device_before, logits_host_valid_before,
+                    next_token_before);
+                s = cs;
+            }
+        }
+    }
+    if (retry_without_command_sequence) {
+        transformer_step_debug_unsupported(
+            be, "decode retry without command sequence");
+        struct transformer_accel_session *saved_accel_session =
+            st->sess->accel_session;
+        st->sess->accel_session = nullptr;
+        s = transformer_decode_step_body(st, input_token, out_token);
+        st->sess->accel_session = saved_accel_session;
     }
     if (v->parallel_region_end) { v->parallel_region_end(be, region_tok); }
     return s;
@@ -304,6 +520,8 @@ void transformer_state_reset(struct transformer_arch_state *st) {
         st->sess->kivi_residual_count = st->sess->kv_len - st->sess->kivi_drained_count;
     }
     st->sess->logits_valid       = false;
+    st->sess->logits_on_device   = false;
+    st->sess->logits_host_valid  = false;
     st->sess->next_token_pending = 0;
 }
 

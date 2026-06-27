@@ -93,6 +93,31 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
     return GEIST_OK;
 }
 
+/* ---- scale_f32: y = x * scale ---- */
+
+[[nodiscard]] enum geist_status cpu_scalar_scale_f32(
+    struct geist_backend *be,
+    const struct geist_tensor *x,
+    float scale,
+    struct geist_tensor *y) {
+
+    if (be == nullptr || x == nullptr || y == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    size_t nx = 0, ny = 0;
+    const float *xp = get_f32_dense_ptr(x, &nx);
+    float *yp = get_f32_dense_ptr(y, &ny);
+    if (xp == nullptr || yp == nullptr || nx != ny) {
+        geist_backend_set_error(be, GEIST_E_INVALID_ARG,
+                                "cpu_scalar scale_f32: bad inputs");
+        return GEIST_E_INVALID_ARG;
+    }
+    for (size_t i = 0; i < nx; i++) {
+        yp[i] = xp[i] * scale;
+    }
+    return GEIST_OK;
+}
+
 /* ---- gelu_tanh: y = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))) ---- */
 
 [[nodiscard]] enum geist_status cpu_scalar_gelu_tanh(struct geist_backend      *be,

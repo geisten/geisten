@@ -108,6 +108,15 @@ static int global_track_buf(struct transformer_arch_state *st,
     }
     *out_view = make_view_2d(buf, dm.dtype, dm.layout,
                               (int64_t) n_out, (int64_t) n_in);
+    const struct geist_backend_vtbl *v = be->desc->vtbl;
+    if (v->prepare_weight_layout_from_host != nullptr) {
+        enum geist_status ps = v->prepare_weight_layout_from_host(
+            be, out_view, t->nbytes, (const uint8_t *) t->data);
+        if (ps != GEIST_OK && ps != GEIST_E_UNSUPPORTED) {
+            be->desc->vtbl->buffer_destroy(be, buf);
+            return ps;
+        }
+    }
     if (layer_track_buf(L, buf) != 0) {
         be->desc->vtbl->buffer_destroy(be, buf);
         geist_backend_set_error(be, GEIST_E_INTERNAL,
@@ -124,13 +133,10 @@ static int global_track_buf(struct transformer_arch_state *st,
      * backend's internal.h). This is load-time, called once per weight,
      * so the buffer_map indirection cost is irrelevant. */
     if (out_weight != nullptr) {
-        const struct geist_backend_vtbl *v = be->desc->vtbl;
         void *host = v->buffer_map(buf);
         if (host == nullptr) {
-            geist_backend_set_error(be, GEIST_E_BACKEND,
-                                    "transformer: buffer_map(%s) returned null",
-                                    name);
-            return GEIST_E_BACKEND;
+            *out_weight = (struct geist_weight){0};
+            return GEIST_OK;
         }
         *out_weight = (struct geist_weight){
             .raw   = (const uint8_t *) host + out_view->offset,
@@ -373,6 +379,15 @@ static int global_track_buf(struct transformer_arch_state *st,
     st->embed_table = make_view_2d(buf, dm.dtype, dm.layout,
                                     (int64_t) st->vocab_size,
                                     (int64_t) st->d_model);
+    const struct geist_backend_vtbl *v = be->desc->vtbl;
+    if (v->prepare_weight_layout_from_host != nullptr) {
+        enum geist_status ps = v->prepare_weight_layout_from_host(
+            be, &st->embed_table, t->nbytes, (const uint8_t *) t->data);
+        if (ps != GEIST_OK && ps != GEIST_E_UNSUPPORTED) {
+            be->desc->vtbl->buffer_destroy(be, buf);
+            return ps;
+        }
+    }
     if (global_track_buf(st, buf) != 0) {
         be->desc->vtbl->buffer_destroy(be, buf);
         return GEIST_E_INTERNAL;
@@ -388,33 +403,43 @@ static int global_track_buf(struct transformer_arch_state *st,
      * Unsupported dtypes (Q5_K bartowski variants) leave linear_m1 null
      * and the callers fall back to v->linear. */
     {
-        const struct geist_backend_vtbl *v = be->desc->vtbl;
-
         const struct gguf_tensor_t *t_out   = nullptr;
         struct geist_buffer *buf_out = nullptr;
         bool                 untied  = false;
-        if (load_tensor_to_buffer(st, gguf, "output.weight",
-                                    (size_t) st->vocab_size * st->d_model,
-                                    &t_out, &buf_out) == GEIST_OK) {
+        if (gguf_get_tensor(gguf, "output.weight") != nullptr &&
+            load_tensor_to_buffer(st, gguf, "output.weight",
+                                  (size_t) st->vocab_size * st->d_model,
+                                  &t_out, &buf_out) == GEIST_OK) {
             struct dtype_map_entry dmo = map_gguf_dtype(t_out->dtype);
             if (dmo.supported) {
+                struct geist_tensor output_view =
+                    make_view_2d(buf_out, dmo.dtype, dmo.layout,
+                                 (int64_t) st->vocab_size,
+                                 (int64_t) st->d_model);
+                if (v->prepare_weight_layout_from_host != nullptr) {
+                    enum geist_status ps =
+                        v->prepare_weight_layout_from_host(
+                            be, &output_view, t_out->nbytes,
+                            (const uint8_t *) t_out->data);
+                    if (ps != GEIST_OK && ps != GEIST_E_UNSUPPORTED) {
+                        be->desc->vtbl->buffer_destroy(be, buf_out);
+                        return ps;
+                    }
+                }
                 if (global_track_buf(st, buf_out) != 0) {
                     be->desc->vtbl->buffer_destroy(be, buf_out);
                     return GEIST_E_INTERNAL;
                 }
                 void *host_out = v->buffer_map(buf_out);
-                if (host_out == nullptr) {
-                    geist_backend_set_error(be, GEIST_E_BACKEND,
-                                            "transformer: buffer_map(output.weight) returned null");
-                    return GEIST_E_BACKEND;
+                if (host_out != nullptr) {
+                    st->embed_table_w = (struct geist_weight){
+                        .raw   = host_out,
+                        .n_in  = (int32_t) st->d_model,
+                        .n_out = (int32_t) st->vocab_size,
+                        .dtype = (uint16_t) dmo.dtype,
+                    };
+                    v->buffer_unmap(buf_out);
                 }
-                st->embed_table_w = (struct geist_weight){
-                    .raw   = host_out,
-                    .n_in  = (int32_t) st->d_model,
-                    .n_out = (int32_t) st->vocab_size,
-                    .dtype = (uint16_t) dmo.dtype,
-                };
-                v->buffer_unmap(buf_out);
                 untied = true;
             } else {
                 /* dtype unsupported — drop the buffer, fall back to tied. */
@@ -424,20 +449,17 @@ static int global_track_buf(struct transformer_arch_state *st,
 
         if (!untied) {
             void *host = v->buffer_map(buf);
-            if (host == nullptr) {
-                geist_backend_set_error(be, GEIST_E_BACKEND,
-                                        "transformer: buffer_map(token_embd) returned null");
-                return GEIST_E_BACKEND;
+            if (host != nullptr) {
+                st->embed_table_w = (struct geist_weight){
+                    .raw   = host,
+                    .n_in  = (int32_t) st->d_model,
+                    .n_out = (int32_t) st->vocab_size,
+                    .dtype = (uint16_t) dm.dtype,
+                };
+                v->buffer_unmap(buf);
             }
-            st->embed_table_w = (struct geist_weight){
-                .raw   = host,
-                .n_in  = (int32_t) st->d_model,
-                .n_out = (int32_t) st->vocab_size,
-                .dtype = (uint16_t) dm.dtype,
-            };
-            v->buffer_unmap(buf);
         }
-        if (v->resolve_weight != nullptr) {
+        if (st->embed_table_w.raw != nullptr && v->resolve_weight != nullptr) {
             enum geist_status rs = v->resolve_weight(be, &st->embed_table_w);
             if (rs != GEIST_OK && rs != GEIST_E_UNSUPPORTED) {
                 return rs;
@@ -526,8 +548,8 @@ static int global_track_buf(struct transformer_arch_state *st,
             }
             memcpy(arena_ptr, fp32, bytes);
             void *p = fp32; safe_free(&p);
-            s = be->desc->vtbl->buffer_create_aliased(be, arena_ptr, bytes,
-                                                        GEIST_BUFFER_WEIGHT, &buf);
+            s = weight_load_buffer_from_host(be, arena_ptr, bytes,
+                                             GEIST_BUFFER_WEIGHT, true, &buf);
             if (s != GEIST_OK) { return s; }
         } else {
             s = be->desc->vtbl->buffer_create(be, bytes, GEIST_BUFFER_WEIGHT,
@@ -550,24 +572,22 @@ static int global_track_buf(struct transformer_arch_state *st,
     }
     /* P1.1.e: pre-resolve model_proj (F32 dense → cblas trampolines). */
     {
-        const struct geist_backend_vtbl *v = be->desc->vtbl;
         void *host = v->buffer_map(buf);
         if (host == nullptr) {
-            geist_backend_set_error(be, GEIST_E_BACKEND,
-                                    "transformer: buffer_map(model_proj) returned null");
-            return GEIST_E_BACKEND;
-        }
-        st->model_proj_w = (struct geist_weight){
-            .raw   = host,
-            .n_in  = (int32_t) st->d_model,
-            .n_out = (int32_t) st->ple_out,
-            .dtype = (uint16_t) GEIST_DTYPE_F32,
-        };
-        v->buffer_unmap(buf);
-        if (v->resolve_weight != nullptr) {
-            enum geist_status rs = v->resolve_weight(be, &st->model_proj_w);
-            if (rs != GEIST_OK && rs != GEIST_E_UNSUPPORTED) {
-                return rs;
+            st->model_proj_w = (struct geist_weight){0};
+        } else {
+            st->model_proj_w = (struct geist_weight){
+                .raw   = host,
+                .n_in  = (int32_t) st->d_model,
+                .n_out = (int32_t) st->ple_out,
+                .dtype = (uint16_t) GEIST_DTYPE_F32,
+            };
+            v->buffer_unmap(buf);
+            if (v->resolve_weight != nullptr) {
+                enum geist_status rs = v->resolve_weight(be, &st->model_proj_w);
+                if (rs != GEIST_OK && rs != GEIST_E_UNSUPPORTED) {
+                    return rs;
+                }
             }
         }
     }
@@ -609,4 +629,3 @@ load_output_norm:
 
     return GEIST_OK;
 }
-

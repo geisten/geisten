@@ -185,12 +185,13 @@ struct geist_session;
 typedef int32_t geist_token_t;
 
 /* @stability EXPERIMENTAL — per-session KV-cache quantization mode.
- * AUTO = env / platform default; FP32/INT8/KIVI = explicit override. */
+ * AUTO = env / platform default; FP32/F16/INT8/KIVI = explicit override. */
 enum geist_kv_mode {
     GEIST_KV_AUTO = 0,
     GEIST_KV_FP32 = 1,
     GEIST_KV_INT8 = 2,
     GEIST_KV_KIVI = 3,
+    GEIST_KV_F16  = 4,
 };
 
 struct geist_session_opts {
@@ -224,7 +225,8 @@ struct geist_session_opts {
 
     /* @stability EXPERIMENTAL — per-session KV cache quantization mode.
      * AUTO = take the env-var / platform default (GEIST_KV_KIVI > GEIST_KV_INT8
-     *        > Apple FP32 / non-Apple INT8); other values override the env.
+     *        > GEIST_KV_F16 > Metal F16 / Apple FP32 / non-Apple INT8);
+     * other values override the env.
      * Different sessions on the same model may use different modes. */
     enum geist_kv_mode kv_mode;
 

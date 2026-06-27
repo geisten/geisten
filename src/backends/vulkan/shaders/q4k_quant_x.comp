@@ -1,0 +1,79 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) readonly buffer X { float x[]; };
+layout(set = 0, binding = 1) writeonly buffer XQ { uint xq[]; };
+layout(set = 0, binding = 2) writeonly buffer Scale { float scale[]; };
+
+layout(push_constant) uniform Push {
+    uint n_in;
+    uint x_offset;
+} pc;
+
+shared float partial_max[256];
+
+float absf(float v) {
+    return v < 0.0 ? -v : v;
+}
+
+int clamp_i8(float v) {
+    float r = round(v);
+    if (r > 127.0) {
+        return 127;
+    }
+    if (r < -128.0) {
+        return -128;
+    }
+    return int(r);
+}
+
+uint pack_i8(int v, uint shift) {
+    return (uint(v) & 255u) << shift;
+}
+
+void main() {
+    uint lid = gl_LocalInvocationID.x;
+    float m = 0.0;
+    for (uint k = lid; k < pc.n_in; k += 256u) {
+        m = max(m, absf(x[pc.x_offset + k]));
+    }
+    partial_max[lid] = m;
+    barrier();
+
+    for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+        if (lid < stride) {
+            partial_max[lid] = max(partial_max[lid], partial_max[lid + stride]);
+        }
+        barrier();
+    }
+
+    float sx = partial_max[0] / 127.0;
+    if (sx == 0.0) {
+        sx = 1.0;
+    }
+    if (lid == 0u) {
+        scale[0] = sx;
+    }
+    barrier();
+
+    float inv = 1.0 / sx;
+    uint n_words = (pc.n_in + 3u) >> 2;
+    for (uint word = lid; word < n_words; word += 256u) {
+        uint base = word << 2;
+        uint packed = 0u;
+        if (base + 0u < pc.n_in) {
+            packed |= pack_i8(clamp_i8(x[pc.x_offset + base + 0u] * inv), 0u);
+        }
+        if (base + 1u < pc.n_in) {
+            packed |= pack_i8(clamp_i8(x[pc.x_offset + base + 1u] * inv), 8u);
+        }
+        if (base + 2u < pc.n_in) {
+            packed |= pack_i8(clamp_i8(x[pc.x_offset + base + 2u] * inv), 16u);
+        }
+        if (base + 3u < pc.n_in) {
+            packed |= pack_i8(clamp_i8(x[pc.x_offset + base + 3u] * inv), 24u);
+        }
+        xq[word] = packed;
+    }
+}

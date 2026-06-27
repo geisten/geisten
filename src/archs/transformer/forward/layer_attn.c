@@ -47,6 +47,223 @@ static struct transformer_forward_profile g_attn_profile = {
  * AGENT.md hot-path rule disallows runtime heap allocations here. */
 enum { PERMUTE_ROPE_MAX_HEAD_DIM = 1024 };
 
+static enum geist_status transformer_layer_try_attention_fastpath(
+    struct transformer_layer_forward_ctx *ctx,
+    struct geist_tensor *t_h_in_2d,
+    struct geist_tensor *t_h_post_attn_2d) {
+
+    struct transformer_arch_state *st = ctx->st;
+    struct transformer_layer_weights *L = ctx->L;
+    const struct geist_backend_vtbl *v = ctx->v;
+
+    if (v->attention_block == nullptr ||
+        !ctx->compute_kv ||
+        !ctx->apply_gemma_attn_norms ||
+        ctx->apply_bitnet_input_quant ||
+        ctx->apply_sub_ln ||
+        ctx->rope_interleaved ||
+        ctx->kv_int8_enabled ||
+        ctx->kv_kivi_enabled ||
+        L->o_awq_inv_scale != nullptr ||
+        st->sess->scratch_ones_headdim_max == nullptr ||
+        L->post_attn_norm.buffer == nullptr) {
+        return GEIST_E_UNSUPPORTED;
+    }
+
+    struct geist_buffer *cos_buf =
+        L->is_full ? st->rope_cos_full : st->rope_cos_sliding;
+    struct geist_buffer *sin_buf =
+        L->is_full ? st->rope_sin_full : st->rope_sin_sliding;
+    const size_t cos_row_bytes = ctx->hd * sizeof(float);
+    const bool use_positioned_rope_table =
+        transformer_layer_command_sequence_active(ctx);
+
+    struct geist_tensor t_normed_2d =
+        view_2d(st->sess->scratch_normed, ctx->SEQ, st->d_model);
+    struct geist_tensor t_q_2d =
+        view_2d(st->sess->scratch_q, ctx->SEQ, (int64_t) ctx->q_out);
+    struct geist_tensor t_k_2d =
+        view_2d(st->sess->scratch_k, ctx->SEQ, (int64_t) ctx->kv_out);
+    struct geist_tensor t_v_2d =
+        view_2d(st->sess->scratch_v, ctx->SEQ, (int64_t) ctx->kv_out);
+    struct geist_tensor t_attn_2d =
+        view_2d(st->sess->scratch_attn, ctx->SEQ, (int64_t) ctx->q_out);
+    struct geist_tensor t_o_2d =
+        view_2d(st->sess->scratch_o, ctx->SEQ, st->d_model);
+    struct geist_tensor t_post_attn_2d =
+        view_2d(st->sess->scratch_post_attn, ctx->SEQ, st->d_model);
+
+    struct geist_tensor t_attn_norm =
+        view_1d(L->attn_norm.buffer, st->d_model);
+    struct geist_tensor t_q_norm =
+        view_1d(L->q_norm.buffer, (int64_t) ctx->hd);
+    struct geist_tensor t_k_norm =
+        view_1d(L->k_norm.buffer, (int64_t) ctx->hd);
+    struct geist_tensor t_v_norm =
+        view_1d(st->sess->scratch_ones_headdim_max, (int64_t) ctx->hd);
+    struct geist_tensor t_cos =
+        use_positioned_rope_table
+            ? view_2d(cos_buf, (int64_t) st->max_seq_len,
+                      (int64_t) ctx->hd)
+            : view_2d_at(cos_buf, ctx->q_position * cos_row_bytes,
+                         ctx->SEQ, (int64_t) ctx->hd);
+    struct geist_tensor t_sin =
+        use_positioned_rope_table
+            ? view_2d(sin_buf, (int64_t) st->max_seq_len,
+                      (int64_t) ctx->hd)
+            : view_2d_at(sin_buf, ctx->q_position * cos_row_bytes,
+                         ctx->SEQ, (int64_t) ctx->hd);
+    const enum geist_dtype kv_dtype =
+        ctx->kv_f16_enabled ? GEIST_DTYPE_F16 : GEIST_DTYPE_F32;
+    struct geist_tensor t_k_cache =
+        view_3d_dtype(ctx->k_cache_buf, kv_dtype,
+                      (int64_t) (ctx->q_position + ctx->seq),
+                      st->n_kv_heads, (int64_t) ctx->hd);
+    struct geist_tensor t_v_cache =
+        view_3d_dtype(ctx->v_cache_buf, kv_dtype,
+                      (int64_t) (ctx->q_position + ctx->seq),
+                      st->n_kv_heads, (int64_t) ctx->hd);
+    struct geist_tensor t_post_attn_norm =
+        view_1d(L->post_attn_norm.buffer, st->d_model);
+
+    const struct geist_backend_attention_block block = {
+        .struct_size = sizeof(block),
+        .q_position = ctx->q_position,
+        .kv_len = ctx->q_position + ctx->seq,
+        .d_model = st->d_model,
+        .q_heads = st->n_q_heads,
+        .kv_heads = st->n_kv_heads,
+        .head_dim = ctx->hd,
+        .sliding_window = L->sliding_window,
+        .eps = ctx->eps,
+        .residual = t_h_in_2d,
+        .attn_norm_weight = &t_attn_norm,
+        .q_proj_weight = &L->q_proj,
+        .k_proj_weight = &L->k_proj,
+        .v_proj_weight = &L->v_proj,
+        .q_norm_weight = &t_q_norm,
+        .k_norm_weight = &t_k_norm,
+        .v_norm_weight = &t_v_norm,
+        .cos = &t_cos,
+        .sin = &t_sin,
+        .k_cache = &t_k_cache,
+        .v_cache = &t_v_cache,
+        .o_proj_weight = &L->o_proj,
+        .post_attn_norm_weight = &t_post_attn_norm,
+        .normed_scratch = &t_normed_2d,
+        .q_scratch = &t_q_2d,
+        .k_scratch = &t_k_2d,
+        .v_scratch = &t_v_2d,
+        .attn_scratch = &t_attn_2d,
+        .o_scratch = &t_o_2d,
+        .post_attn_scratch = &t_post_attn_2d,
+        .out = t_h_post_attn_2d,
+    };
+
+    return v->attention_block(ctx->be, &block);
+}
+
+static enum geist_status transformer_layer_try_attention_query_fastpath(
+    struct transformer_layer_forward_ctx *ctx,
+    struct geist_tensor *t_h_in_2d,
+    struct geist_tensor *t_h_post_attn_2d) {
+
+    struct transformer_arch_state *st = ctx->st;
+    struct transformer_layer_weights *L = ctx->L;
+    const struct geist_backend_vtbl *v = ctx->v;
+
+    if (v->attention_query_block == nullptr ||
+        ctx->compute_kv ||
+        !ctx->apply_gemma_attn_norms ||
+        ctx->apply_bitnet_input_quant ||
+        ctx->apply_sub_ln ||
+        ctx->rope_interleaved ||
+        ctx->kv_int8_enabled ||
+        ctx->kv_kivi_enabled ||
+        L->o_awq_inv_scale != nullptr ||
+        L->post_attn_norm.buffer == nullptr) {
+        return GEIST_E_UNSUPPORTED;
+    }
+
+    struct geist_buffer *cos_buf =
+        L->is_full ? st->rope_cos_full : st->rope_cos_sliding;
+    struct geist_buffer *sin_buf =
+        L->is_full ? st->rope_sin_full : st->rope_sin_sliding;
+    const size_t cos_row_bytes = ctx->hd * sizeof(float);
+    const bool use_positioned_rope_table =
+        transformer_layer_command_sequence_active(ctx);
+
+    struct geist_tensor t_normed_2d =
+        view_2d(st->sess->scratch_normed, ctx->SEQ, st->d_model);
+    struct geist_tensor t_q_2d =
+        view_2d(st->sess->scratch_q, ctx->SEQ, (int64_t) ctx->q_out);
+    struct geist_tensor t_attn_2d =
+        view_2d(st->sess->scratch_attn, ctx->SEQ, (int64_t) ctx->q_out);
+    struct geist_tensor t_o_2d =
+        view_2d(st->sess->scratch_o, ctx->SEQ, st->d_model);
+    struct geist_tensor t_post_attn_2d =
+        view_2d(st->sess->scratch_post_attn, ctx->SEQ, st->d_model);
+
+    struct geist_tensor t_attn_norm =
+        view_1d(L->attn_norm.buffer, st->d_model);
+    struct geist_tensor t_q_norm =
+        view_1d(L->q_norm.buffer, (int64_t) ctx->hd);
+    struct geist_tensor t_cos =
+        use_positioned_rope_table
+            ? view_2d(cos_buf, (int64_t) st->max_seq_len,
+                      (int64_t) ctx->hd)
+            : view_2d_at(cos_buf, ctx->q_position * cos_row_bytes,
+                         ctx->SEQ, (int64_t) ctx->hd);
+    struct geist_tensor t_sin =
+        use_positioned_rope_table
+            ? view_2d(sin_buf, (int64_t) st->max_seq_len,
+                      (int64_t) ctx->hd)
+            : view_2d_at(sin_buf, ctx->q_position * cos_row_bytes,
+                         ctx->SEQ, (int64_t) ctx->hd);
+    const enum geist_dtype kv_dtype =
+        ctx->kv_f16_enabled ? GEIST_DTYPE_F16 : GEIST_DTYPE_F32;
+    struct geist_tensor t_k_cache =
+        view_3d_dtype(ctx->k_cache_buf, kv_dtype,
+                      (int64_t) (ctx->q_position + ctx->seq),
+                      st->n_kv_heads, (int64_t) ctx->hd);
+    struct geist_tensor t_v_cache =
+        view_3d_dtype(ctx->v_cache_buf, kv_dtype,
+                      (int64_t) (ctx->q_position + ctx->seq),
+                      st->n_kv_heads, (int64_t) ctx->hd);
+    struct geist_tensor t_post_attn_norm =
+        view_1d(L->post_attn_norm.buffer, st->d_model);
+
+    const struct geist_backend_attention_query_block block = {
+        .struct_size = sizeof(block),
+        .q_position = ctx->q_position,
+        .kv_len = ctx->q_position + ctx->seq,
+        .d_model = st->d_model,
+        .q_heads = st->n_q_heads,
+        .kv_heads = st->n_kv_heads,
+        .head_dim = ctx->hd,
+        .sliding_window = L->sliding_window,
+        .eps = ctx->eps,
+        .residual = t_h_in_2d,
+        .attn_norm_weight = &t_attn_norm,
+        .q_proj_weight = &L->q_proj,
+        .q_norm_weight = &t_q_norm,
+        .cos = &t_cos,
+        .sin = &t_sin,
+        .k_cache = &t_k_cache,
+        .v_cache = &t_v_cache,
+        .o_proj_weight = &L->o_proj,
+        .post_attn_norm_weight = &t_post_attn_norm,
+        .normed_scratch = &t_normed_2d,
+        .q_scratch = &t_q_2d,
+        .attn_scratch = &t_attn_2d,
+        .o_scratch = &t_o_2d,
+        .post_attn_scratch = &t_post_attn_2d,
+        .out = t_h_post_attn_2d,
+    };
+
+    return v->attention_query_block(ctx->be, &block);
+}
+
 static enum geist_status permute_interleaved_rope_inplace(
     const struct geist_backend_vtbl *v,
     struct geist_buffer *buf,
@@ -87,6 +304,34 @@ enum geist_status transformer_layer_run_attention_block(
     uint64_t t0 = profile ? transformer_profile_now_ns() : 0;
 
     struct geist_tensor t_h_in_2d = view_2d(ctx->h_in_buf, ctx->SEQ, st->d_model);
+    struct geist_tensor t_h_post_attn_2d = view_2d(st->sess->scratch_h_post_attn,
+                                                   ctx->SEQ, st->d_model);
+
+    s = transformer_layer_try_attention_fastpath(ctx, &t_h_in_2d,
+                                                 &t_h_post_attn_2d);
+    if (s == GEIST_OK) {
+        ctx->kv_len_now = ctx->q_position + ctx->seq;
+        return GEIST_OK;
+    }
+    if (s != GEIST_E_UNSUPPORTED) {
+        return s;
+    }
+    s = transformer_layer_try_attention_query_fastpath(ctx, &t_h_in_2d,
+                                                       &t_h_post_attn_2d);
+    if (s == GEIST_OK) {
+        ctx->kv_len_now = ctx->q_position + ctx->seq;
+        return GEIST_OK;
+    }
+    if (s != GEIST_E_UNSUPPORTED) {
+        return s;
+    }
+    if (ctx->kv_f16_enabled) {
+        return GEIST_E_UNSUPPORTED;
+    }
+    if (transformer_layer_command_sequence_active(ctx)) {
+        return GEIST_E_UNSUPPORTED;
+    }
+
     struct geist_tensor t_normed_2d = view_2d(st->sess->scratch_normed,
                                               ctx->SEQ, st->d_model);
     struct geist_tensor t_w_attn_norm = view_1d(L->attn_norm.buffer, st->d_model);
@@ -228,8 +473,6 @@ enum geist_status transformer_layer_run_attention_block(
     transformer_profile_add(&g_attn_profile, ATTN_PROFILE_O_PROJ, t0);
     if (s != GEIST_OK) { return s; }
 
-    struct geist_tensor t_h_post_attn_2d = view_2d(st->sess->scratch_h_post_attn,
-                                                   ctx->SEQ, st->d_model);
     t0 = profile ? transformer_profile_now_ns() : 0;
     if (ctx->apply_gemma_attn_norms) {
         struct geist_tensor t_post_attn_2d = view_2d(st->sess->scratch_post_attn,

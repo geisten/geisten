@@ -27,6 +27,47 @@
 #include <stdint.h>
 #include <string.h>
 
+[[nodiscard]] enum geist_status weight_load_buffer_from_host(
+    struct geist_backend *be,
+    void *host_ptr,
+    size_t n_bytes,
+    enum geist_buffer_role role,
+    bool prefer_alias,
+    struct geist_buffer **out_buf) {
+
+    if (be == nullptr || be->desc == nullptr || be->desc->vtbl == nullptr ||
+        host_ptr == nullptr || n_bytes == 0 || out_buf == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    *out_buf = nullptr;
+
+    const struct geist_backend_vtbl *v = be->desc->vtbl;
+    if (prefer_alias && v->buffer_create_aliased != nullptr) {
+        enum geist_status s = v->buffer_create_aliased(
+            be, host_ptr, n_bytes, role, out_buf);
+        if (s == GEIST_OK) {
+            return GEIST_OK;
+        }
+        if (s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+        *out_buf = nullptr;
+    }
+
+    enum geist_status s = v->buffer_create(
+        be, n_bytes, role, GEIST_MEMORY_AUTO, out_buf);
+    if (s != GEIST_OK) {
+        return s;
+    }
+    s = v->buffer_upload(*out_buf, n_bytes, (const uint8_t *) host_ptr);
+    if (s != GEIST_OK) {
+        v->buffer_destroy(be, *out_buf);
+        *out_buf = nullptr;
+        return s;
+    }
+    return GEIST_OK;
+}
+
 [[nodiscard]] enum geist_status compute_weight_arena_capacity(
     struct gguf_ctx *gguf, size_t *out_bytes) {
 
@@ -83,12 +124,12 @@
      *   read directly from mmap pages. Disk reads happen on demand
      *   during attention. Pi 5 IQ2_M cold-load ~1.7 s.
      *
-     * The two modes share the same hot path because both expose a
-     * GEIST_MEMORY_ALIASED buffer to the kernel layer. Only the
-     * underlying ownership differs. */
+     * CPU backends usually expose a GEIST_MEMORY_ALIASED buffer to the
+     * kernel layer. Device-only backends fall back to buffer_create +
+     * buffer_upload, keeping the same tensor metadata while removing the
+     * host-pointer requirement. */
     struct geist_buffer *buf = nullptr;
     enum geist_status    s;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
     void *raw_ptr;
     if (st->weight_arena != nullptr) {
         /* β: bump-allocate + memcpy. */
@@ -106,8 +147,8 @@
         /* mmap-alias: zero-copy; gguf mmap retained by caller. */
         raw_ptr = (void *) t->data;
     }
-    s = v->buffer_create_aliased(be, raw_ptr, t->nbytes,
-                                   GEIST_BUFFER_WEIGHT, &buf);
+    s = weight_load_buffer_from_host(be, raw_ptr, t->nbytes,
+                                     GEIST_BUFFER_WEIGHT, true, &buf);
     if (s != GEIST_OK) {
         return s;
     }

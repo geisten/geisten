@@ -76,6 +76,26 @@ static float *get_f32_dense_ptr(const struct geist_tensor *t, size_t *out_n) {
     return GEIST_OK;
 }
 
+[[nodiscard]] enum geist_status cpu_neon_scale_f32(
+    struct geist_backend *be,
+    const struct geist_tensor *x,
+    float scale,
+    struct geist_tensor *y) {
+
+    size_t nx = 0, ny = 0;
+    const float *xp = get_f32_dense_ptr(x, &nx);
+    float *yp = get_f32_dense_ptr(y, &ny);
+    if (xp == nullptr || yp == nullptr || nx != ny) {
+        geist_backend_set_error(be, GEIST_E_INVALID_ARG,
+                                "cpu_neon scale_f32: bad inputs");
+        return GEIST_E_INVALID_ARG;
+    }
+    for (size_t i = 0; i < nx; i++) {
+        yp[i] = xp[i] * scale;
+    }
+    return GEIST_OK;
+}
+
 [[nodiscard]] enum geist_status cpu_neon_gelu_tanh(struct geist_backend      *be,
                                                     const struct geist_tensor *x,
                                                     struct geist_tensor       *y) {

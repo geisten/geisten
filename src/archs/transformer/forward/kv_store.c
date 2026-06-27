@@ -50,11 +50,45 @@ enum geist_status transformer_kv_store_append(
     const size_t hd = ctx->hd;
     const size_t kv_out = ctx->kv_out;
 
+    if (!ctx->kv_kivi_enabled && !ctx->kv_int8_enabled) {
+        if (kv_out == 0 || kv_out > SIZE_MAX / sizeof(float)) {
+            return GEIST_E_INVALID_ARG;
+        }
+        if (seq == 0) {
+            return GEIST_OK;
+        }
+        const size_t row_bytes = kv_out * sizeof(float);
+        if (seq > SIZE_MAX / row_bytes ||
+            q_position > SIZE_MAX / row_bytes) {
+            return GEIST_E_INVALID_ARG;
+        }
+        const size_t span_bytes = seq * row_bytes;
+        const size_t dst_offset = q_position * row_bytes;
+        enum geist_status s = v->buffer_copy(ctx->k_cache_buf, dst_offset,
+                                             st->sess->scratch_k, 0,
+                                             span_bytes);
+        if (s != GEIST_OK) { return s; }
+        return v->buffer_copy(ctx->v_cache_buf, dst_offset,
+                              st->sess->scratch_v, 0, span_bytes);
+    }
+
     const float *k_src = (const float *) v->buffer_map(st->sess->scratch_k);
     const float *v_src = (const float *) v->buffer_map(st->sess->scratch_v);
+    if (k_src == nullptr || v_src == nullptr) {
+        if (k_src != nullptr) { v->buffer_unmap(st->sess->scratch_k); }
+        if (v_src != nullptr) { v->buffer_unmap(st->sess->scratch_v); }
+        return GEIST_E_BACKEND;
+    }
     if (ctx->kv_kivi_enabled) {
         float *k_res = (float *) v->buffer_map(ctx->k_residual_buf);
         float *v_res = (float *) v->buffer_map(ctx->v_residual_buf);
+        if (k_res == nullptr || v_res == nullptr) {
+            if (k_res != nullptr) { v->buffer_unmap(ctx->k_residual_buf); }
+            if (v_res != nullptr) { v->buffer_unmap(ctx->v_residual_buf); }
+            v->buffer_unmap(st->sess->scratch_k);
+            v->buffer_unmap(st->sess->scratch_v);
+            return GEIST_E_BACKEND;
+        }
         const size_t row_elems = kv_out;
         for (size_t t = 0; t < seq; t++) {
             const size_t res_idx = (q_position + t) - st->sess->kivi_drained_count;
@@ -70,6 +104,16 @@ enum geist_status transformer_kv_store_append(
         int8_t *v_dst = (int8_t *) v->buffer_map(ctx->v_cache_q8_buf);
         float *k_sca = (float *) v->buffer_map(ctx->k_cache_scale_buf);
         float *v_sca = (float *) v->buffer_map(ctx->v_cache_scale_buf);
+        if (k_dst == nullptr || v_dst == nullptr ||
+            k_sca == nullptr || v_sca == nullptr) {
+            if (k_dst != nullptr) { v->buffer_unmap(ctx->k_cache_q8_buf); }
+            if (v_dst != nullptr) { v->buffer_unmap(ctx->v_cache_q8_buf); }
+            if (k_sca != nullptr) { v->buffer_unmap(ctx->k_cache_scale_buf); }
+            if (v_sca != nullptr) { v->buffer_unmap(ctx->v_cache_scale_buf); }
+            v->buffer_unmap(st->sess->scratch_k);
+            v->buffer_unmap(st->sess->scratch_v);
+            return GEIST_E_BACKEND;
+        }
         const size_t row_elems = kv_out;
         const size_t scales_per_row = st->n_kv_heads;
         for (size_t t = 0; t < seq; t++) {
@@ -97,15 +141,6 @@ enum geist_status transformer_kv_store_append(
         v->buffer_unmap(ctx->v_cache_q8_buf);
         v->buffer_unmap(ctx->k_cache_scale_buf);
         v->buffer_unmap(ctx->v_cache_scale_buf);
-    } else {
-        uint8_t *k_dst = (uint8_t *) v->buffer_map(ctx->k_cache_buf);
-        uint8_t *v_dst = (uint8_t *) v->buffer_map(ctx->v_cache_buf);
-        const size_t row_bytes = kv_out * sizeof(float);
-        const size_t span_bytes = seq * row_bytes;
-        memcpy(k_dst + q_position * row_bytes, (const uint8_t *) k_src, span_bytes);
-        memcpy(v_dst + q_position * row_bytes, (const uint8_t *) v_src, span_bytes);
-        v->buffer_unmap(ctx->k_cache_buf);
-        v->buffer_unmap(ctx->v_cache_buf);
     }
     v->buffer_unmap(st->sess->scratch_k);
     v->buffer_unmap(st->sess->scratch_v);

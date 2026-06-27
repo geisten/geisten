@@ -17,6 +17,7 @@
 #endif
 
 #include "arch_state.h"
+#include <geist_backend.h>
 #include <geist_types.h>
 
 /* Layer loop: feed `seq` token rows through all GEIST_GEMMA4_NUM_LAYERS
@@ -51,6 +52,12 @@ compute_per_layer_inputs_batch(struct transformer_arch_state *st,
 finalize_logits_one_row(struct transformer_arch_state *st,
                          size_t row_idx, geist_token_t *out_token);
 
+[[nodiscard]] enum geist_status
+finalize_logits_one_row_to_token_slot(struct transformer_arch_state *st,
+                                      size_t row_idx,
+                                      size_t token_output_offset,
+                                      geist_token_t *out_token);
+
 /* Speculative i8-sketch output head (GEIST_SPEC_HEAD=1). On a large tied F16
  * lm_head it rough-ranks the vocab via an int8 sketch, then computes exact
  * f16 logits for the top-K candidates only — writing scratch_logits and the
@@ -60,6 +67,17 @@ finalize_logits_one_row(struct transformer_arch_state *st,
  * Reads the normalized hidden from scratch_h_a. */
 bool transformer_spec_head_try(struct transformer_arch_state *st,
                                geist_token_t *out_token);
+
+/* Copy one or more contiguous residual-stream rows into the output-head
+ * scratch input. Uses backend buffer_copy when available so device-local
+ * activation buffers do not require host mapping. */
+[[nodiscard]] enum geist_status
+transformer_head_copy_rows(const struct geist_backend_vtbl *v,
+                           struct geist_buffer *dst,
+                           const struct geist_buffer *src,
+                           size_t row_idx,
+                           size_t row_count,
+                           size_t row_bytes);
 
 /* Batched variant for verify_forward — runs lm_head on k rows in one
  * batched call, writes k per-position argmaxes into out_tokens. */

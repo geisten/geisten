@@ -23,6 +23,7 @@
 
 #include "arch_state.h"
 #include "arch_ops.h"
+#include "forward/internal.h"
 #include "forward.h"
 
 #include "gemma4_kernels.h"
@@ -40,6 +41,89 @@
 
 /* ---- Batched text prefill -------------------------------------------- */
 
+static void transformer_prefill_set_stage_error(
+    struct transformer_arch_state *st,
+    enum geist_status s,
+    const char *stage) {
+
+    if (st == nullptr || st->backend == nullptr || stage == nullptr) {
+        return;
+    }
+    const char *detail = geist_backend_errmsg(st->backend);
+    char detail_copy[512];
+    detail_copy[0] = '\0';
+    if (detail != nullptr && detail[0] != '\0' &&
+        strcmp(detail, "(no error)") != 0) {
+        (void) snprintf(detail_copy, sizeof(detail_copy), "%s", detail);
+    }
+    geist_backend_set_error(st->backend, s,
+                            "transformer prefill: %s failed%s%s",
+                            stage,
+                            detail_copy[0] != '\0' ? ": " : "",
+                            detail_copy);
+}
+
+[[nodiscard]] static enum geist_status prefill_embed_one_token(
+    struct transformer_arch_state *st,
+    geist_token_t token_id,
+    struct geist_buffer *out_h_buf,
+    size_t row_idx,
+    float embed_scale) {
+
+    if (st == nullptr || out_h_buf == nullptr ||
+        token_id < 0 || (size_t) token_id >= st->vocab_size) {
+        return GEIST_E_INVALID_ARG;
+    }
+
+    struct geist_backend *be = st->backend;
+    const struct geist_backend_vtbl *v = be->desc->vtbl;
+    struct geist_tensor t_out = view_1d(out_h_buf, st->d_model);
+    t_out.offset = row_idx * st->d_model * sizeof(float);
+
+    if (st->config.has_ple && v->embedding_lookup_scaled != nullptr) {
+        enum geist_status s =
+            v->embedding_lookup_scaled(be, &st->embed_table, token_id,
+                                       embed_scale, &t_out);
+        if (s == GEIST_OK) {
+            return GEIST_OK;
+        }
+        if (s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    }
+    if (!st->config.has_ple && v->embedding_lookup != nullptr) {
+        enum geist_status s =
+            v->embedding_lookup(be, &st->embed_table, token_id, &t_out);
+        if (s == GEIST_OK) {
+            return GEIST_OK;
+        }
+        if (s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    }
+    if (transformer_state_command_sequence_active(st)) {
+        geist_backend_set_error(be, GEIST_E_UNSUPPORTED,
+                                "transformer prefill: command sequence "
+                                "requires device embedding lookup");
+        return GEIST_E_UNSUPPORTED;
+    }
+
+    float *h_dst = (float *) v->buffer_map(out_h_buf);
+    if (h_dst == nullptr) {
+        return GEIST_E_BACKEND;
+    }
+    float *row = h_dst + row_idx * st->d_model;
+    enum geist_status s = dequant_one_row(be, &st->embed_table,
+                                          (size_t) token_id, row);
+    if (s == GEIST_OK && embed_scale != 1.0f) {
+        for (size_t i = 0; i < (size_t) st->d_model; i++) {
+            row[i] *= embed_scale;
+        }
+    }
+    v->buffer_unmap(out_h_buf);
+    return s;
+}
+
 static enum geist_status
 prefill_text_batch_inner(struct transformer_arch_state *st,
                                    size_t n, const geist_token_t *ids) {
@@ -49,9 +133,9 @@ prefill_text_batch_inner(struct transformer_arch_state *st,
     if (n == 0) {
         return GEIST_OK;
     }
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
-
+    if (st->m_max == 0) {
+        return GEIST_E_INVALID_ARG;
+    }
     /* sqrt(d_model) embedding scale is Gemma-3/4-specific; Llama / BitNet
      * don't scale. has_ple gates Gemma family identity. */
     const float embed_scale = st->config.has_ple ? sqrtf((float) st->d_model) : 1.0f;
@@ -60,24 +144,15 @@ prefill_text_batch_inner(struct transformer_arch_state *st,
         const size_t chunk = (n - off > st->m_max) ? st->m_max : (n - off);
 
         /* 1. Embed all chunk tokens into scratch_h_a [chunk, HIDDEN]. */
-        {
-            float *h_dst = (float *) v->buffer_map(st->sess->scratch_h_a);
-            for (size_t t = 0; t < chunk; t++) {
-                enum geist_status s = dequant_one_row(be, &st->embed_table,
-                                                        (size_t) ids[off + t],
-                                                        h_dst + t * st->d_model);
-                if (s != GEIST_OK) {
-                    v->buffer_unmap(st->sess->scratch_h_a);
-                    return s;
-                }
+        for (size_t t = 0; t < chunk; t++) {
+            enum geist_status s =
+                prefill_embed_one_token(st, ids[off + t],
+                                        st->sess->scratch_h_a, t,
+                                        embed_scale);
+            if (s != GEIST_OK) {
+                transformer_prefill_set_stage_error(st, s, "embed token");
+                return s;
             }
-            if (embed_scale != 1.0f) {
-                const size_t n_floats = chunk * st->d_model;
-                for (size_t i = 0; i < n_floats; i++) {
-                    h_dst[i] *= embed_scale;
-                }
-            }
-            v->buffer_unmap(st->sess->scratch_h_a);
         }
 
         /* 2. Batched PLE precompute. P1.5.b: skipped for non-PLE families. */
@@ -86,7 +161,10 @@ prefill_text_batch_inner(struct transformer_arch_state *st,
         if (st->config.has_ple) {
             s = compute_per_layer_inputs_batch(
                 st, chunk, ids + off, st->sess->scratch_h_a, st->sess->scratch_per_layer_input);
-            if (s != GEIST_OK) { return s; }
+            if (s != GEIST_OK) {
+                transformer_prefill_set_stage_error(st, s, "PLE batch");
+                return s;
+            }
             ple_buf = st->sess->scratch_per_layer_input;
         }
 
@@ -96,7 +174,10 @@ prefill_text_batch_inner(struct transformer_arch_state *st,
                                             st->sess->scratch_h_a,
                                             ple_buf,
                                             st->sess->scratch_h_b);
-        if (s != GEIST_OK) { return s; }
+        if (s != GEIST_OK) {
+            transformer_prefill_set_stage_error(st, s, "layer loop");
+            return s;
+        }
 
         /* 4. Advance kv_len by chunk. */
         st->sess->kv_len += chunk;
@@ -109,10 +190,27 @@ prefill_text_batch_inner(struct transformer_arch_state *st,
          *    ops->decode_step has a pending prediction. */
         if (off + chunk == n) {
             s = finalize_logits_last_row(st, chunk);
-            if (s != GEIST_OK) { return s; }
+            if (s != GEIST_OK) {
+                transformer_prefill_set_stage_error(st, s, "final head");
+                return s;
+            }
         }
     }
     return GEIST_OK;
+}
+
+static bool transformer_arch_ops_accel_debug_enabled(void) {
+    const char *value = getenv("GEIST_ACCEL_DEBUG");
+    return value != nullptr && value[0] != '\0' && strcmp(value, "0") != 0;
+}
+
+static void transformer_arch_ops_debug_unsupported(
+    struct geist_backend *be, const char *where) {
+
+    if (!transformer_arch_ops_accel_debug_enabled()) { return; }
+    const char *msg = geist_backend_errmsg(be);
+    fprintf(stderr, "transformer_accel: %s unsupported: %s\n",
+            where, msg != nullptr ? msg : "(no backend error)");
 }
 
 enum geist_status
@@ -127,7 +225,79 @@ transformer_prefill_text_batch(struct transformer_arch_state *st,
         v->parallel_region_begin
             ? v->parallel_region_begin(be, GEIST_REGION_PREFILL_BATCH)
             : 0;
-    const enum geist_status s = prefill_text_batch_inner(st, n, ids);
+    bool command_sequence_active = false;
+    int command_sequence_token = 0;
+    const size_t kv_len_before = st->sess->kv_len;
+    const bool logits_valid_before = st->sess->logits_valid;
+    const bool logits_on_device_before = st->sess->logits_on_device;
+    const bool logits_host_valid_before = st->sess->logits_host_valid;
+    const geist_token_t next_token_before = st->sess->next_token_pending;
+    bool retry_without_command_sequence = false;
+
+    if (n > 0 &&
+        transformer_accel_session_prefill_text_enabled(st->sess->accel_session) &&
+        v->command_sequence_begin != nullptr &&
+        v->command_sequence_end != nullptr &&
+        v->command_sequence_read_token != nullptr) {
+        enum geist_status cs = v->command_sequence_begin(
+            be, GEIST_COMMAND_SEQUENCE_PREFILL_TEXT, &command_sequence_token);
+        if (cs == GEIST_OK) {
+            command_sequence_active = true;
+            st->sess->backend_command_sequence_active = true;
+        } else if (cs != GEIST_E_UNSUPPORTED) {
+            if (v->parallel_region_end) { v->parallel_region_end(be, region_tok); }
+            return cs;
+        }
+    }
+
+    enum geist_status s = prefill_text_batch_inner(st, n, ids);
+    if (command_sequence_active) {
+        st->sess->backend_command_sequence_active = false;
+        enum geist_status cs = v->command_sequence_end(
+            be, command_sequence_token, s == GEIST_OK);
+        if (cs != GEIST_OK) {
+            st->sess->kv_len = kv_len_before;
+            st->sess->logits_valid = logits_valid_before;
+            st->sess->logits_on_device = logits_on_device_before;
+            st->sess->logits_host_valid = logits_host_valid_before;
+            st->sess->next_token_pending = next_token_before;
+            s = cs;
+        } else if (s == GEIST_E_UNSUPPORTED) {
+            st->sess->kv_len = kv_len_before;
+            st->sess->logits_valid = logits_valid_before;
+            st->sess->logits_on_device = logits_on_device_before;
+            st->sess->logits_host_valid = logits_host_valid_before;
+            st->sess->next_token_pending = next_token_before;
+            transformer_arch_ops_debug_unsupported(
+                be, "prefill command sequence");
+            retry_without_command_sequence = true;
+        } else if (s == GEIST_OK) {
+            geist_token_t token = -1;
+            cs = v->command_sequence_read_token(be, &token);
+            if (cs == GEIST_OK) {
+                st->sess->next_token_pending = token;
+                st->sess->logits_valid = true;
+                st->sess->logits_host_valid = false;
+                st->sess->logits_on_device = true;
+            } else {
+                st->sess->kv_len = kv_len_before;
+                st->sess->logits_valid = logits_valid_before;
+                st->sess->logits_on_device = logits_on_device_before;
+                st->sess->logits_host_valid = logits_host_valid_before;
+                st->sess->next_token_pending = next_token_before;
+                s = cs;
+            }
+        }
+    }
+    if (retry_without_command_sequence) {
+        transformer_arch_ops_debug_unsupported(
+            be, "prefill retry without command sequence");
+        struct transformer_accel_session *saved_accel_session =
+            st->sess->accel_session;
+        st->sess->accel_session = nullptr;
+        s = prefill_text_batch_inner(st, n, ids);
+        st->sess->accel_session = saved_accel_session;
+    }
     if (v->parallel_region_end) { v->parallel_region_end(be, region_tok); }
     return s;
 }
@@ -139,10 +309,25 @@ transformer_prefill_text_batch(struct transformer_arch_state *st,
  * accept/reject the draft and then optionally truncates kv_len to
  * undo verify-pass KV writes past the accept point. */
 
-enum geist_status
-transformer_verify_forward(struct transformer_arch_state *st,
-                               size_t k, const geist_token_t *ids,
-                               geist_token_t *out_tokens) {
+static void transformer_restore_verify_session_metadata(
+    struct transformer_arch_state *st,
+    size_t kv_len,
+    bool logits_valid,
+    bool logits_on_device,
+    bool logits_host_valid,
+    geist_token_t next_token_pending) {
+
+    st->sess->kv_len = kv_len;
+    st->sess->logits_valid = logits_valid;
+    st->sess->logits_on_device = logits_on_device;
+    st->sess->logits_host_valid = logits_host_valid;
+    st->sess->next_token_pending = next_token_pending;
+}
+
+[[nodiscard]] static enum geist_status
+verify_forward_inner(struct transformer_arch_state *st,
+                     size_t k, const geist_token_t *ids,
+                     geist_token_t *out_tokens) {
     if (st == nullptr || k == 0 || ids == nullptr || out_tokens == nullptr) {
         return GEIST_E_INVALID_ARG;
     }
@@ -150,29 +335,16 @@ transformer_verify_forward(struct transformer_arch_state *st,
         /* Spec K should fit in one prefill chunk. Larger requires chunking. */
         return GEIST_E_INVALID_ARG;
     }
-    struct geist_backend *be = st->backend;
-    const struct geist_backend_vtbl *v = be->desc->vtbl;
     const float embed_scale = st->config.has_ple ? sqrtf((float) st->d_model) : 1.0f;
 
     /* 1. Embed all k tokens into scratch_h_a [k, HIDDEN]. */
-    {
-        float *h_dst = (float *) v->buffer_map(st->sess->scratch_h_a);
-        for (size_t t = 0; t < k; t++) {
-            enum geist_status s = dequant_one_row(be, &st->embed_table,
-                                                    (size_t) ids[t],
-                                                    h_dst + t * st->d_model);
-            if (s != GEIST_OK) {
-                v->buffer_unmap(st->sess->scratch_h_a);
-                return s;
-            }
+    for (size_t t = 0; t < k; t++) {
+        enum geist_status s =
+            prefill_embed_one_token(st, ids[t], st->sess->scratch_h_a, t,
+                                    embed_scale);
+        if (s != GEIST_OK) {
+            return s;
         }
-        if (embed_scale != 1.0f) {
-            const size_t n_floats = k * st->d_model;
-            for (size_t i = 0; i < n_floats; i++) {
-                h_dst[i] *= embed_scale;
-            }
-        }
-        v->buffer_unmap(st->sess->scratch_h_a);
     }
 
     /* 2. PLE precompute. P1.5.b: skipped for non-PLE families. */
@@ -203,7 +375,9 @@ transformer_verify_forward(struct transformer_arch_state *st,
     if (st->sess->kv_kivi_enabled) {
         st->sess->kivi_residual_count += k;
     }
-    st->sess->logits_valid = false;
+    st->sess->logits_valid       = false;
+    st->sess->logits_on_device   = false;
+    st->sess->logits_host_valid  = false;
     st->sess->next_token_pending = 0;
 
     /* 5. Sample one token per row of scratch_h_b. Two paths:
@@ -219,11 +393,120 @@ transformer_verify_forward(struct transformer_arch_state *st,
     if (k == 1) {
         s = finalize_logits_one_row(st, 0, &out_tokens[0]);
         if (s != GEIST_OK) { return s; }
+    } else if (transformer_state_command_sequence_active(st) &&
+               st->sess->temperature == 0.0f) {
+        s = finalize_logits_batch(st, k, out_tokens);
+        if (s == GEIST_E_UNSUPPORTED) {
+            for (size_t row = 0; row < k; row++) {
+                s = finalize_logits_one_row_to_token_slot(st, row, row,
+                                                          &out_tokens[row]);
+                if (s != GEIST_OK) { return s; }
+            }
+        } else if (s != GEIST_OK) {
+            return s;
+        }
     } else {
         s = finalize_logits_batch(st, k, out_tokens);
         if (s != GEIST_OK) { return s; }
     }
+    st->sess->logits_valid       = false;
+    st->sess->logits_on_device   = false;
+    st->sess->logits_host_valid  = false;
+    st->sess->next_token_pending = 0;
     return GEIST_OK;
+}
+
+enum geist_status
+transformer_verify_forward(struct transformer_arch_state *st,
+                           size_t k, const geist_token_t *ids,
+                           geist_token_t *out_tokens) {
+    if (st == nullptr || k == 0 || ids == nullptr || out_tokens == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+
+    struct geist_backend *be = st->backend;
+    const struct geist_backend_vtbl *v = be->desc->vtbl;
+    bool command_sequence_active = false;
+    int command_sequence_token = 0;
+    const size_t kv_len_before = st->sess->kv_len;
+    const bool logits_valid_before = st->sess->logits_valid;
+    const bool logits_on_device_before = st->sess->logits_on_device;
+    const bool logits_host_valid_before = st->sess->logits_host_valid;
+    const geist_token_t next_token_before = st->sess->next_token_pending;
+    bool retry_without_command_sequence = false;
+
+    if (transformer_accel_session_verify_greedy_enabled(st->sess->accel_session) &&
+        v->command_sequence_begin != nullptr &&
+        v->command_sequence_end != nullptr &&
+        ((k == 1 && v->command_sequence_read_token != nullptr) ||
+         (k > 1 && v->command_sequence_read_tokens != nullptr))) {
+        enum geist_status cs = v->command_sequence_begin(
+            be, GEIST_COMMAND_SEQUENCE_VERIFY_GREEDY, &command_sequence_token);
+        if (cs == GEIST_OK) {
+            command_sequence_active = true;
+            st->sess->backend_command_sequence_active = true;
+        } else if (cs != GEIST_E_UNSUPPORTED) {
+            return cs;
+        }
+    }
+
+    enum geist_status s = verify_forward_inner(st, k, ids, out_tokens);
+    if (command_sequence_active) {
+        st->sess->backend_command_sequence_active = false;
+        enum geist_status cs = v->command_sequence_end(
+            be, command_sequence_token, s == GEIST_OK);
+        if (cs != GEIST_OK) {
+            transformer_restore_verify_session_metadata(
+                st, kv_len_before, logits_valid_before,
+                logits_on_device_before, logits_host_valid_before,
+                next_token_before);
+            s = cs;
+        } else if (s == GEIST_E_UNSUPPORTED) {
+            transformer_restore_verify_session_metadata(
+                st, kv_len_before, logits_valid_before,
+                logits_on_device_before, logits_host_valid_before,
+                next_token_before);
+            retry_without_command_sequence = true;
+        } else if (s == GEIST_OK && k == 1) {
+            geist_token_t token = -1;
+            cs = v->command_sequence_read_token(be, &token);
+            if (cs == GEIST_OK) {
+                out_tokens[0] = token;
+                st->sess->logits_valid = false;
+                st->sess->logits_host_valid = false;
+                st->sess->logits_on_device = false;
+                st->sess->next_token_pending = 0;
+            } else {
+                transformer_restore_verify_session_metadata(
+                    st, kv_len_before, logits_valid_before,
+                    logits_on_device_before, logits_host_valid_before,
+                    next_token_before);
+                s = cs;
+            }
+        } else if (s == GEIST_OK) {
+            cs = v->command_sequence_read_tokens(be, k, out_tokens);
+            if (cs == GEIST_OK) {
+                st->sess->logits_valid = false;
+                st->sess->logits_host_valid = false;
+                st->sess->logits_on_device = false;
+                st->sess->next_token_pending = 0;
+            } else {
+                transformer_restore_verify_session_metadata(
+                    st, kv_len_before, logits_valid_before,
+                    logits_on_device_before, logits_host_valid_before,
+                    next_token_before);
+                s = cs;
+            }
+        }
+    }
+    if (retry_without_command_sequence) {
+        struct transformer_accel_session *saved_accel_session =
+            st->sess->accel_session;
+        st->sess->accel_session = nullptr;
+        s = verify_forward_inner(st, k, ids, out_tokens);
+        st->sess->accel_session = saved_accel_session;
+    }
+    return s;
 }
 
 void transformer_kv_truncate(struct transformer_arch_state *st,
@@ -248,6 +531,8 @@ void transformer_kv_truncate(struct transformer_arch_state *st,
         transformer_kivi_drain_full(st);
     }
     st->sess->logits_valid       = false;
+    st->sess->logits_on_device   = false;
+    st->sess->logits_host_valid  = false;
     st->sess->next_token_pending = 0;
 }
 
@@ -373,6 +658,8 @@ transformer_pin_prefix(struct transformer_arch_state *st,
     st->sess->kv_len             = 0;
     st->sess->prefix_length      = 0;
     st->sess->logits_valid       = false;
+    st->sess->logits_on_device   = false;
+    st->sess->logits_host_valid  = false;
     st->sess->next_token_pending = 0;
     if (n == 0) {
         return GEIST_OK;
@@ -486,4 +773,3 @@ cleanup:
     ptqtp_awq_close(awq);
     return rc;
 }
-

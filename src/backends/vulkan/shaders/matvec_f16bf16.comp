@@ -1,0 +1,65 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) readonly buffer X { float x[]; };
+layout(set = 0, binding = 1) readonly buffer W { uint w[]; };
+layout(set = 0, binding = 2) writeonly buffer Y { float y[]; };
+
+layout(push_constant) uniform Push {
+    uint n_in;
+    uint n_out;
+    uint dtype;
+    uint x_offset;
+    uint w_half_offset;
+    uint y_offset;
+} pc;
+
+const uint DTYPE_F16 = 1u;
+const uint DTYPE_BF16 = 2u;
+
+shared float partial[256];
+
+uint load_u16(uint half_index) {
+    uint word = w[half_index >> 1u];
+    if ((half_index & 1u) == 0u) {
+        return word & 0xffffu;
+    }
+    return word >> 16u;
+}
+
+float load_weight(uint half_index) {
+    uint h = load_u16(half_index);
+    if (pc.dtype == DTYPE_F16) {
+        return unpackHalf2x16(h).x;
+    }
+    return uintBitsToFloat(h << 16u);
+}
+
+void main() {
+    uint row = gl_WorkGroupID.x;
+    uint lid = gl_LocalInvocationID.x;
+
+    if (row >= pc.n_out) {
+        return;
+    }
+
+    float sum = 0.0;
+    uint w_base = pc.w_half_offset + row * pc.n_in;
+    for (uint k = lid; k < pc.n_in; k += 256u) {
+        sum += x[pc.x_offset + k] * load_weight(w_base + k);
+    }
+    partial[lid] = sum;
+    barrier();
+
+    for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+        if (lid < stride) {
+            partial[lid] += partial[lid + stride];
+        }
+        barrier();
+    }
+
+    if (lid == 0u) {
+        y[pc.y_offset + row] = partial[0];
+    }
+}

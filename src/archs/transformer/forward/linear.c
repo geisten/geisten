@@ -8,6 +8,325 @@
 
 #include <geist_backend.h>
 
+static bool tensor_is_f32_dense(const struct geist_tensor *t) {
+    return t != nullptr &&
+           t->buffer != nullptr &&
+           t->dtype == GEIST_DTYPE_F32 &&
+           t->layout == GEIST_LAYOUT_DENSE;
+}
+
+static bool tensor_2d_is_single_row(const struct geist_tensor *t,
+                                    int64_t *out_n) {
+    if (!tensor_is_f32_dense(t) || out_n == nullptr) {
+        return false;
+    }
+    if (t->ndim == 1 && t->shape[0] > 0) {
+        *out_n = t->shape[0];
+        return true;
+    }
+    if (t->ndim == 2 && t->shape[0] == 1 && t->shape[1] > 0) {
+        *out_n = t->shape[1];
+        return true;
+    }
+    return false;
+}
+
+static bool can_use_matvec_f32_dense(
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    const struct geist_tensor *t_y) {
+
+    if (v == nullptr || v->matvec_f32_dense == nullptr || seq != 1 ||
+        !tensor_is_f32_dense(t_w) || t_w->ndim != 2 ||
+        t_w->shape[0] <= 0 || t_w->shape[1] <= 0) {
+        return false;
+    }
+    int64_t n_in = 0;
+    int64_t n_out = 0;
+    if (!tensor_2d_is_single_row(t_x, &n_in) ||
+        !tensor_2d_is_single_row(t_y, &n_out)) {
+        return false;
+    }
+    return n_in == t_w->shape[1] && n_out == t_w->shape[0];
+}
+
+static bool can_use_matvec_q4k(
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    const struct geist_tensor *t_y) {
+
+    if (v == nullptr || v->matvec_q4k == nullptr || seq != 1 ||
+        t_w == nullptr || t_w->buffer == nullptr ||
+        t_w->dtype != GEIST_DTYPE_Q4_K ||
+        t_w->layout != GEIST_LAYOUT_BLOCK_QUANTIZED ||
+        t_w->ndim != 2 || t_w->shape[0] <= 0 || t_w->shape[1] <= 0) {
+        return false;
+    }
+    int64_t n_in = 0;
+    int64_t n_out = 0;
+    if (!tensor_2d_is_single_row(t_x, &n_in) ||
+        !tensor_2d_is_single_row(t_y, &n_out)) {
+        return false;
+    }
+    return n_in == t_w->shape[1] && n_out == t_w->shape[0];
+}
+
+static bool can_use_matvec_q6k(
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    const struct geist_tensor *t_y) {
+
+    if (v == nullptr || v->matvec_q6k == nullptr || seq != 1 ||
+        t_w == nullptr || t_w->buffer == nullptr ||
+        t_w->dtype != GEIST_DTYPE_Q6_K ||
+        t_w->layout != GEIST_LAYOUT_BLOCK_QUANTIZED ||
+        t_w->ndim != 2 || t_w->shape[0] <= 0 || t_w->shape[1] <= 0) {
+        return false;
+    }
+    int64_t n_in = 0;
+    int64_t n_out = 0;
+    if (!tensor_2d_is_single_row(t_x, &n_in) ||
+        !tensor_2d_is_single_row(t_y, &n_out)) {
+        return false;
+    }
+    return n_in == t_w->shape[1] && n_out == t_w->shape[0];
+}
+
+static bool can_use_matmul_f32_dense(
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    const struct geist_tensor *t_y) {
+
+    return v != nullptr && v->matmul_f32_dense != nullptr && seq > 1 &&
+           tensor_is_f32_dense(t_x) &&
+           tensor_is_f32_dense(t_w) &&
+           tensor_is_f32_dense(t_y) &&
+           t_x->ndim == 2 && t_w->ndim == 2 && t_y->ndim == 2 &&
+           t_x->shape[0] == (int64_t) seq &&
+           t_y->shape[0] == (int64_t) seq &&
+           t_x->shape[1] > 0 &&
+           t_w->shape[0] > 0 &&
+           t_w->shape[1] == t_x->shape[1] &&
+           t_y->shape[1] == t_w->shape[0];
+}
+
+static bool can_use_matmul_qk(
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    const struct geist_tensor *t_y) {
+
+    if (v == nullptr || seq <= 1 ||
+        t_x == nullptr || t_w == nullptr || t_y == nullptr ||
+        t_x->buffer == nullptr || t_w->buffer == nullptr ||
+        t_y->buffer == nullptr ||
+        t_x->dtype != GEIST_DTYPE_F32 ||
+        t_x->layout != GEIST_LAYOUT_DENSE ||
+        t_y->dtype != GEIST_DTYPE_F32 ||
+        t_y->layout != GEIST_LAYOUT_DENSE ||
+        t_w->layout != GEIST_LAYOUT_BLOCK_QUANTIZED ||
+        t_x->ndim != 2 || t_w->ndim != 2 || t_y->ndim != 2 ||
+        t_x->shape[0] != (int64_t) seq ||
+        t_y->shape[0] != (int64_t) seq ||
+        t_x->shape[1] <= 0 ||
+        t_w->shape[0] <= 0 ||
+        t_w->shape[1] != t_x->shape[1] ||
+        t_y->shape[1] != t_w->shape[0]) {
+        return false;
+    }
+    if (t_w->dtype == GEIST_DTYPE_Q4_K) {
+        return v->matmul_q4k != nullptr;
+    }
+    if (t_w->dtype == GEIST_DTYPE_Q6_K) {
+        return v->matmul_q6k != nullptr;
+    }
+    return false;
+}
+
+static struct geist_tensor matvec_1d_view(const struct geist_tensor *t,
+                                          int64_t n) {
+    struct geist_tensor out = *t;
+    out.ndim = 1;
+    out.shape[0] = n;
+    for (int i = 1; i < 8; i++) {
+        out.shape[i] = 0;
+    }
+    out.stride[0] = 1;
+    for (int i = 1; i < 8; i++) {
+        out.stride[i] = 0;
+    }
+    return out;
+}
+
+static enum geist_status try_matvec_f32_dense(
+    struct geist_backend *be,
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    struct geist_tensor *t_y,
+    bool *out_handled) {
+
+    if (out_handled == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    *out_handled = false;
+    if (!can_use_matvec_f32_dense(v, seq, t_x, t_w, t_y)) {
+        return GEIST_OK;
+    }
+
+    struct geist_tensor x = matvec_1d_view(t_x, t_w->shape[1]);
+    struct geist_tensor y = matvec_1d_view(t_y, t_w->shape[0]);
+    const enum geist_status s = v->matvec_f32_dense(be, &x, t_w, &y);
+    if (s == GEIST_OK) {
+        *out_handled = true;
+    }
+    return s;
+}
+
+static enum geist_status try_matvec_q4k(
+    struct geist_backend *be,
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    struct geist_tensor *t_y,
+    bool *out_handled) {
+
+    if (out_handled == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    *out_handled = false;
+    if (!can_use_matvec_q4k(v, seq, t_x, t_w, t_y)) {
+        return GEIST_OK;
+    }
+
+    struct geist_tensor x = matvec_1d_view(t_x, t_w->shape[1]);
+    struct geist_tensor y = matvec_1d_view(t_y, t_w->shape[0]);
+    const enum geist_status s = v->matvec_q4k(be, &x, t_w, &y);
+    if (s == GEIST_OK) {
+        *out_handled = true;
+    }
+    return s;
+}
+
+static enum geist_status try_matvec_q6k(
+    struct geist_backend *be,
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    struct geist_tensor *t_y,
+    bool *out_handled) {
+
+    if (out_handled == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    *out_handled = false;
+    if (!can_use_matvec_q6k(v, seq, t_x, t_w, t_y)) {
+        return GEIST_OK;
+    }
+
+    struct geist_tensor x = matvec_1d_view(t_x, t_w->shape[1]);
+    struct geist_tensor y = matvec_1d_view(t_y, t_w->shape[0]);
+    const enum geist_status s = v->matvec_q6k(be, &x, t_w, &y);
+    if (s == GEIST_OK) {
+        *out_handled = true;
+    }
+    return s;
+}
+
+static enum geist_status try_matmul_f32_dense(
+    struct geist_backend *be,
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    struct geist_tensor *t_y,
+    bool *out_handled) {
+
+    if (out_handled == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    *out_handled = false;
+    if (!can_use_matmul_f32_dense(v, seq, t_x, t_w, t_y)) {
+        return GEIST_OK;
+    }
+
+    const enum geist_status s = v->matmul_f32_dense(be, t_x, t_w, t_y);
+    if (s == GEIST_OK) {
+        *out_handled = true;
+    }
+    return s;
+}
+
+static enum geist_status try_matmul_qk(
+    struct geist_backend *be,
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    struct geist_tensor *t_y,
+    bool *out_handled) {
+
+    if (out_handled == nullptr) {
+        return GEIST_E_INVALID_ARG;
+    }
+    *out_handled = false;
+    if (!can_use_matmul_qk(v, seq, t_x, t_w, t_y)) {
+        return GEIST_OK;
+    }
+
+    enum geist_status s = GEIST_E_UNSUPPORTED;
+    if (t_w->dtype == GEIST_DTYPE_Q4_K) {
+        s = v->matmul_q4k(be, t_x, t_w, t_y);
+    } else if (t_w->dtype == GEIST_DTYPE_Q6_K) {
+        s = v->matmul_q6k(be, t_x, t_w, t_y);
+    }
+    if (s == GEIST_OK) {
+        *out_handled = true;
+    }
+    return s;
+}
+
+static enum geist_status try_device_matvec(
+    struct geist_backend *be,
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x,
+    const struct geist_tensor *t_w,
+    struct geist_tensor *t_y,
+    bool *out_handled) {
+
+    enum geist_status s = try_matvec_f32_dense(be, v, seq, t_x, t_w, t_y,
+                                                out_handled);
+    if (s != GEIST_OK || (out_handled != nullptr && *out_handled)) {
+        return s;
+    }
+    s = try_matvec_q4k(be, v, seq, t_x, t_w, t_y, out_handled);
+    if (s != GEIST_OK || (out_handled != nullptr && *out_handled)) {
+        return s;
+    }
+    s = try_matmul_f32_dense(be, v, seq, t_x, t_w, t_y, out_handled);
+    if (s != GEIST_OK || (out_handled != nullptr && *out_handled)) {
+        return s;
+    }
+    s = try_matmul_qk(be, v, seq, t_x, t_w, t_y, out_handled);
+    if (s != GEIST_OK || (out_handled != nullptr && *out_handled)) {
+        return s;
+    }
+    return try_matvec_q6k(be, v, seq, t_x, t_w, t_y, out_handled);
+}
+
 enum geist_status linear_w_or_legacy(
     struct geist_backend *be,
     const struct geist_backend_vtbl *v,
@@ -16,7 +335,13 @@ enum geist_status linear_w_or_legacy(
     size_t seq,
     const struct geist_tensor *t_x, const struct geist_tensor *t_w,
     struct geist_tensor *t_y) {
-    (void) t_x; (void) t_w; (void) t_y;
+
+    bool handled = false;
+    enum geist_status s = try_device_matvec(be, v, seq, t_x, t_w, t_y,
+                                            &handled);
+    if (s != GEIST_OK || handled) {
+        return s;
+    }
 
     if (w == nullptr) {
         geist_backend_set_error(be, GEIST_E_INVALID_ARG,
@@ -50,6 +375,25 @@ enum geist_status linear_w_or_legacy(
     return GEIST_OK;
 }
 
+enum geist_status linear_w_no_host_fallback(
+    struct geist_backend *be,
+    const struct geist_backend_vtbl *v,
+    size_t seq,
+    const struct geist_tensor *t_x, const struct geist_tensor *t_w,
+    struct geist_tensor *t_y) {
+
+    bool handled = false;
+    enum geist_status s = try_device_matvec(be, v, seq, t_x, t_w, t_y,
+                                            &handled);
+    if (s != GEIST_OK || handled) {
+        return s;
+    }
+    geist_backend_set_error(be, GEIST_E_UNSUPPORTED,
+                            "linear_w: host fallback disabled during command "
+                            "sequence");
+    return GEIST_E_UNSUPPORTED;
+}
+
 enum geist_status linear_w_scaled_input_or_legacy(
     struct geist_backend *be,
     const struct geist_backend_vtbl *v,
@@ -75,7 +419,21 @@ enum geist_status linear_w_pair_or_legacy(
     const struct geist_tensor *t_x,
     const struct geist_tensor *t_w0, const struct geist_tensor *t_w1,
     struct geist_tensor *t_y0, struct geist_tensor *t_y1) {
-    (void) t_x; (void) t_w0; (void) t_w1; (void) t_y0; (void) t_y1;
+
+    bool handled0 = false;
+    bool handled1 = false;
+    enum geist_status s = try_device_matvec(be, v, seq, t_x, t_w0,
+                                            t_y0, &handled0);
+    if (s != GEIST_OK) {
+        return s;
+    }
+    s = try_device_matvec(be, v, seq, t_x, t_w1, t_y1, &handled1);
+    if (s != GEIST_OK) {
+        return s;
+    }
+    if (handled0 && handled1) {
+        return GEIST_OK;
+    }
 
     if (w0 == nullptr || w1 == nullptr) {
         geist_backend_set_error(be, GEIST_E_INVALID_ARG,
@@ -138,8 +496,26 @@ enum geist_status linear_w_triple_or_legacy(
     const struct geist_tensor *t_w2,
     struct geist_tensor *t_y0, struct geist_tensor *t_y1,
     struct geist_tensor *t_y2) {
-    (void) t_x; (void) t_w0; (void) t_w1; (void) t_w2;
-    (void) t_y0; (void) t_y1; (void) t_y2;
+
+    bool handled0 = false;
+    bool handled1 = false;
+    bool handled2 = false;
+    enum geist_status s =
+        try_device_matvec(be, v, seq, t_x, t_w0, t_y0, &handled0);
+    if (s != GEIST_OK) {
+        return s;
+    }
+    s = try_device_matvec(be, v, seq, t_x, t_w1, t_y1, &handled1);
+    if (s != GEIST_OK) {
+        return s;
+    }
+    s = try_device_matvec(be, v, seq, t_x, t_w2, t_y2, &handled2);
+    if (s != GEIST_OK) {
+        return s;
+    }
+    if (handled0 && handled1 && handled2) {
+        return GEIST_OK;
+    }
 
     if (w0 == nullptr || w1 == nullptr || w2 == nullptr) {
         geist_backend_set_error(be, GEIST_E_INVALID_ARG,

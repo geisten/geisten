@@ -85,6 +85,30 @@ static void transformer_profile_add(enum transformer_profile_stage stage,
     g_transformer_profile_calls[stage]++;
 }
 
+static void transformer_layer_set_stage_error(
+    struct transformer_layer_forward_ctx *ctx,
+    enum geist_status s,
+    const char *stage) {
+
+    if (ctx == nullptr || ctx->be == nullptr || stage == nullptr) {
+        return;
+    }
+    const char *detail = geist_backend_errmsg(ctx->be);
+    char detail_copy[512];
+    detail_copy[0] = '\0';
+    if (detail != nullptr && detail[0] != '\0' &&
+        strcmp(detail, "(no error)") != 0) {
+        (void) snprintf(detail_copy, sizeof(detail_copy), "%s", detail);
+    }
+    geist_backend_set_error(ctx->be, s,
+                            "transformer layer %d %s failed: %s%s%s",
+                            ctx->layer_idx,
+                            stage,
+                            geist_status_to_string(s),
+                            detail_copy[0] != '\0' ? ": " : "",
+                            detail_copy);
+}
+
 static void transformer_layer_bind_kv_buffers(
     struct transformer_layer_forward_ctx *ctx) {
 
@@ -104,6 +128,173 @@ static void transformer_layer_bind_kv_buffers(
     ctx->v_kivi_zeros_buf = sess->v_kivi_zeros[kv_src];
     ctx->k_residual_buf = sess->k_residual[kv_src];
     ctx->v_residual_buf = sess->v_residual[kv_src];
+}
+
+static bool transformer_layer_can_capture_attention_ffn(
+    const struct transformer_layer_forward_ctx *ctx) {
+
+    if (ctx == nullptr ||
+        ctx->st == nullptr ||
+        ctx->st->sess == nullptr ||
+        ctx->v == nullptr ||
+        ctx->st->sess->backend_command_sequence_active ||
+        ctx->v->command_sequence_begin == nullptr ||
+        ctx->v->command_sequence_end == nullptr ||
+        ctx->v->ffn_geglu_block == nullptr) {
+        return false;
+    }
+    return ctx->compute_kv ? ctx->v->attention_block != nullptr
+                           : ctx->v->attention_query_block != nullptr;
+}
+
+static bool transformer_layer_can_capture_full(
+    const struct transformer_layer_forward_ctx *ctx,
+    transformer_layer_stage_fn run_ple) {
+
+    return transformer_layer_can_capture_attention_ffn(ctx) &&
+           run_ple == transformer_layer_run_ple_or_copy &&
+           ctx->apply_ple &&
+           ctx->per_layer_input_buf != nullptr &&
+           ctx->v->ple_block != nullptr &&
+           ctx->v->scale_f32 != nullptr;
+}
+
+static enum geist_status transformer_layer_run_attention_ffn_plain(
+    struct transformer_layer_forward_ctx *ctx,
+    transformer_layer_stage_fn run_attention,
+    transformer_layer_stage_fn run_ffn,
+    bool profile) {
+
+    uint64_t t0 = profile ? transformer_profile_now_ns() : 0;
+    enum geist_status s = run_attention(ctx);
+    transformer_profile_add(TRANSFORMER_PROFILE_ATTENTION, t0);
+    if (s != GEIST_OK) {
+        transformer_layer_set_stage_error(ctx, s, "attention");
+        return s;
+    }
+
+    t0 = profile ? transformer_profile_now_ns() : 0;
+    s = run_ffn(ctx);
+    transformer_profile_add(TRANSFORMER_PROFILE_FFN, t0);
+    if (s != GEIST_OK) {
+        transformer_layer_set_stage_error(ctx, s, "ffn");
+        return s;
+    }
+    return GEIST_OK;
+}
+
+static enum geist_status transformer_layer_run_full_plain(
+    struct transformer_layer_forward_ctx *ctx,
+    transformer_layer_stage_fn run_attention,
+    transformer_layer_stage_fn run_ffn,
+    transformer_layer_stage_fn run_ple,
+    bool profile) {
+
+    enum geist_status s = transformer_layer_run_attention_ffn_plain(
+        ctx, run_attention, run_ffn, profile);
+    if (s != GEIST_OK) {
+        return s;
+    }
+
+    uint64_t t0 = profile ? transformer_profile_now_ns() : 0;
+    s = run_ple(ctx);
+    transformer_profile_add(TRANSFORMER_PROFILE_PLE, t0);
+    if (s != GEIST_OK) {
+        transformer_layer_set_stage_error(ctx, s, "ple");
+        return s;
+    }
+
+    t0 = profile ? transformer_profile_now_ns() : 0;
+    s = transformer_layer_scale_output(ctx);
+    transformer_profile_add(TRANSFORMER_PROFILE_SCALE, t0);
+    if (s != GEIST_OK) {
+        transformer_layer_set_stage_error(ctx, s, "scale");
+        return s;
+    }
+    return GEIST_OK;
+}
+
+static enum geist_status transformer_layer_run_full_captured(
+    struct transformer_layer_forward_ctx *ctx,
+    transformer_layer_stage_fn run_attention,
+    transformer_layer_stage_fn run_ffn,
+    transformer_layer_stage_fn run_ple,
+    bool profile) {
+
+    if (!transformer_layer_can_capture_full(ctx, run_ple)) {
+        return GEIST_E_UNSUPPORTED;
+    }
+
+    int sequence_token = 0;
+    enum geist_status s = ctx->v->command_sequence_begin(
+        ctx->be, GEIST_COMMAND_SEQUENCE_DECODE_LAYER_LOOP, &sequence_token);
+    if (s != GEIST_OK) {
+        return s;
+    }
+
+    ctx->st->sess->backend_command_sequence_active = true;
+    s = transformer_layer_run_full_plain(
+        ctx, run_attention, run_ffn, run_ple, profile);
+    const bool submit = s == GEIST_OK;
+    ctx->st->sess->backend_command_sequence_active = false;
+
+    enum geist_status cs =
+        ctx->v->command_sequence_end(ctx->be, sequence_token, submit);
+    if (cs != GEIST_OK) {
+        transformer_layer_set_stage_error(ctx, cs, "capture end");
+        return cs;
+    }
+    return s;
+}
+
+static enum geist_status transformer_layer_run_attention_ffn_captured(
+    struct transformer_layer_forward_ctx *ctx,
+    transformer_layer_stage_fn run_attention,
+    transformer_layer_stage_fn run_ffn,
+    bool profile) {
+
+    if (!transformer_layer_can_capture_attention_ffn(ctx)) {
+        if (ctx->kv_f16_enabled) {
+            return GEIST_E_UNSUPPORTED;
+        }
+        return transformer_layer_run_attention_ffn_plain(
+            ctx, run_attention, run_ffn, profile);
+    }
+
+    int sequence_token = 0;
+    enum geist_status s = ctx->v->command_sequence_begin(
+        ctx->be, GEIST_COMMAND_SEQUENCE_DECODE_LAYER_LOOP, &sequence_token);
+    if (s == GEIST_E_UNSUPPORTED) {
+        if (ctx->kv_f16_enabled) {
+            return s;
+        }
+        return transformer_layer_run_attention_ffn_plain(
+            ctx, run_attention, run_ffn, profile);
+    }
+    if (s != GEIST_OK) {
+        transformer_layer_set_stage_error(ctx, s, "capture begin");
+        return s;
+    }
+
+    ctx->st->sess->backend_command_sequence_active = true;
+    s = transformer_layer_run_attention_ffn_plain(
+        ctx, run_attention, run_ffn, profile);
+    const bool submit = s == GEIST_OK;
+    ctx->st->sess->backend_command_sequence_active = false;
+    enum geist_status cs =
+        ctx->v->command_sequence_end(ctx->be, sequence_token, submit);
+    if (cs != GEIST_OK) {
+        transformer_layer_set_stage_error(ctx, cs, "capture end");
+        return cs;
+    }
+    if (s == GEIST_E_UNSUPPORTED) {
+        if (ctx->kv_f16_enabled) {
+            return s;
+        }
+        return transformer_layer_run_attention_ffn_plain(
+            ctx, run_attention, run_ffn, profile);
+    }
+    return s;
 }
 
 static void transformer_layer_ctx_init(
@@ -151,6 +342,7 @@ static void transformer_layer_ctx_init(
     ctx->rope_interleaved = P != nullptr ? P->rope_interleaved
                                          : st->config.rope_interleaved;
     ctx->apply_ple = P != nullptr ? P->apply_ple : st->config.has_ple;
+    ctx->kv_f16_enabled = ctx->SP->kv_f16_enabled;
     ctx->kv_int8_enabled = ctx->SP->kv_int8_enabled;
     ctx->kv_kivi_enabled = ctx->SP->kv_kivi_enabled;
     ctx->ffn_activation = P != nullptr ? P->ffn_activation
@@ -200,22 +392,48 @@ transformer_forward_one_layer(struct transformer_arch_state *st,
             : transformer_layer_run_ple_or_copy;
 
     const bool profile = transformer_profile_enabled();
+    if (st->sess->backend_command_sequence_active) {
+        enum geist_status s = transformer_layer_run_full_plain(
+            &ctx, run_attention, run_ffn, run_ple, profile);
+        if (s == GEIST_OK && ctx.advance_kv) {
+            st->sess->kv_len = ctx.kv_len_now;
+        }
+        return s;
+    }
+
+    enum geist_status s = transformer_layer_run_full_captured(
+        &ctx, run_attention, run_ffn, run_ple, profile);
+    if (s == GEIST_OK) {
+        if (ctx.advance_kv) {
+            st->sess->kv_len = ctx.kv_len_now;
+        }
+        return GEIST_OK;
+    }
+    if (s != GEIST_E_UNSUPPORTED) {
+        return s;
+    }
+
+    s = transformer_layer_run_attention_ffn_captured(
+        &ctx, run_attention, run_ffn, profile);
+    if (s != GEIST_OK) {
+        return s;
+    }
+
     uint64_t t0 = profile ? transformer_profile_now_ns() : 0;
-    enum geist_status s = run_attention(&ctx);
-    transformer_profile_add(TRANSFORMER_PROFILE_ATTENTION, t0);
-    if (s != GEIST_OK) { return s; }
-    t0 = profile ? transformer_profile_now_ns() : 0;
-    s = run_ffn(&ctx);
-    transformer_profile_add(TRANSFORMER_PROFILE_FFN, t0);
-    if (s != GEIST_OK) { return s; }
-    t0 = profile ? transformer_profile_now_ns() : 0;
     s = run_ple(&ctx);
     transformer_profile_add(TRANSFORMER_PROFILE_PLE, t0);
-    if (s != GEIST_OK) { return s; }
+    if (s != GEIST_OK) {
+        transformer_layer_set_stage_error(&ctx, s, "ple");
+        return s;
+    }
 
     t0 = profile ? transformer_profile_now_ns() : 0;
-    transformer_layer_scale_output(&ctx);
+    s = transformer_layer_scale_output(&ctx);
     transformer_profile_add(TRANSFORMER_PROFILE_SCALE, t0);
+    if (s != GEIST_OK) {
+        transformer_layer_set_stage_error(&ctx, s, "scale");
+        return s;
+    }
     if (ctx.advance_kv) {
         st->sess->kv_len = ctx.kv_len_now;
     }
@@ -334,11 +552,30 @@ transformer_compute_per_layer_input(struct transformer_arch_state *st,
     struct geist_backend *be = st->backend;
     const struct geist_backend_vtbl *v = be->desc->vtbl;
     enum geist_status s;
+    const bool no_host_fallback = transformer_state_command_sequence_active(st);
 
     /* 1. Dequant one row of the PLE table into scratch_ple_lookup, then
      *    multiply by PLE_TABLE_SCALE (16). */
-    {
+    if (v->embedding_lookup_scaled != nullptr) {
+        struct geist_tensor t_ple_lookup =
+            view_1d(st->sess->scratch_ple_lookup, st->ple_out);
+        s = v->embedding_lookup_scaled(be, &st->ple_table, token_id,
+                                       st->config.ple_table_scale,
+                                       &t_ple_lookup);
+        if (s != GEIST_OK && s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    } else {
+        s = GEIST_E_UNSUPPORTED;
+    }
+    if (s == GEIST_E_UNSUPPORTED) {
+        if (no_host_fallback) {
+            return GEIST_E_UNSUPPORTED;
+        }
         float *dst = (float *) v->buffer_map(st->sess->scratch_ple_lookup);
+        if (dst == nullptr) {
+            return GEIST_E_BACKEND;
+        }
         s = dequant_one_row(be, &st->ple_table, (size_t) token_id, dst);
         if (s != GEIST_OK) { v->buffer_unmap(st->sess->scratch_ple_lookup); return s; }
         for (size_t i = 0; i < (size_t) st->ple_out; i++) {
@@ -353,14 +590,36 @@ transformer_compute_per_layer_input(struct transformer_arch_state *st,
      * pre-resolved kernel pointer. */
     struct geist_tensor t_h_2d = view_2d(h_buf, 1, st->d_model);
     struct geist_tensor t_ple_proj_2d = view_2d(per_layer_input_buf, 1, st->ple_out);
-    s = linear_w_or_legacy(be, v, h_buf, per_layer_input_buf,
-                            &st->model_proj_w, /* seq = */ 1,
-                            &t_h_2d, &st->model_proj, &t_ple_proj_2d);
+    if (no_host_fallback) {
+        s = linear_w_no_host_fallback(be, v, /* seq = */ 1,
+                                      &t_h_2d, &st->model_proj,
+                                      &t_ple_proj_2d);
+    } else {
+        s = linear_w_or_legacy(be, v, h_buf, per_layer_input_buf,
+                               &st->model_proj_w, /* seq = */ 1,
+                               &t_h_2d, &st->model_proj, &t_ple_proj_2d);
+    }
     if (s != GEIST_OK) { return s; }
 
     /* 3. *= PLE_MODEL_PROJ_SCALE (in-place). */
-    {
+    if (v->scale_f32 != nullptr) {
+        s = v->scale_f32(be, &t_ple_proj_2d,
+                         st->config.ple_model_proj_scale,
+                         &t_ple_proj_2d);
+        if (s != GEIST_OK && s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    } else {
+        s = GEIST_E_UNSUPPORTED;
+    }
+    if (s == GEIST_E_UNSUPPORTED) {
+        if (no_host_fallback) {
+            return GEIST_E_UNSUPPORTED;
+        }
         float *p = (float *) v->buffer_map(per_layer_input_buf);
+        if (p == nullptr) {
+            return GEIST_E_BACKEND;
+        }
         for (size_t i = 0; i < (size_t) st->ple_out; i++) {
             p[i] *= st->config.ple_model_proj_scale;
         }
@@ -381,8 +640,24 @@ transformer_compute_per_layer_input(struct transformer_arch_state *st,
     struct geist_tensor t_ple_lookup_1d = view_1d(st->sess->scratch_ple_lookup, st->ple_out);
     s = v->add(be, &t_ple_proj_1d, &t_ple_lookup_1d, &t_ple_proj_1d);
     if (s != GEIST_OK) { return s; }
-    {
+    if (v->scale_f32 != nullptr) {
+        s = v->scale_f32(be, &t_ple_proj_1d,
+                         st->config.ple_input_scale,
+                         &t_ple_proj_1d);
+        if (s != GEIST_OK && s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    } else {
+        s = GEIST_E_UNSUPPORTED;
+    }
+    if (s == GEIST_E_UNSUPPORTED) {
+        if (no_host_fallback) {
+            return GEIST_E_UNSUPPORTED;
+        }
         float *p = (float *) v->buffer_map(per_layer_input_buf);
+        if (p == nullptr) {
+            return GEIST_E_BACKEND;
+        }
         for (size_t i = 0; i < (size_t) st->ple_out; i++) {
             p[i] *= st->config.ple_input_scale;
         }
@@ -425,14 +700,44 @@ transformer_compute_per_layer_input(struct transformer_arch_state *st,
     struct geist_backend *be = st->backend;
     const struct geist_backend_vtbl *v = be->desc->vtbl;
     const size_t PLE_OUT = (size_t) st->ple_out;
+    const bool no_host_fallback = transformer_state_command_sequence_active(st);
 
     /* 1+2. Dequant n PLE rows + scale by 16. */
-    {
-        float *dst = (float *) v->buffer_map(st->sess->scratch_ple_lookup);
+    enum geist_status s = GEIST_E_UNSUPPORTED;
+    if (v->embedding_lookup_scaled != nullptr) {
+        s = GEIST_OK;
         for (size_t t = 0; t < n; t++) {
-            enum geist_status s = dequant_one_row(be, &st->ple_table,
-                                                    (size_t) ple_ids[t],
-                                                    dst + t * PLE_OUT);
+            if (ple_ids[t] < 0 ||
+                (size_t) ple_ids[t] >= (size_t) st->vocab_size ||
+                t > SIZE_MAX / PLE_OUT ||
+                t * PLE_OUT > SIZE_MAX / sizeof(float)) {
+                return GEIST_E_INVALID_ARG;
+            }
+            struct geist_tensor t_ple_lookup =
+                view_1d(st->sess->scratch_ple_lookup, (int64_t) PLE_OUT);
+            t_ple_lookup.offset = t * PLE_OUT * sizeof(float);
+            s = v->embedding_lookup_scaled(
+                be, &st->ple_table, ple_ids[t], st->config.ple_table_scale,
+                &t_ple_lookup);
+            if (s == GEIST_E_UNSUPPORTED) {
+                break;
+            }
+            if (s != GEIST_OK) {
+                return s;
+            }
+        }
+    }
+    if (s == GEIST_E_UNSUPPORTED) {
+        if (no_host_fallback) {
+            return GEIST_E_UNSUPPORTED;
+        }
+        float *dst = (float *) v->buffer_map(st->sess->scratch_ple_lookup);
+        if (dst == nullptr) {
+            return GEIST_E_BACKEND;
+        }
+        for (size_t t = 0; t < n; t++) {
+            s = dequant_one_row(be, &st->ple_table, (size_t) ple_ids[t],
+                                dst + t * PLE_OUT);
             if (s != GEIST_OK) {
                 v->buffer_unmap(st->sess->scratch_ple_lookup);
                 return s;
@@ -448,14 +753,34 @@ transformer_compute_per_layer_input(struct transformer_arch_state *st,
      * P1.1.e: model_proj F32 dense → cblas trampoline. */
     struct geist_tensor t_h_2d   = view_2d(h_buf,   (int64_t) n, st->d_model);
     struct geist_tensor t_out_2d = view_2d(out_buf, (int64_t) n, (int64_t) PLE_OUT);
-    enum geist_status s = linear_w_or_legacy(be, v, h_buf, out_buf,
-                                              &st->model_proj_w, n,
-                                              &t_h_2d, &st->model_proj, &t_out_2d);
+    if (no_host_fallback) {
+        s = linear_w_no_host_fallback(be, v, n, &t_h_2d,
+                                      &st->model_proj, &t_out_2d);
+    } else {
+        s = linear_w_or_legacy(be, v, h_buf, out_buf,
+                               &st->model_proj_w, n,
+                               &t_h_2d, &st->model_proj, &t_out_2d);
+    }
     if (s != GEIST_OK) { return s; }
 
     /* 4. *= PLE_MODEL_PROJ_SCALE. */
-    {
+    if (v->scale_f32 != nullptr) {
+        s = v->scale_f32(be, &t_out_2d, st->config.ple_model_proj_scale,
+                         &t_out_2d);
+        if (s != GEIST_OK && s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    } else {
+        s = GEIST_E_UNSUPPORTED;
+    }
+    if (s == GEIST_E_UNSUPPORTED) {
+        if (no_host_fallback) {
+            return GEIST_E_UNSUPPORTED;
+        }
         float *p = (float *) v->buffer_map(out_buf);
+        if (p == nullptr) {
+            return GEIST_E_BACKEND;
+        }
         for (size_t i = 0; i < n * PLE_OUT; i++) {
             p[i] *= st->config.ple_model_proj_scale;
         }
@@ -472,11 +797,40 @@ transformer_compute_per_layer_input(struct transformer_arch_state *st,
     if (s != GEIST_OK) { return s; }
 
     /* 6. out_buf = (out_buf + ple_lookup) * PLE_INPUT_SCALE. */
-    {
+    struct geist_tensor t_out_1d =
+        view_1d(out_buf, (int64_t) (n * PLE_OUT));
+    struct geist_tensor t_ple_lookup_1d =
+        view_1d(st->sess->scratch_ple_lookup, (int64_t) (n * PLE_OUT));
+    s = v->add(be, &t_out_1d, &t_ple_lookup_1d, &t_out_1d);
+    const bool add_done = s == GEIST_OK;
+    if (s != GEIST_OK && s != GEIST_E_UNSUPPORTED) {
+        return s;
+    }
+    if (add_done && v->scale_f32 != nullptr) {
+        s = v->scale_f32(be, &t_out_1d, st->config.ple_input_scale,
+                         &t_out_1d);
+        if (s != GEIST_OK && s != GEIST_E_UNSUPPORTED) {
+            return s;
+        }
+    }
+    if (s == GEIST_E_UNSUPPORTED) {
+        if (no_host_fallback) {
+            return GEIST_E_UNSUPPORTED;
+        }
         float *p   = (float *) v->buffer_map(out_buf);
         float *plu = (float *) v->buffer_map(st->sess->scratch_ple_lookup);
+        if (p == nullptr || plu == nullptr) {
+            if (plu != nullptr) {
+                v->buffer_unmap(st->sess->scratch_ple_lookup);
+            }
+            if (p != nullptr) {
+                v->buffer_unmap(out_buf);
+            }
+            return GEIST_E_BACKEND;
+        }
         for (size_t i = 0; i < n * PLE_OUT; i++) {
-            p[i] = (p[i] + plu[i]) * st->config.ple_input_scale;
+            p[i] = add_done ? p[i] * st->config.ple_input_scale
+                            : (p[i] + plu[i]) * st->config.ple_input_scale;
         }
         v->buffer_unmap(st->sess->scratch_ple_lookup);
         v->buffer_unmap(out_buf);

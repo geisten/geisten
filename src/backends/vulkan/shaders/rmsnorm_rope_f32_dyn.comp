@@ -1,0 +1,70 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer X { float x[]; };
+layout(set = 0, binding = 1) readonly buffer W { float w[]; };
+layout(set = 0, binding = 2) readonly buffer Cos { float cos_v[]; };
+layout(set = 0, binding = 3) readonly buffer Sin { float sin_v[]; };
+layout(set = 0, binding = 4) readonly buffer DecodeParams {
+    uint decode_params[];
+};
+
+layout(push_constant) uniform Push {
+    uint rows;
+    uint heads;
+    uint head_dim;
+    uint x_offset;
+    uint w_offset;
+    uint cos_offset;
+    uint sin_offset;
+    uint use_decode_position;
+    float eps;
+} pc;
+
+shared float partial[256];
+
+void main() {
+    uint row_head = gl_WorkGroupID.x;
+    uint lid = gl_LocalInvocationID.x;
+    uint half_dim = pc.head_dim >> 1;
+    uint head = row_head % pc.heads;
+    uint seq = row_head / pc.heads;
+    uint x_base = pc.x_offset + (seq * pc.heads + head) * pc.head_dim;
+
+    float sum = 0.0;
+    for (uint j = lid; j < pc.head_dim; j += 256u) {
+        float v = x[x_base + j];
+        sum += v * v;
+    }
+    partial[lid] = sum;
+    barrier();
+
+    for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+        if (lid < stride) {
+            partial[lid] += partial[lid + stride];
+        }
+        barrier();
+    }
+
+    float inv = inversesqrt(partial[0] / float(pc.head_dim) + pc.eps);
+    uint table_seq = seq;
+    if (pc.use_decode_position != 0u) {
+        table_seq += decode_params[1];
+    }
+    uint rope_base = table_seq * pc.head_dim;
+    uint cos_base = pc.cos_offset + rope_base;
+    uint sin_base = pc.sin_offset + rope_base;
+
+    for (uint pair = lid; pair < half_dim; pair += 256u) {
+        float a = x[x_base + pair] * inv * w[pc.w_offset + pair];
+        float b = x[x_base + half_dim + pair] *
+                  inv *
+                  w[pc.w_offset + half_dim + pair];
+        x[x_base + pair] = a * cos_v[cos_base + pair] -
+                           b * sin_v[sin_base + pair];
+        x[x_base + half_dim + pair] =
+            b * cos_v[cos_base + half_dim + pair] +
+            a * sin_v[sin_base + half_dim + pair];
+    }
+}

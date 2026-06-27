@@ -347,6 +347,17 @@ geist_session_prefill_tokens(struct geist_session *s, size_t n,
     const uint64_t t0 = monotonic_ns();
     ops->prefill(sf->model->text_decoder.arch_meta, n, ids);
     sf->total_prefill_ns += monotonic_ns() - t0;
+    if (ops->peek_next_token != nullptr &&
+        ops->peek_next_token(sf->model->text_decoder.arch_meta) < 0) {
+        const char *backend_msg = geist_backend_errmsg(sf->backend);
+        snprintf(sf->err_msg, sizeof(sf->err_msg),
+                 "prefill_tokens: architecture produced no pending token"
+                 "%s%s",
+                 backend_msg != nullptr ? ": " : "",
+                 backend_msg != nullptr ? backend_msg : "");
+        sf->err_code = GEIST_E_BACKEND;
+        return GEIST_E_BACKEND;
+    }
     return GEIST_OK;
 }
 
@@ -362,8 +373,20 @@ geist_session_prefill_tokens(struct geist_session *s, size_t n,
     }
     session_attach(sf);
     const uint64_t t0 = monotonic_ns();
-    *out_token = ops->decode_step(sf->model->text_decoder.arch_meta);
+    const geist_token_t token =
+        ops->decode_step(sf->model->text_decoder.arch_meta);
     sf->total_decode_ns += monotonic_ns() - t0;
+    if (token < 0) {
+        const char *backend_msg = geist_backend_errmsg(sf->backend);
+        snprintf(sf->err_msg, sizeof(sf->err_msg),
+                 "decode_step: architecture returned invalid token"
+                 "%s%s",
+                 backend_msg != nullptr ? ": " : "",
+                 backend_msg != nullptr ? backend_msg : "");
+        sf->err_code = GEIST_E_BACKEND;
+        return GEIST_E_BACKEND;
+    }
+    *out_token = token;
     sf->n_tokens_decoded++;
     return GEIST_OK;
 }
