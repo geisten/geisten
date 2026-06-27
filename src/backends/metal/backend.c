@@ -8460,6 +8460,17 @@ static bool metal_tensor_is_dense_3d_dtype(const struct geist_tensor *t,
     return GEIST_OK;
 }
 
+/* Multi-row (prefill) FFN: route gate/up through the tiled mm_sg GEMM
+ * (matmul_q4k) + a gelu_mul, instead of the reduction-style fused gate_up
+ * kernel. The fused kernel is bandwidth-fine for single-row decode but
+ * compute-bound for batched prefill. Default ON; GEIST_METAL_FFN_GEMM=0
+ * restores the fused path. gate/up are matmul_q4k (parity-gated by
+ * tests/test_backend_metal_q4k_matmul_parity.c); gelu_mul_rows is unchanged. */
+static bool metal_ffn_gemm_enabled(void) {
+    const char *env = getenv("GEIST_METAL_FFN_GEMM");
+    return env == nullptr || strcmp(env, "0") != 0;
+}
+
 [[nodiscard]] static enum geist_status metal_ffn_geglu_block(
     struct geist_backend *be,
     const struct geist_backend_ffn_geglu_block *block) {
@@ -8730,15 +8741,38 @@ static bool metal_tensor_is_dense_3d_dtype(const struct geist_tensor *t,
                                        &down_params, &post_params);
     }
 
-    (void) gate_params;
-    (void) up_params;
     metal_encode_rmsnorm_rows(st, enc, block->residual,
                               block->ffn_norm_weight,
                               block->pre_ff_scratch, &pre_norm_params);
-    metal_encode_q4k_gate_up(st, enc, block->pre_ff_scratch,
-                             block->gate_weight, block->up_weight,
-                             block->gate_scratch, block->up_scratch,
-                             &gate_up_params);
+    if (rows > 1u && !down_w_q6 && metal_ffn_gemm_enabled()) {
+        /* Prefill: gate/up as two tiled mm_sg GEMMs, then gelu(gate)*up. */
+        metal_encode_q4k_linear(st, enc, block->pre_ff_scratch,
+                                block->gate_weight, block->gate_scratch,
+                                &gate_params, true);
+        metal_encode_q4k_linear(st, enc, block->pre_ff_scratch,
+                                block->up_weight, block->up_scratch,
+                                &up_params, true);
+        const struct metal_binary_rows_params gmul = {
+            .rows = (uint32_t) rows,
+            .cols = (uint32_t) inter,
+            .a_offset = (uint32_t) gate_offset,
+            .b_offset = (uint32_t) up_offset,
+            .y_offset = (uint32_t) gate_offset,
+            .a_row_stride = (uint32_t) gate_stride,
+            .b_row_stride = (uint32_t) up_stride,
+            .y_row_stride = (uint32_t) gate_stride,
+        };
+        metal_encode_gelu_mul_rows(st, enc, block->gate_scratch,
+                                   block->up_scratch, block->gate_scratch,
+                                   &gmul);
+    } else {
+        (void) gate_params;
+        (void) up_params;
+        metal_encode_q4k_gate_up(st, enc, block->pre_ff_scratch,
+                                 block->gate_weight, block->up_weight,
+                                 block->gate_scratch, block->up_scratch,
+                                 &gate_up_params);
+    }
     if (down_w_q6) {
         metal_encode_q6k_linear(st, enc, block->gate_scratch,
                                 block->down_weight, block->ffn_out_scratch,
