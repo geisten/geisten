@@ -8744,8 +8744,10 @@ static bool metal_ffn_gemm_enabled(void) {
     metal_encode_rmsnorm_rows(st, enc, block->residual,
                               block->ffn_norm_weight,
                               block->pre_ff_scratch, &pre_norm_params);
-    if (rows > 1u && !down_w_q6 && metal_ffn_gemm_enabled()) {
-        /* Prefill: gate/up as two tiled mm_sg GEMMs, then gelu(gate)*up. */
+    if (rows > 1u && metal_ffn_gemm_enabled()) {
+        /* Prefill: gate/up as two tiled mm_sg GEMMs, then gelu(gate)*up.
+         * Independent of the down-proj dtype (down is encoded separately
+         * below, q4k or q6k); gate/up are q4k here. */
         metal_encode_q4k_linear(st, enc, block->pre_ff_scratch,
                                 block->gate_weight, block->gate_scratch,
                                 &gate_params, true);
