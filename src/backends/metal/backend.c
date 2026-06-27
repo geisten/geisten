@@ -10742,9 +10742,13 @@ metal_command_sequence_replay_decode_greedy_step(
         getenv("GEIST_METAL_ATTENTION_FUSED_KV_NORM");
     st->use_fused_kv_norm_append =
         fused_kv_norm != nullptr && strcmp(fused_kv_norm, "1") == 0;
+    /* Prefill q/k projections default to the tiled mm_sg GEMM (the separate
+     * q/k matmul_q4k path, parity-gated). The fused reduction QK kernel is
+     * compute-bound for batched prefill; set GEIST_METAL_ATTENTION_FUSED_QK=1
+     * to restore it. (This flag only affects rows>1; decode is unaffected.) */
     const char *fused_qk = getenv("GEIST_METAL_ATTENTION_FUSED_QK");
     st->use_fused_attention_qk =
-        fused_qk == nullptr || strcmp(fused_qk, "0") != 0;
+        fused_qk != nullptr && strcmp(fused_qk, "1") == 0;
     const char *fused_qk_nt4 =
         getenv("GEIST_METAL_ATTENTION_FUSED_QK_NT4");
     st->use_fused_attention_qk_nt4 =
