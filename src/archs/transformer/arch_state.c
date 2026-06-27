@@ -473,10 +473,11 @@ transformer_state_create_from_gguf(struct geist_backend            *be,
                            * m=64 29.3 (+5.4%); m=128 regresses to 27.0 (working
                            * set too large). GEIST_M_MAX overrides. */
 #else
-    st->m_max       = 64; /* Mac/Accelerate prefers larger batches: the
-                           * predecoded SGEMM path scales up to m=128 (m=32
-                           * regresses Accelerate). 64 keeps scratch under ~30 MB
-                           * while feeding Accelerate a decent batch. */
+    st->m_max       = 128; /* Mac prefers larger prefill batches. Metal mm_sg
+                            * GEMM measured 2026-06-27 (gemma-E2B pp512): m=64
+                            * 50.4 → m=128 55.4 tok/s (+10%), m=256 regresses
+                            * (52.9). 128 is the sweet spot; GEIST_M_MAX
+                            * overrides (=64 for the prior default). */
 #endif
     {   /* GEIST_M_MAX override — for tuning the prefill activation tile vs L1
          * fit (m×n_in int8 should fit the 64 KB L1: m=32→48 KB, m=64→96 KB). */
