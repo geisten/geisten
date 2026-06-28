@@ -344,8 +344,31 @@ backend, gemma4 arch supported). After the decode kernels:
 Progression of the Gemma 4 numbers across the session: prefill 29 → 452
 (decode 23.6 → 48.6). Gemma 4 prefill climbed 78 → 85 % (OpenBLAS 1-thread)
 → 91 % (F32 PLE projections quantized to W8A8); decode went from behind to
-**+10 % ahead** of llama.cpp. The last prefill slack is the BF16 `model_proj`
-(still cblas) and the body Q4_K/Q6_K matmuls (already at/above parity).
+**+10 % ahead** of llama.cpp. `model_proj` (BF16 on disk) is dequantized to
+F32 at load and is also covered by f32q; the remaining slack is the body
+Q4_K/Q6_K matmuls (already at/above parity).
+
+### cblas validation — Gemma 4 text (2026-06-28)
+
+ARM/Pi5 must not depend on cblas. After f32q quantizes every F32 PLE
+projection (inp_gate, proj, model_proj), what still calls `geist_sgemm`/
+`geist_sgemv` (= cblas on openblas builds) in Gemma 4 text inference?
+
+- **cpu_x86: zero.** Verified with `GEIST_PROFILE_GEMM=1` — its atexit report
+  registers only on the first `geist_sgemm` call and prints nothing for a
+  Gemma 4 (or Llama) run → `geist_sgemm` is never reached. Every dense matmul
+  goes through geist's own int8 kernels (q4kx8 / w8x8 / q6k / f32q-W8A8). The
+  only `geist_sgemm` call sites left (`linear_fp32`) are vision/audio-encoder,
+  not the text path. **A `GEMM_PROVIDER=native` (BLAS-free) build runs Gemma 4
+  correctly.**
+- **cpu_neon (ARM): not yet cblas-free.** `cpu_neon_w_f32_mN` still routes the
+  PLE projections through `geist_sgemm` (cblas on the Pi5 openblas build). Two
+  fixes: (1) build Pi5 `GEMM_PROVIDER=native` (native NEON `geist_sgemm`,
+  cblas-free but unquantized), or (2) port f32q to cpu_neon — quantize the F32
+  PLE to Q8_0 and reuse the existing NEON int8 kernels
+  (`linear_q8_0_w8a8_prefill`/`_decode`), cblas-free *and* fast. (2) needs Pi5
+  hardware to validate and is the recommended ARM follow-up; it was not done
+  here (x86 host — shipping untested NEON into the hot path would be reckless).
 
 **Decode: at parity (Llama) / ahead (Gemma 4).** The remaining gap is
 **Gemma 4 prefill (78 %)** — gemma4-specific; Llama prefill is already 98 %.
