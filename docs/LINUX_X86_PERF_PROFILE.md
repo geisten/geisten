@@ -383,17 +383,23 @@ decode is M=1, so it needs a single-token int8 activation broadcast variant
 (a dedicated M=1 kernel over the 8-row-interleaved weights).
 
 Prioritized:
-1. **Lane-parallel M=1 decode GEMV over q4kx8** (Q4_K: gate_up/qkv/o_proj =
-   628 ms of decode). Removes hsum + reads compact. Est. the bulk of the gap.
-2. **Same for Q6_K** (a lane-parallel M=1 over a compact 6-bit layout; down +
-   lm_head = 477 ms). Also kills the 8-bit W8A8 expansion.
-3. **Drop W4A8/W8A8 row-major blobs** once decode reads the compact layouts →
-   ~half RSS.
+1. **Lane-parallel M=1 decode GEMV over q4kx8 — DONE.** `q4kx8_gemv_m1`
+   (kernel_q4kx8_gemm_avx512.c) reuses `quantize_q8k_row` +
+   `q4kx8_gemv_one_row_tile`: 8 output cells in the 8 fp32 lanes, reduced
+   once per tile, reading the resident q4kx8 (0.56 B/wt). **Decode 23.6 →
+   27.5 t/s** (geist 68% → 80% of llama). Q4_K stages: gate_up 405→276 ms,
+   qkv 144→107, o_proj 79→54. Confirms Q4_K decode was hsum/compute-bound.
+2. **Native 6-bit Q6_K decode** (down 247 ms + lm_head 195 ms, now the
+   largest decode cost — **bandwidth-bound**: W8A8 reads 1.5 B/wt vs native
+   Q6_K 0.65). Routing Q6_K decode through the lane-parallel W8x8 was
+   measured **neutral** (23.6→23.56) — confirming it's BW, not hsum. The fix
+   is a GEMV that decodes directly from the original Q6_K (`w->raw`, already
+   mmap'd) — unpack 6-bit, VPDPBUSD vs int8 acts, int8 sub-scales folded via
+   `madd_epi16`, one fp32 `d` per super-block (llama's vec_dot_q6_K_q8_K
+   structure). Est. down+lm_head ~halve → decode → ~32–33 t/s.
+3. **Drop the W4A8 blob** — now unused for Q4_K body matrices (both m1 and mN
+   read q4kx8). Allocate only q4kx8 when n_out%8==0 → large RSS cut.
 4. **Kernel BW/prefetch tuning** for the last 59→64 GB/s.
-
-This is a substantial new-kernel effort (M=1 lane-parallel + single-token
-activation packing), not a tweak — but it is the measured lever, and it
-targets both the compute and bandwidth limits simultaneously.
 
 ## Session summary
 
