@@ -336,10 +336,16 @@ backend, gemma4 arch supported). After the decode kernels:
 
 | model              | metric  | geist | llama.cpp | result |
 | ------------------ | ------- | ----: | --------: | ------ |
-| Llama 3.2 3B Q4_K_M | prefill | 339   | 346       | 98 %   |
-| Llama 3.2 3B Q4_K_M | decode  | 34.4  | 34.5      | parity |
-| **Gemma 4 E2B Q4_K_M** | prefill | 388 | 495       | 78 %   |
-| **Gemma 4 E2B Q4_K_M** | decode  | **44.3** | 44.1   | **geist ahead** |
+| Llama 3.2 3B Q4_K_M | prefill | 338   | 346       | 98 %   |
+| Llama 3.2 3B Q4_K_M | decode  | 34.2  | 34.5      | parity |
+| **Gemma 4 E2B Q4_K_M** | prefill | **452** | 495     | 91 %   |
+| **Gemma 4 E2B Q4_K_M** | decode  | **48.6** | 44.1   | **geist +10 %** |
+
+Progression of the Gemma 4 numbers across the session: prefill 29 → 452
+(decode 23.6 → 48.6). Gemma 4 prefill climbed 78 → 85 % (OpenBLAS 1-thread)
+→ 91 % (F32 PLE projections quantized to W8A8); decode went from behind to
+**+10 % ahead** of llama.cpp. The last prefill slack is the BF16 `model_proj`
+(still cblas) and the body Q4_K/Q6_K matmuls (already at/above parity).
 
 **Decode: at parity (Llama) / ahead (Gemma 4).** The remaining gap is
 **Gemma 4 prefill (78 %)** — gemma4-specific; Llama prefill is already 98 %.
