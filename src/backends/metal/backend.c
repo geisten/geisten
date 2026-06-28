@@ -592,6 +592,8 @@ struct metal_state {
     void *q6k_nt8_pipeline;
     void *q6k_matmul_m8_function;
     void *q6k_matmul_m8_pipeline;
+    void *q6k_matmul_sg_function;
+    void *q6k_matmul_sg_pipeline;
     void *q6k_m16_library;
     void *q6k_matmul_m16_function;
     void *q6k_matmul_m16_pipeline;
@@ -1140,7 +1142,8 @@ static const char metal_q6k_source[] =
     "static inline int load_i8(device const uchar*w,uint o){uint u=uint(w[o]);return u<128u?int(u):int(u)-256;}\n"
     "static inline float deq6(device const uchar*w,constant Params&p,uint row,uint k){uint br=k/256u,ib=k-br*256u,hi=ib/128u,ih=ib-hi*128u,stream=ih/32u,l=ih-stream*32u,is=l/16u;uint bo=p.w_byte_offset+(row*p.blocks_per_row+br)*210u;uint qlb=bo+hi*64u,qhb=bo+128u+hi*32u,scb=bo+192u+hi*8u;uint ql0=uint(w[qlb+l]),ql1=uint(w[qlb+l+32u]),qh=uint(w[qhb+l]);uint qu,si;if(stream==0u){qu=(ql0&15u)|(((qh>>0u)&3u)<<4u);si=is+0u;}else if(stream==1u){qu=(ql1&15u)|(((qh>>2u)&3u)<<4u);si=is+2u;}else if(stream==2u){qu=(ql0>>4u)|(((qh>>4u)&3u)<<4u);si=is+4u;}else{qu=(ql1>>4u)|(((qh>>6u)&3u)<<4u);si=is+6u;}float d=load_f16(w,bo+208u);return d*float(load_i8(w,scb+si))*float(int(qu)-32);}\n"
     "kernel void matvec_q6k(device const float*x[[buffer(0)]],device const uchar*w[[buffer(1)]],device float*y[[buffer(2)]],constant Params&p[[buffer(3)]],uint3 tg[[threadgroup_position_in_grid]],uint lid[[thread_index_in_threadgroup]]){threadgroup float partial[256];uint row=tg.x,batch=tg.y;if(row>=p.n_out||batch>=p.rows){return;}float sum=0.0f;for(uint k=lid;k<p.n_in;k+=256u){sum+=x[p.x_offset+batch*p.x_row_stride+k]*deq6(w,p,row,k);}partial[lid]=sum;threadgroup_barrier(mem_flags::mem_threadgroup);for(uint stride=128u;stride>0u;stride>>=1u){if(lid<stride){partial[lid]+=partial[lid+stride];}threadgroup_barrier(mem_flags::mem_threadgroup);}if(lid==0u){y[p.y_offset+batch*p.y_row_stride+row]=partial[0];}}\n"
-    "kernel void matmul_q6k_m8(device const float*x[[buffer(0)]],device const uchar*w[[buffer(1)]],device float*y[[buffer(2)]],constant Params&p[[buffer(3)]],uint3 tg[[threadgroup_position_in_grid]],uint lid[[thread_index_in_threadgroup]]){threadgroup float partial[8][256];uint row=tg.x,batch_base=tg.y*8u;if(row>=p.n_out||batch_base>=p.rows){return;}float sum[8];for(uint m=0u;m<8u;m++){sum[m]=0.0f;}for(uint k=lid;k<p.n_in;k+=256u){float wv=deq6(w,p,row,k);for(uint m=0u;m<8u;m++){uint batch=batch_base+m;if(batch<p.rows){sum[m]+=x[p.x_offset+batch*p.x_row_stride+k]*wv;}}}for(uint m=0u;m<8u;m++){partial[m][lid]=sum[m];}threadgroup_barrier(mem_flags::mem_threadgroup);for(uint stride=128u;stride>0u;stride>>=1u){if(lid<stride){for(uint m=0u;m<8u;m++){partial[m][lid]+=partial[m][lid+stride];}}threadgroup_barrier(mem_flags::mem_threadgroup);}if(lid==0u){for(uint m=0u;m<8u;m++){uint batch=batch_base+m;if(batch<p.rows){y[p.y_offset+batch*p.y_row_stride+row]=partial[m][0];}}}}\n";
+    "kernel void matmul_q6k_m8(device const float*x[[buffer(0)]],device const uchar*w[[buffer(1)]],device float*y[[buffer(2)]],constant Params&p[[buffer(3)]],uint3 tg[[threadgroup_position_in_grid]],uint lid[[thread_index_in_threadgroup]]){threadgroup float partial[8][256];uint row=tg.x,batch_base=tg.y*8u;if(row>=p.n_out||batch_base>=p.rows){return;}float sum[8];for(uint m=0u;m<8u;m++){sum[m]=0.0f;}for(uint k=lid;k<p.n_in;k+=256u){float wv=deq6(w,p,row,k);for(uint m=0u;m<8u;m++){uint batch=batch_base+m;if(batch<p.rows){sum[m]+=x[p.x_offset+batch*p.x_row_stride+k]*wv;}}}for(uint m=0u;m<8u;m++){partial[m][lid]=sum[m];}threadgroup_barrier(mem_flags::mem_threadgroup);for(uint stride=128u;stride>0u;stride>>=1u){if(lid<stride){for(uint m=0u;m<8u;m++){partial[m][lid]+=partial[m][lid+stride];}}threadgroup_barrier(mem_flags::mem_threadgroup);}if(lid==0u){for(uint m=0u;m<8u;m++){uint batch=batch_base+m;if(batch<p.rows){y[p.y_offset+batch*p.y_row_stride+row]=partial[m][0];}}}}\n"
+    "kernel void matmul_q6k_sg(device const float*x[[buffer(0)]],device const uchar*w[[buffer(1)]],device float*y[[buffer(2)]],constant Params&p[[buffer(3)]],uint3 tg[[threadgroup_position_in_grid]],uint lid[[thread_index_in_threadgroup]]){threadgroup float as[64];threadgroup float bs[64];threadgroup float cs[64];uint b0=tg.y*8u,o0=tg.x*8u;simdgroup_float8x8 acc=make_filled_simdgroup_matrix<float,8>(0.0f);for(uint k0=0u;k0<p.n_in;k0+=8u){for(uint i=lid;i<64u;i+=32u){uint r=i/8u,c=i%8u;as[i]=(b0+r<p.rows&&k0+c<p.n_in)?x[p.x_offset+(b0+r)*p.x_row_stride+k0+c]:0.0f;}for(uint i=lid;i<64u;i+=32u){uint kk=i/8u,c=i%8u;bs[i]=(o0+c<p.n_out&&k0+kk<p.n_in)?deq6(w,p,o0+c,k0+kk):0.0f;}threadgroup_barrier(mem_flags::mem_threadgroup);simdgroup_float8x8 ma,mb;simdgroup_load(ma,as,8);simdgroup_load(mb,bs,8);simdgroup_multiply_accumulate(acc,ma,mb,acc);threadgroup_barrier(mem_flags::mem_threadgroup);}simdgroup_store(acc,cs,8);threadgroup_barrier(mem_flags::mem_threadgroup);for(uint i=lid;i<64u;i+=32u){uint r=i/8u,c=i%8u;if(b0+r<p.rows&&o0+c<p.n_out)y[p.y_offset+(b0+r)*p.y_row_stride+o0+c]=cs[i];}}\n";
 
 static const char metal_q6k_n4_source[] =
     "#include <metal_stdlib>\n"
@@ -2468,6 +2471,8 @@ static void metal_destroy_state(struct geist_backend *be,
         metal_msg_send_void0(st, st->rmsnorm_rows_pipeline, "release");
         metal_msg_send_void0(st, st->rmsnorm_rows_function, "release");
         metal_msg_send_void0(st, st->q6k_matmul_m8_pipeline, "release");
+        metal_msg_send_void0(st, st->q6k_matmul_sg_pipeline, "release");
+        metal_msg_send_void0(st, st->q6k_matmul_sg_function, "release");
         metal_msg_send_void0(st, st->q6k_matmul_m8_function, "release");
         metal_msg_send_void0(st, st->q6k_matmul_m16_pipeline, "release");
         metal_msg_send_void0(st, st->q6k_matmul_m16_function, "release");
@@ -2584,6 +2589,8 @@ static void metal_destroy_state(struct geist_backend *be,
     st->q6k_nt8_pipeline = nullptr;
     st->q6k_nt8_function = nullptr;
     st->q6k_matmul_m8_pipeline = nullptr;
+    st->q6k_matmul_sg_function = nullptr;
+    st->q6k_matmul_sg_pipeline = nullptr;
     st->q6k_matmul_m8_function = nullptr;
     st->q6k_matmul_m16_pipeline = nullptr;
     st->q6k_matmul_m16_function = nullptr;
@@ -4212,6 +4219,11 @@ static bool metal_tensor_is_q6k_matrix(const struct geist_tensor *t,
     }
     if (s == GEIST_OK) {
         s = metal_create_named_pipeline(
+            be, st->q6k_library, ns_string, "matmul_q6k_sg",
+            &st->q6k_matmul_sg_function, &st->q6k_matmul_sg_pipeline);
+    }
+    if (s == GEIST_OK) {
+        s = metal_create_named_pipeline(
             be, st->q6k_n4_library, ns_string, "matvec_q6k_n4",
             &st->q6k_n4_function, &st->q6k_n4_pipeline);
     }
@@ -5271,8 +5283,10 @@ static void metal_encode_q6k_linear(struct metal_state *st,
                                     const struct geist_tensor *y,
                                     const struct metal_q4k_params *params,
                                     bool m_tile8) {
-    const bool m_tile16 = m_tile8 && params->rows >= METAL_Q4K_M16_TILE;
-    const bool m_tile8_active = m_tile8 && !m_tile16;
+    const bool m_tile_sg = m_tile8 && st->q6k_matmul_sg_pipeline != nullptr;
+    const bool m_tile16 =
+        m_tile8 && !m_tile_sg && params->rows >= METAL_Q4K_M16_TILE;
+    const bool m_tile8_active = m_tile8 && !m_tile_sg && !m_tile16;
     const bool n_tile4 = st->use_q6k_n4 && !m_tile8 &&
                          params->rows == 1u &&
                          params->n_out >= METAL_Q6K_NT4_MIN_N_OUT;
@@ -5289,6 +5303,7 @@ static void metal_encode_q6k_linear(struct metal_state *st,
     (void) metal_msg_send_id_id(st, enc, "setComputePipelineState:",
                                 n_tile8 ? st->q6k_nt8_pipeline
                                 : packed != nullptr ? st->q6k_nt4_pipeline
+                                : m_tile_sg ? st->q6k_matmul_sg_pipeline
                                 : m_tile16 ? st->q6k_matmul_m16_pipeline
                                 : m_tile8_active ? st->q6k_matmul_m8_pipeline
                                 : n_tile4 ? st->q6k_n4_pipeline
@@ -5304,10 +5319,13 @@ static void metal_encode_q6k_linear(struct metal_state *st,
                              sizeof(*params), 3);
 
     const struct metal_size groups = {
-        .width = n_tile8 ? (params->n_out + 7u) / 8u
+        .width = m_tile_sg ? (params->n_out + 7u) / 8u
+                 : n_tile8 ? (params->n_out + 7u) / 8u
                  : n_tile4 ? (params->n_out + 3u) / 4u
                          : params->n_out,
-        .height = m_tile16
+        .height = m_tile_sg
+                      ? (params->rows + 7u) / 8u
+                  : m_tile16
                       ? (params->rows + METAL_Q4K_M16_TILE - 1u) /
                             METAL_Q4K_M16_TILE
                   : m_tile8_active
@@ -5317,7 +5335,8 @@ static void metal_encode_q6k_linear(struct metal_state *st,
         .depth = 1,
     };
     const struct metal_size threads = {
-        .width = (n_tile8 || n_tile4) ? METAL_Q4K_N4_THREADS
+        .width = m_tile_sg ? 32u
+                 : (n_tile8 || n_tile4) ? METAL_Q4K_N4_THREADS
                          : METAL_Q4K_THREADS_PER_ROW,
         .height = 1,
         .depth = 1,
