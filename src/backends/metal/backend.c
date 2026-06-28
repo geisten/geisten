@@ -618,6 +618,8 @@ struct metal_state {
     void *f32_library;
     void *f32_matmul_function;
     void *f32_matmul_pipeline;
+    void *f32_matmul_sg_function;
+    void *f32_matmul_sg_pipeline;
     void *f32_ple_gate_function;
     void *f32_ple_gate_pipeline;
     void *f32_ple_proj_norm_function;
@@ -1315,6 +1317,7 @@ static const char metal_f32_source[] =
     "struct PN{uint ni,no,rows,xo,wo,ro,nwo,yo,xs,rs,ys;float eps;};\n"
     "static inline float gelu(float x){return 0.5f*x*(1.0f+tanh(0.7978845608028654f*(x+0.044715f*x*x*x)));}\n"
     "kernel void matmul_f32(device const float*x[[buffer(0)]],device const float*w[[buffer(1)]],device float*y[[buffer(2)]],constant P&p[[buffer(3)]],uint3 tg[[threadgroup_position_in_grid]],uint lid[[thread_index_in_threadgroup]]){threadgroup float part[256];uint row=tg.x,b=tg.y;if(row>=p.no||b>=p.rows)return;float s=0.0f;for(uint k=lid;k<p.ni;k+=256u){s+=x[p.xo+b*p.xs+k]*w[p.wo+row*p.ni+k];}part[lid]=s;threadgroup_barrier(mem_flags::mem_threadgroup);for(uint st=128u;st>0u;st>>=1u){if(lid<st){part[lid]+=part[lid+st];}threadgroup_barrier(mem_flags::mem_threadgroup);}if(lid==0u){y[p.yo+b*p.ys+row]=part[0];}}\n"
+    "kernel void matmul_f32_sg(device const float*x[[buffer(0)]],device const float*w[[buffer(1)]],device float*y[[buffer(2)]],constant P&p[[buffer(3)]],uint3 tg[[threadgroup_position_in_grid]],uint lid[[thread_index_in_threadgroup]]){threadgroup float as[64];threadgroup float bs[64];threadgroup float cs[64];uint b0=tg.y*8u,o0=tg.x*8u;simdgroup_float8x8 acc=make_filled_simdgroup_matrix<float,8>(0.0f);for(uint k0=0u;k0<p.ni;k0+=8u){for(uint i=lid;i<64u;i+=32u){uint r=i/8u,c=i%8u;as[i]=(b0+r<p.rows&&k0+c<p.ni)?x[p.xo+(b0+r)*p.xs+k0+c]:0.0f;}for(uint i=lid;i<64u;i+=32u){uint kk=i/8u,c=i%8u;bs[i]=(o0+c<p.no&&k0+kk<p.ni)?w[p.wo+(o0+c)*p.ni+k0+kk]:0.0f;}threadgroup_barrier(mem_flags::mem_threadgroup);simdgroup_float8x8 ma,mb;simdgroup_load(ma,as,8);simdgroup_load(mb,bs,8);simdgroup_multiply_accumulate(acc,ma,mb,acc);threadgroup_barrier(mem_flags::mem_threadgroup);}simdgroup_store(acc,cs,8);threadgroup_barrier(mem_flags::mem_threadgroup);for(uint i=lid;i<64u;i+=32u){uint r=i/8u,c=i%8u;if(b0+r<p.rows&&o0+c<p.no)y[p.yo+(b0+r)*p.ys+o0+c]=cs[i];}}\n"
     "kernel void ple_gate_f32(device const float*x[[buffer(0)]],device const float*w[[buffer(1)]],device const float*ple[[buffer(2)]],device float*y[[buffer(3)]],constant GP&p[[buffer(4)]],uint3 tg[[threadgroup_position_in_grid]],uint lid[[thread_index_in_threadgroup]]){threadgroup float part[256];uint row=tg.x,b=tg.y;if(row>=p.no||b>=p.rows)return;float s=0.0f;for(uint k=lid;k<p.ni;k+=256u){s+=x[p.xo+b*p.xs+k]*w[p.wo+row*p.ni+k];}part[lid]=s;threadgroup_barrier(mem_flags::mem_threadgroup);for(uint st=128u;st>0u;st>>=1u){if(lid<st){part[lid]+=part[lid+st];}threadgroup_barrier(mem_flags::mem_threadgroup);}if(lid==0u){uint po=p.po+b*p.ps+row;y[p.yo+b*p.ys+row]=gelu(part[0])*ple[po];}}\n"
     "kernel void ple_proj_norm_f32(device const float*x[[buffer(0)]],device const float*w[[buffer(1)]],device const float*res[[buffer(2)]],device const float*nw[[buffer(3)]],device float*y[[buffer(4)]],constant PN&p[[buffer(5)]],uint b[[threadgroup_position_in_grid]],uint lid[[thread_index_in_threadgroup]]){threadgroup float part[256];if(b>=p.rows)return;float ss=0.0f;for(uint c=lid;c<p.no;c+=256u){float s=0.0f;for(uint k=0u;k<p.ni;k++){s+=x[p.xo+b*p.xs+k]*w[p.wo+c*p.ni+k];}y[p.yo+b*p.ys+c]=s;ss+=s*s;}part[lid]=ss;threadgroup_barrier(mem_flags::mem_threadgroup);for(uint st=128u;st>0u;st>>=1u){if(lid<st){part[lid]+=part[lid+st];}threadgroup_barrier(mem_flags::mem_threadgroup);}float inv=rsqrt(part[0]/float(p.no)+p.eps);for(uint c=lid;c<p.no;c+=256u){float v=y[p.yo+b*p.ys+c]*inv*nw[p.nwo+c];y[p.yo+b*p.ys+c]=res[p.ro+b*p.rs+c]+v;}}\n";
 
@@ -2404,6 +2407,10 @@ static void metal_destroy_state(struct geist_backend *be,
         metal_msg_send_void0(st, st->embed_lookup_scaled_function, "release");
         metal_msg_send_void0(st, st->f32_matmul_pipeline, "release");
         metal_msg_send_void0(st, st->f32_matmul_function, "release");
+    }
+    if (st->f32_matmul_sg_pipeline != nullptr) {
+        metal_msg_send_void0(st, st->f32_matmul_sg_pipeline, "release");
+        metal_msg_send_void0(st, st->f32_matmul_sg_function, "release");
         metal_msg_send_void0(st, st->f32_ple_gate_pipeline, "release");
         metal_msg_send_void0(st, st->f32_ple_gate_function, "release");
         metal_msg_send_void0(st, st->f32_ple_proj_norm_pipeline, "release");
@@ -2615,6 +2622,8 @@ static void metal_destroy_state(struct geist_backend *be,
     st->embed_lookup_scaled_function = nullptr;
     st->f32_matmul_pipeline = nullptr;
     st->f32_matmul_function = nullptr;
+    st->f32_matmul_sg_pipeline = nullptr;
+    st->f32_matmul_sg_function = nullptr;
     st->f32_ple_gate_pipeline = nullptr;
     st->f32_ple_gate_function = nullptr;
     st->f32_ple_proj_norm_pipeline = nullptr;
@@ -4285,6 +4294,11 @@ static bool metal_tensor_is_q6k_matrix(const struct geist_tensor *t,
         s = metal_create_named_pipeline(
             be, st->f32_library, ns_string, "matmul_f32",
             &st->f32_matmul_function, &st->f32_matmul_pipeline);
+    }
+    if (s == GEIST_OK) {
+        s = metal_create_named_pipeline(
+            be, st->f32_library, ns_string, "matmul_f32_sg",
+            &st->f32_matmul_sg_function, &st->f32_matmul_sg_pipeline);
     }
     if (s == GEIST_OK) {
         s = metal_create_named_pipeline(
@@ -6031,19 +6045,23 @@ static void metal_encode_f32_matmul(struct metal_state *st,
                                     const struct geist_tensor *w,
                                     const struct geist_tensor *y,
                                     const struct metal_f32_params *params) {
+    /* Multi-row (prefill): 8x8 simdgroup GEMM (weight reused across rows).
+     * Single-row keeps the reduction kernel. */
+    const bool use_sg = params->rows > 1u && st->f32_matmul_sg_pipeline != nullptr;
     (void) metal_msg_send_id_id(st, enc, "setComputePipelineState:",
-                                st->f32_matmul_pipeline);
+                                use_sg ? st->f32_matmul_sg_pipeline
+                                       : st->f32_matmul_pipeline);
     metal_msg_send_set_buffer(st, enc, x->buffer->buffer, 0, 0);
     metal_msg_send_set_buffer(st, enc, w->buffer->buffer, 0, 1);
     metal_msg_send_set_buffer(st, enc, y->buffer->buffer, 0, 2);
     metal_msg_send_set_bytes(st, enc, params, sizeof(*params), 3);
     const struct metal_size groups = {
-        .width = params->n_out,
-        .height = params->rows,
+        .width = use_sg ? (params->n_out + 7u) / 8u : params->n_out,
+        .height = use_sg ? (params->rows + 7u) / 8u : params->rows,
         .depth = 1,
     };
     const struct metal_size threads = {
-        .width = METAL_ELEM_THREADS,
+        .width = use_sg ? 32u : METAL_ELEM_THREADS,
         .height = 1,
         .depth = 1,
     };
@@ -8396,7 +8414,9 @@ static bool metal_tensor_is_dense_3d_dtype(const struct geist_tensor *t,
                                 block->per_layer_gate_weight,
                                 block->gate_scratch, &gate_q4_params,
                                 rows > 1);
-    } else if (!fused_gate && st->f32_ple_gate_pipeline != nullptr) {
+    } else if (!fused_gate && rows == 1u && st->f32_ple_gate_pipeline != nullptr) {
+        /* decode: fused f32 reduction gate. Prefill (rows>1) falls through to
+         * the matmul_f32 simdgroup GEMM + gelu_mul below (much faster). */
         metal_encode_f32_ple_gate(st, enc, block->hidden,
                                   block->per_layer_gate_weight,
                                   block->per_layer_input,
