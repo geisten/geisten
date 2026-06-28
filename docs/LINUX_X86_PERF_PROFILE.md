@@ -358,12 +358,41 @@ matmuls are not the gap. Ruled out:
 - **Prefill chunk size m_max 64→128:** +2.3 % only (388→396). Available via
   `GEIST_M_MAX`; not made default (scratch growth, Pi5 regressed at 128).
 
-The gap is diffuse across PLE + the gemma4 forward structure (altup/laurel,
-per-layer-embedding gather + BF16 model_proj, per-head qk-norms), no single
-dominant stage. Closing it needs finer sub-stage profiling of
-`compute_per_layer_inputs_batch` / `run_ple_or_copy` (currently one "ple"
-bucket) — a fresh investigation. For decode-dominated generation, geist is
-already at/above llama.cpp on both models.
+### PLE sub-stage profiling result (2026-06-28)
+
+Added two gated sub-profilers (`transformer ple per-layer` in layer_ple.c;
+`ple precompute per-chunk` in layer.c). Gemma 4 prefill, per rep:
+
+| bucket | stage | ms/rep | share |
+| ------ | ----- | -----: | ----- |
+| per-layer `run_ple_or_copy` | **gate_lin** (F32 1536→256) | 24 | 47 % |
+| | **proj_lin** (F32 256→1536) | 24 | 47 % |
+| | gelu+mul+rmsnorm+add | ~3 | 6 % |
+| per-chunk precompute *(was hidden)* | **model_proj** (BF16 1536→8960) | 16 | 96 % |
+| | gather (Q5_K dequant) | <1 | — |
+
+So the gemma4 prefill gap is **~64 ms/rep of skinny F32/BF16 dense matmuls
+on cblas** (~73 GFLOP/s), *not* elementwise or the gather. Root cause:
+OpenBLAS spins its own thread pool per call, and geist issues ~70 tiny
+per-layer PLE sgemms per chunk — the per-call spawn/sync overhead dominates.
+
+**Fix shipped: pin OpenBLAS to 1 thread** (weak `openblas_set_num_threads`,
+geist parallelizes the heavy kernels itself). Gemma 4 prefill **388 → 422
+t/s (+9 %)**, Llama unaffected, decode unchanged.
+
+| model | metric | geist | llama.cpp | result |
+| ----- | ------ | ----: | --------: | ------ |
+| Gemma 4 E2B | prefill | **422** | 495 | 85 % |
+| Gemma 4 E2B | decode | **44.7** | 44.1 | ahead |
+| Llama 3.2 3B | prefill | 337 | 346 | 97 % |
+| Llama 3.2 3B | decode | 34.2 | 34.5 | parity |
+
+**Remaining gemma4 prefill lever:** the PLE projections are still ~40 ms/rep
+of single-threaded cblas. Quantizing inp_gate/proj/model_proj to int8 and
+running them on geist's VPDPBUSD GEMM (OMP-parallel, ~2600 GFLOP/s) would cut
+that several-fold — the path to beating llama.cpp on gemma4 prefill too. It
+is gemma4-specific and changes those weights' precision, so it needs accuracy
+validation (cosine vs the F32 reference) before shipping.
 
 ## Fair head-to-head: Llama 3.2 3B Q4_K_M (2026-06-28)
 
