@@ -329,6 +329,22 @@ completeness. If activation quant ever shows up larger in the profile, the
 higher-value move is to **thread `quantize_q8_Kx4`** (it is currently the
 single-threaded `for mt` loop in `linear_q4k_mN`) rather than to dedupe it.
 
+## Standing vs llama.cpp (CPU-only, 16T, 9950X) — current
+
+Both engines on the **same** GGUF, llama.cpp built from master (b9827, CPU
+backend, gemma4 arch supported). After the decode kernels:
+
+| model              | metric  | geist | llama.cpp | result |
+| ------------------ | ------- | ----: | --------: | ------ |
+| Llama 3.2 3B Q4_K_M | prefill | 339   | 346       | 98 %   |
+| Llama 3.2 3B Q4_K_M | decode  | 34.4  | 34.5      | parity |
+| **Gemma 4 E2B Q4_K_M** | prefill | 388 | 495       | 78 %   |
+| **Gemma 4 E2B Q4_K_M** | decode  | **44.3** | 44.1   | **geist ahead** |
+
+**Decode: at parity (Llama) / ahead (Gemma 4).** The remaining gap is
+**Gemma 4 prefill (78 %)** — gemma4-specific (PLE + Q6_K-heavy FFN + sliding
+-window attention); Llama prefill is already 98 %. That is the next target.
+
 ## Fair head-to-head: Llama 3.2 3B Q4_K_M (2026-06-28)
 
 The gemma4/PLE GGUF can't load in llama.cpp (arch name), so the "514 t/s"
