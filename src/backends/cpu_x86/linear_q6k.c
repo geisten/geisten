@@ -16,6 +16,7 @@
 #include "backend_state.h"
 #include "kernel_w4a8.h" /* w4a8_quantize_acts_row */
 #include "kernel_w8a8.h"
+#include "kernel_q6k_gemv.h"
 #include "q6k_to_w8a8.h"
 
 #include "heap.h"
@@ -183,6 +184,15 @@ void cpu_x86_linear_q6k_m1(const float               *x,
     const float   *w_offsets;
     blob_pointers((const uint8_t *) w->aux_fp32, n_in, n_out,
                   &weights, &w_scales, &w_offsets);
+
+    /* Decode straight from the native Q6_K weights (w->raw, ~0.82 B/wt) when
+     * available, instead of the W8A8 predecode (1.5 B/wt). Q6_K decode
+     * (ffn_down, lm_head) is bandwidth-bound, so halving the weight traffic
+     * is the win (docs/LINUX_X86_PERF_PROFILE.md). */
+    if (w->raw != nullptr && n_in % Q6_K_BLOCK_ELEMS == 0) {
+        q6k_gemv_m1(n_out, n_in, x, (const uint8_t *) w->raw, y);
+        return;
+    }
 
     float scale_x;
     quantize_acts_w8a8(n_in, st, x, &scale_x);

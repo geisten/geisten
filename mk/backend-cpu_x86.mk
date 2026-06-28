@@ -22,6 +22,7 @@ BACKEND_SOURCES += \
     src/backends/cpu_x86/kernel_w8a8.c \
     src/backends/cpu_x86/kernel_w8a8_scalar.c \
     src/backends/cpu_x86/kernel_w8a8_avx512_vnni.c \
+    src/backends/cpu_x86/kernel_q6k_gemv.c \
     src/backends/cpu_x86/q6k_to_w8a8.c \
     src/backends/cpu_x86/kernel_bf16_gemm_scalar.c \
     src/backends/cpu_x86/kernel_bf16_gemm_avx512_bf16.c \
