@@ -11,6 +11,7 @@
 
 BACKEND_SOURCES += \
     src/backends/cpu_x86/backend.c \
+    src/backends/cpu_x86/elementwise.c \
     src/backends/cpu_x86/kernel_catalog.c \
     src/backends/cpu_x86/kernel_w4a8.c \
     src/backends/cpu_x86/kernel_w4a8_scalar.c \

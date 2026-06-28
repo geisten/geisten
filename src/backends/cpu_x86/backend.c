@@ -24,9 +24,11 @@
 #include "backend.h"
 
 #include "backend_state.h"
+#include "elementwise.h"
 #include "linear_q4k.h"
 #include "linear_q6k.h"
 
+#include "geist_gemm.h"
 #include "heap.h"
 
 #include <geist_backend.h>
@@ -76,6 +78,31 @@ static void cpu_x86_destroy(struct geist_backend *be) {
 
 /* ---------- Resolver ---------- */
 
+/* F32 dense (PLE gate/proj, small dense heads): cblas via geist_gemm. The
+ * cpu_scalar fallback is a single-threaded naive triple loop (~10× slower);
+ * for Gemma 4 the per-layer PLE projections run F32, so this matters at
+ * prefill. Weight is row-major [n_out, n_in]; y = W @ x. */
+static void cpu_x86_linear_f32_m1(const float               *x,
+                                  const struct geist_weight *w,
+                                  struct geist_backend      *be,
+                                  float                     *y) {
+    (void) be;
+    geist_sgemv(GEIST_OP_N, (int) w->n_out, (int) w->n_in, 1.0f,
+                (const float *) w->raw, (int) w->n_in, x, 1, 0.0f, y, 1);
+}
+
+static void cpu_x86_linear_f32_mN(const float               *x,
+                                  const struct geist_weight *w,
+                                  size_t                     m,
+                                  struct geist_backend      *be,
+                                  float                     *y) {
+    (void) be;
+    /* Y [m, n_out] = X [m, n_in] @ W^T  (W row-major [n_out, n_in]). */
+    geist_sgemm(GEIST_OP_N, GEIST_OP_T, (int) m, (int) w->n_out, (int) w->n_in,
+                1.0f, x, (int) w->n_in, (const float *) w->raw, (int) w->n_in,
+                0.0f, y, (int) w->n_out);
+}
+
 [[nodiscard]] static enum geist_status cpu_x86_resolve_weight(struct geist_backend *be,
                                                               struct geist_weight  *w) {
     /* Start from the cpu_scalar mapping: covers every dtype + sets m1/_mN
@@ -99,6 +126,10 @@ static void cpu_x86_destroy(struct geist_backend *be) {
     case GEIST_DTYPE_Q6_K:
         (void) cpu_x86_linear_q6k_resolve(w); /* OOM → keep scalar m1 */
         break;
+    case GEIST_DTYPE_F32:
+        w->linear_m1 = cpu_x86_linear_f32_m1;
+        w->linear_mN = cpu_x86_linear_f32_mN;
+        break;
     default:
         break;
     }
@@ -112,6 +143,9 @@ __attribute__((constructor)) static void cpu_x86_init_vtbl(void) {
     cpu_x86_vtbl.create           = cpu_x86_create;
     cpu_x86_vtbl.destroy          = cpu_x86_destroy;
     cpu_x86_vtbl.resolve_weight   = cpu_x86_resolve_weight;
+    cpu_x86_vtbl.gelu_tanh            = cpu_x86_gelu_tanh;
+    cpu_x86_vtbl.gelu_tanh_mul        = cpu_x86_gelu_tanh_mul;
+    cpu_x86_vtbl.gelu_tanh_mul_scaled = cpu_x86_gelu_tanh_mul_scaled;
 }
 
 const struct geist_backend_descriptor geist_backend_cpu_x86 = {

@@ -5,6 +5,19 @@ the reference 9950X (Zen 5, 16C/32T, DDR5-6400). Measured 2026-06-22 on
 identical Gemma 4 E2B-it Q4_K_M, single bench run, `OMP_NUM_THREADS=16
 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores`.
 
+> **Correction (2026-06-27).** The original diagnosis below — that the gap
+> was a Q4_K inner-loop compute-density problem — was only half the story
+> and pointed Phase 3 at the wrong matrix. A per-stage prefill profile
+> (`GEIST_PROFILE_PREFILL=1`) showed the dominant cost was the **Q6_K
+> `ffn_down` projection at ~82 % of prefill**, running on the scalar
+> `cpu_scalar_w_quant_mN` fallback because Q6_K had no native x86 prefill
+> (`linear_mN`) kernel. In Q4_K_M, `ffn_down` and `attn_v` are stored as
+> Q6_K, not Q4_K, so the whole Q4_Kx8 effort (Steps 1–3c) accelerated
+> matrices that were only ~4 % of prefill. Adding `cpu_x86_linear_q6k_mN`
+> (tiled W8A8 GEMM) took prefill from **29 → 130 t/s** (4.5×). See "Root
+> cause and resolution" at the end. The cycle/IPC data below remains
+> accurate for the *old* bf16 Q4_K path it measured.
+
 The profile data here drives the Phase 3 optimization direction: the
 gap to llama.cpp is **not** a thread-scaling problem and **not** a
 memory-bandwidth problem — it is a **per-cycle compute-density** problem
@@ -104,4 +117,289 @@ make TARGET=linux BACKENDS="cpu_x86 cpu_scalar"
 
 # perf stat (needs perf_event_paranoid <= 1):
 perf stat -- <above command>
+
+# per-stage prefill breakdown (the diagnostic that found the real bottleneck):
+GEIST_PROFILE_PREFILL=1 <above bench command>
 ```
+
+## Root cause and resolution (2026-06-27)
+
+The `GEIST_PROFILE_PREFILL=1` per-stage breakdown on the same model/host,
+*before* the fix (warmup 1, repeats 1):
+
+| Stage             | Time      | Share          |
+| ----------------- | --------: | -------------- |
+| ffn `down`        | 3597 ms   | 94.8 % of ffn  |
+| ffn `gate_up`     |  161 ms   |  4.2 % of ffn  |
+| attention `qkv`   |   74 ms   | 65 % of attn   |
+| attention `o_proj`|   27 ms   | 24 % of attn   |
+| **ffn total**     | **3794 ms** | **88 % of prefill** |
+
+`ffn_down` dominated. It is **Q6_K** in Q4_K_M (confirmed by dumping the
+GGUF: 34 Q6_K tensors — every `ffn_down` + `attn_v`), and the cpu_x86
+backend had no Q6_K `linear_mN`. `cpu_x86_resolve_weight` calls the scalar
+resolver first (which installs both `linear_m1` and `linear_mN`), then
+overrides only `linear_m1` for Q6_K — so prefill silently ran the scalar
+`cpu_scalar_w_quant_mN` (dequant Q6_K → fp32 → scalar matmul) at ~14.7
+ms/call. The Q4_Kx8 kernel, measured in isolation, was already fast
+(~2620 GFLOP/s @ 16T) but only covered the ~4 %-of-prefill Q4_K matrices,
+so Steps 1–3c moved the end-to-end number by ~0 %.
+
+**Fix:** `cpu_x86_linear_q6k_mN` (src/backends/cpu_x86/linear_q6k.c) — a
+tiled W8A8 GEMM (`w8a8_gemm`, kernel_w8a8_avx512_vnni.c). Each weight row
+is read once and reused across the whole token batch; `W8A8_JT=4`
+independent fp32 accumulators per VPDPBUSD step keep the back-end fed.
+Activations are quantized to int8 once for all tokens. Installed alongside
+the existing W8A8 `linear_m1` decode kernel.
+
+| Metric (pp128, 16T)   |   before |    after | ratio |
+| --------------------- | -------: | -------: | ----: |
+| prefill               | 29 t/s   | 130 t/s  | 4.5×  |
+| ffn `down` stage      | 3597 ms  |  596 ms  | 6.0×  |
+
+Correctness: `tests/test_w8a8_gemm_unit.c` cross-checks the GEMM against
+the trusted per-token W8A8 GEMV (max Δ ~9e-05 over K=12288); end-to-end
+generation is coherent.
+
+## Lane-parallel W8x8 (2026-06-28)
+
+The tiled `w8a8_gemm` still reduced each 16-block to a scalar per row (2
+`hadd`) and applied the per-block fp32 scale once per row. `w8x8_gemm`
+(kernel_w8a8_avx512_vnni.c) removes both: 8 output rows are interleaved
+(`w8x8_repack`) so one VPDPBUSD lands 8 rows in the 8 int32 lanes — no
+`hadd` — and the per-block scale/offset become one 8-wide fp32 FMA for all
+8 rows. `cpu_x86_linear_q6k_mN` uses it when `n_out % 8 == 0` on a VNNI
+host; otherwise it falls back to `w8a8_gemm`. The interleaved blob is built
+at resolve and appended after the row-major one (~2× Q6_K memory, like the
+Q4_K dual-blob; +0.37 GB RSS on this model).
+
+| Metric (pp128, 16T)   | w8a8_gemm | w8x8_gemm | ratio |
+| --------------------- | --------: | --------: | ----: |
+| prefill               | 130 t/s   | 149 t/s   | 1.14× |
+| ffn `down` stage      | 596 ms    | 248 ms    | 2.4×  |
+
+`down` did exactly what the design predicted (2.4×); the smaller
+end-to-end move is because `down` is no longer the bottleneck — see below.
+Correctness: `test_w8a8_gemm_unit.c` cross-checks `w8x8_gemm` (incl. repack)
+against the GEMV oracle (max Δ ~1e-04); generation stays coherent.
+
+## F32 PLE projections → cblas (2026-06-28)
+
+After W8x8, `ple` became the largest prefill stage (~59 %, ~420 ms/rep).
+Sub-profiling found the cost was not the Q5_K gather but the two **F32**
+per-layer projections (`inp_gate` 1536→256, `proj` 256→1536, ×35 layers):
+cpu_x86 never overrode the F32 dtype, so they ran `cpu_scalar_w_f32_mN` —
+a **single-threaded naive triple loop with a double accumulator** ("~10×
+slower than cblas; intentional, this is the reference").
+
+**Fix:** cpu_x86 now installs `cpu_x86_linear_f32_m1/_mN` (backend.c) that
+route F32 dense through `geist_sgemm`/`geist_sgemv` (OpenBLAS), mirroring
+cpu_neon. Four lines + a switch case.
+
+| Metric (pp128, 16T)   | before | after  | ratio |
+| --------------------- | -----: | -----: | ----: |
+| prefill               | 149 t/s| 351 t/s| 2.35× |
+| `ple` stage           | 420 ms | 48 ms  | 8.8×  |
+
+## Vectorized FFN gelu (2026-06-28)
+
+With PLE fixed, the FFN `act` (gelu_tanh) stage was the largest remaining
+non-matmul cost (~47 ms/rep, 17 % of ffn) — a single-threaded scalar
+`tanhf` per element on cpu_scalar (cpu_x86 didn't override elementwise).
+
+**Fix:** `cpu_x86_gelu_tanh{,_mul,_mul_scaled}` (elementwise.c) — OMP over
+the work, with tanh computed as `1 - 2/(e^2u+1)` so the inner `expf`
+auto-vectorizes via glibc **libmvec** (`_ZGVdN8v_expf`, 8-wide) under the
+project's standard `-ffast-math -fopenmp`. `u` is clamped to ±10 so e^2u
+can't overflow. Same math as the reference within ~1e-6 (test_gelu_x86_unit.c).
+
+| Metric (pp128, 16T)   | before | after  | ratio |
+| --------------------- | -----: | -----: | ----: |
+| prefill               | 351 t/s| 387 t/s| 1.10× |
+| ffn `act` stage       | 140 ms | 8.5 ms | 16×   |
+
+## Remaining gap to llama.cpp
+
+llama.cpp pp128 is ~514 t/s; geist is now ~387 t/s — **~1.33× behind, down
+from ~18×**. The profile is now almost entirely the quantized matmuls:
+
+| Stage group | share | detail |
+| ----------- | ----: | ------ |
+| ffn         | 67 %  | gate_up (Q4_K) + down (Q6_K W8x8); act/gelu now 1 % |
+| attention   | 18 %  | qkv + o_proj (Q4_K) |
+| ple         | 14 %  | Q5_K gather + F32 projections (cblas) |
+
+The non-matmul waste is gone. The profile is now matmul-bound.
+
+## Kernel-level comparison vs llama.cpp (2026-06-28)
+
+Direct read of llama.cpp's x86 kernels (`ggml/src/ggml-cpu/arch/x86/repack.cpp`,
+`arch-fallback.h`, `quants.c`) against ours, plus isolation GFLOP/s on this host.
+
+**Q4_K prefill (gate_up, qkv, o_proj) — at parity.** Our
+`q4kx8_gemm16x16_tile_avx512` is a faithful port of
+`ggml_gemm_q4_K_8x8_q8_K`: identical 16×16 register blocking, 32 live
+`__m512` accumulators (16 main + 16 min), 64 `maddubs_epi16` + 16
+`madd_epi16` per row-pair, int16 sub-block scales folded into the integer
+accumulation, a single fp32 `d`/`dmin` multiply per super-block, q8_Kx4
+activations with precomputed bsums, no prefetch, all-FMA. Measured **~2620
+GFLOP/s @ 16T** — there is no structural headroom here; it *is* their kernel.
+
+**Q6_K prefill (down) — we are ahead.** llama.cpp has **no x86 SIMD** for
+Q6_K GEMM: `arch-fallback.h` maps `ggml_gemm_q6_K_8x8_q8_K` to the generic
+C++ scalar template; only the M=1 decode `vec_dot` is vectorized. Our
+AVX-512 `w8x8_gemm` runs **~2360 GFLOP/s @ 16T**. The one difference worth
+noting: llama keeps the Q6_K sub-block scale as **int8 folded into integer
+accumulation** (fp32 multiply once per 256-superblock), whereas we predecode
+to **fp32 scale+offset per 16-block** → an extra 8-wide fp32 FMA-pair per
+block. That is the ~10 % gap between w8x8 (2360) and q4kx8 (2620).
+
+**Verdict: the inner loops are tuned to parity (Q4_K) or better (Q6_K).**
+There is no large GEMM micro-tuning win left — the kernels are not the gap.
+Remaining headroom, smallest-effort first:
+
+1. **W8x8 integer-scale folding — tried, REVERTED (pessimization).** Built
+   `block_q6_Kx8` (int8 sub-block scales + fp32 super-block `d`) and a
+   `q6kx8_gemm` that folds the int8 scale into the int32 accumulator. Result:
+   `down` got *slower* (289 → 319 ms), prefill 387 → 383. Reason: our 8-row
+   lane-parallel layout uses `dpbusd` which yields one row per **int32** lane,
+   so applying the per-row int scale needs `mullo_epi32` — high-latency and
+   on the same vector-int ports as `dpbusd`. That costs more than the cheap
+   fp32 `fmadd` it replaced. llama's int8-folding only wins because its Q4_K
+   kernel keeps **int16** partials (`maddubs`) and folds via the cheap
+   `madd_epi16`; that structure is incompatible with our dpbusd layout. The
+   fp32-per-block W8x8 is the right kernel here. Conclusion: the ~10 % w8x8
+   vs q4kx8 GFLOP/s gap is not the scale handling — likely 8-wide (256-bit)
+   vs 16-wide (512-bit) lane parallelism. A `block_q6_Kx16` 512-bit dpbusd
+   kernel is the only plausible remaining GEMM lever, and it's a large rewrite
+   for ~3 % — not worth it.
+2. **Redundant activation quantization.** We re-quantize the layer input to
+   q8 once *per projection* (q/k/v separately, gate/up separately); llama
+   quantizes once and reuses. Measured ~5 % of a matmul, so ~3 ms/rep total —
+   not worth the cross-call caching plumbing.
+3. **`ple` Q5_K gather** (`compute_per_layer_inputs_batch`) dequants the
+   per-layer embedding rows scalar/serially; worth a look if ple stays 14 %.
+4. **Memory:** the row-major W8A8 blob exists only for `m1` decode. Serving
+   `m1` from W8x8 too (n_tokens=1) would drop it — removes the +0.37 GB and
+   unifies the path. Touches the hot decode path, so deferred.
+
+(Note: llama-bench at this repo's HEAD can't load the gemma4/PLE GGUF, so the
+514 t/s target is from the pinned-commit run in the table above, not
+reproducible on this checkout. The per-kernel GFLOP/s parity is the reliable
+comparison.)
+
+## Planned: shared activation quantization (architectural)
+
+**Idea.** Each linear projection independently quantizes its fp32 input to
+int8 inside `linear_*_mN`. Within a layer the same input feeds several
+projections, so we quantize it more than once:
+
+- attention: `attn_q`, `attn_k`, `attn_v` all read the attention-norm output;
+- ffn: `ffn_gate`, `ffn_up` both read the ffn-norm output.
+
+llama.cpp quantizes the row to q8_K once and reuses it across the projections.
+
+**What can actually be shared (Gemma 4 E2B Q4_K_M dtypes).** The quantized
+format must match the consumer's kernel:
+
+| group | tensors | dtype | quant format | shareable? |
+| ----- | ------- | ----- | ------------ | ---------- |
+| attn  | q, k    | Q4_K  | Q8_Kx4       | q+k share one quant |
+| attn  | v       | Q6_K  | W8A8 acts    | different format — separate |
+| ffn   | gate, up| Q4_K  | Q8_Kx4       | gate+up share one quant |
+
+So the win is **2 fewer input-quantizations per layer** (one in attn, one in
+ffn). Measured input-quant ≈ 0.034 ms (m=64, n_in=1536); 2 × 35 layers ≈
+**~2.4 ms/rep (~0.7 % of prefill)**. Total activation quant is only ~2.6 %,
+and most of it isn't redundant.
+
+**Design (if pursued).**
+1. Add a small per-call quant cache to `cpu_x86_state`: `{const float *src;
+   size_t n_in, m; void *q8kx4_blob;}`. `linear_q4k_mN` checks if `x` (pointer)
+   and shape match the cached entry; on hit, skip `quantize_q8_Kx4` and reuse.
+2. Invalidate at the start of each forward step (the engine already has a
+   per-step boundary). Pointer-identity match is safe because the norm output
+   buffer is stable within a layer and distinct per layer.
+3. Q6_K `attn_v`/`down` keep their own W8A8 quant (different format) — no
+   change.
+
+**Recommendation: not worth it.** ~0.7 % for cross-call cache plumbing +
+invalidation correctness risk fails the cost/benefit bar. Documented for
+completeness. If activation quant ever shows up larger in the profile, the
+higher-value move is to **thread `quantize_q8_Kx4`** (it is currently the
+single-threaded `for mt` loop in `linear_q4k_mN`) rather than to dedupe it.
+
+## Fair head-to-head: Llama 3.2 3B Q4_K_M (2026-06-28)
+
+The gemma4/PLE GGUF can't load in llama.cpp (arch name), so the "514 t/s"
+target was never reproducible here. To get an apples-to-apples CPU number,
+both engines were run on the **same** Llama 3.2 3B Instruct Q4_K_M GGUF
+(geist supports `llama` arch natively; verified coherent output). llama.cpp
+built **CPU-only** (the CUDA build reports 705 pp but that is GPU-assisted
+even at `-ngl 0` — not a CPU comparison). 16 threads, 9950X.
+
+| test          | geist | llama.cpp (CPU) | geist / llama |
+| ------------- | ----: | --------------: | ------------: |
+| prefill pp128 | 333 t/s | 346 t/s       | **0.96×** (near parity) |
+| decode  tg32  | 23.6 t/s| 34.5 t/s      | **0.68×** (1.46× behind) |
+| RSS           | 7.8 GB  | 1.87 GB       | 4.2× more |
+
+**Prefill is essentially at parity** — the session's kernel work paid off.
+**Decode is the real gap, and it is weight bandwidth.** Decode (M=1) is
+memory-bound; geist achieves ~59 GB/s vs llama's ~64 GB/s effective, but it
+**reads more bytes per token** because it decodes from expanded formats:
+
+| weights | geist decode format | B/wt | native (llama) | B/wt |
+| ------- | ------------------- | ---: | -------------- | ---: |
+| Q4_K (gate_up, qkv, o_proj) | W4A8: 4-bit + fp32 scale + fp32 offset | 0.75 | Q4_K packed | 0.56 |
+| Q6_K (down, lm_head)        | W8A8: **8-bit** + fp32 scale + fp32 offset | 1.50 | Q6_K packed | 0.65 |
+
+Decode profile (Llama 3B): gate_up 405 ms, down 281 ms, lm_head 196 ms,
+qkv 144 ms, o_proj 79 ms — all GEMV, all bandwidth-bound. The Q6_K path is
+the worst offender (8-bit expansion → 2.3× native).
+
+### Decode is mixed compute + bandwidth bound (measured 2026-06-28)
+
+Two experiments refined the diagnosis:
+
+- **fp16 scales/offsets in W4A8 (tried, REVERTED).** Halving the scale bytes
+  (0.75→0.625 B/wt on Q4_K) left decode at **23.6 t/s unchanged** and dropped
+  RSS only 0.29 GB. The branchy scalar `fp16_to_fp32` per block ate the
+  bandwidth saving, and broke 3 unit tests for zero gain — reverted.
+- **Thread scaling 8→16:** decode goes 18.0 → 23.3 t/s = **1.30×** for 2×
+  cores. Not BW-saturated (would be ~1.0×), not compute-scaling (would be
+  ~2×). So decode is **both** bound: by the per-block horizontal reduction
+  (`hsum_i32_avx2`, 2× per 2-block, port-5 shuffles) in `w4a8_gemv` AND by
+  the expanded weight footprint.
+
+**The right fix addresses both at once: a lane-parallel decode GEMV.** Like
+the prefill `q4kx8`/`w8x8` kernels, process **8 output rows in the 8 int32
+lanes** of one VPDPBUSD, accumulate across blocks, and reduce **once at the
+end** — no per-block `hsum`. Reading the **compact q4kx8 layout** (0.56 B/wt,
+already resident for prefill) instead of W4A8 (0.75) also cuts BW, and lets
+us **drop the W4A8 blob entirely** (~halves the 7.8 GB RSS). The blocker is
+the activation format: q4kx8/w8x8 consume 4-token-interleaved `block_q8_Kx4`;
+decode is M=1, so it needs a single-token int8 activation broadcast variant
+(a dedicated M=1 kernel over the 8-row-interleaved weights).
+
+Prioritized:
+1. **Lane-parallel M=1 decode GEMV over q4kx8** (Q4_K: gate_up/qkv/o_proj =
+   628 ms of decode). Removes hsum + reads compact. Est. the bulk of the gap.
+2. **Same for Q6_K** (a lane-parallel M=1 over a compact 6-bit layout; down +
+   lm_head = 477 ms). Also kills the 8-bit W8A8 expansion.
+3. **Drop W4A8/W8A8 row-major blobs** once decode reads the compact layouts →
+   ~half RSS.
+4. **Kernel BW/prefetch tuning** for the last 59→64 GB/s.
+
+This is a substantial new-kernel effort (M=1 lane-parallel + single-token
+activation packing), not a tweak — but it is the measured lever, and it
+targets both the compute and bandwidth limits simultaneously.
+
+## Session summary
+
+29 → 387 t/s (13.3×), ~18× behind llama.cpp → ~1.3×. The wins were all
+removing non-matmul stalls; the GEMMs themselves were already at parity
+(Q4_K is a port of llama's kernel) or ahead (Q6_K — llama has no x86 SIMD).
+The remaining gap is not addressable by GEMM micro-tuning (verified: int8
+folding regressed; wider 512-bit Q6_K is ~3 % for a large rewrite) — the
+profile is clean, matmul-bound code.

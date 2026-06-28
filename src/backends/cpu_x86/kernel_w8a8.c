@@ -38,6 +38,18 @@ typedef float (*w8a8_dot_fn)(size_t        n_blocks,
         const int32_t sum_a_per_block[static n_blocks],
         float         scale_x);
 
+void w8a8_gemm_avx512_vnni(
+        size_t        n_tokens,
+        size_t        n_rows,
+        size_t        n_blocks_per_row,
+        const uint8_t weights[static n_rows * n_blocks_per_row * W8A8_BLOCK_ELEMS],
+        const float   w_scales[static n_rows * n_blocks_per_row],
+        const float   w_offsets[static n_rows * n_blocks_per_row],
+        const int8_t  acts[static n_tokens * n_blocks_per_row * W8A8_BLOCK_ELEMS],
+        const int32_t sum_a_per_block[static n_tokens * n_blocks_per_row],
+        const float   scale_x[static n_tokens],
+        float         out[static n_tokens * n_rows]);
+
 static w8a8_dot_fn g_dot8     = nullptr;
 static int         g_inited8  = 0;
 
@@ -72,6 +84,13 @@ static void w8a8_dispatch_init(void) {
                   acts, sum_a_per_block, scale_x);
 }
 
+[[nodiscard]] int w8a8_isa_is_vnni(void) {
+    if (g_inited8 == 0) {
+        w8a8_dispatch_init();
+    }
+    return g_dot8 == w8a8_dot_avx512_vnni;
+}
+
 void w8a8_gemv(
         size_t        n_rows,
         size_t        n_blocks_per_row,
@@ -97,5 +116,46 @@ void w8a8_gemv(
         out[m]               = g_dot8(n_blocks_per_row,
                                      w_row, s_row, o_row,
                                      acts, sum_a_per_block, scale_x);
+    }
+}
+
+void w8a8_gemm(
+        size_t        n_tokens,
+        size_t        n_rows,
+        size_t        n_blocks_per_row,
+        const uint8_t weights[static n_rows * n_blocks_per_row * W8A8_BLOCK_ELEMS],
+        const float   w_scales[static n_rows * n_blocks_per_row],
+        const float   w_offsets[static n_rows * n_blocks_per_row],
+        const int8_t  acts[static n_tokens * n_blocks_per_row * W8A8_BLOCK_ELEMS],
+        const int32_t sum_a_per_block[static n_tokens * n_blocks_per_row],
+        const float   scale_x[static n_tokens],
+        float         out[static n_tokens * n_rows]) {
+    if (g_inited8 == 0) {
+        w8a8_dispatch_init();
+    }
+    if (g_dot8 == w8a8_dot_avx512_vnni) {
+        w8a8_gemm_avx512_vnni(n_tokens, n_rows, n_blocks_per_row,
+                              weights, w_scales, w_offsets,
+                              acts, sum_a_per_block, scale_x, out);
+        return;
+    }
+    /* Scalar fallback: per (token, row) dot via the dispatched scalar kernel.
+     * ponytail: no tiling — only reached on non-VNNI x86, where the cpu_x86
+     * backend is already a slow path; not worth a second blocked kernel. */
+    const size_t bytes_per_row  = n_blocks_per_row * W8A8_BLOCK_ELEMS;
+    const size_t scales_per_row = n_blocks_per_row;
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+    for (size_t r = 0; r < n_rows; r++) {
+        const uint8_t *w_row = weights + r * bytes_per_row;
+        const float   *s_row = w_scales + r * scales_per_row;
+        const float   *o_row = w_offsets + r * scales_per_row;
+        for (size_t j = 0; j < n_tokens; j++) {
+            out[j * n_rows + r] = g_dot8(n_blocks_per_row, w_row, s_row, o_row,
+                                         acts + j * bytes_per_row,
+                                         sum_a_per_block + j * scales_per_row,
+                                         scale_x[j]);
+        }
     }
 }
