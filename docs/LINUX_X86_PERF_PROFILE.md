@@ -342,8 +342,28 @@ backend, gemma4 arch supported). After the decode kernels:
 | **Gemma 4 E2B Q4_K_M** | decode  | **44.3** | 44.1   | **geist ahead** |
 
 **Decode: at parity (Llama) / ahead (Gemma 4).** The remaining gap is
-**Gemma 4 prefill (78 %)** — gemma4-specific (PLE + Q6_K-heavy FFN + sliding
--window attention); Llama prefill is already 98 %. That is the next target.
+**Gemma 4 prefill (78 %)** — gemma4-specific; Llama prefill is already 98 %.
+
+### Gemma 4 prefill gap — investigation (2026-06-28)
+
+Per-stage prefill (per rep): ffn 231 ms (gate_up 126, down 98), attention
+63 ms (qkv 26, o_proj 23, core 5), ple 51 ms. The matmuls use the same
+Q4_K (q4kx8) / Q6_K (w8x8) kernels that are at parity on Llama — and geist's
+Q6_K *prefill* already beats llama's (which has no x86 SIMD for it), so the
+matmuls are not the gap. Ruled out:
+
+- **PLE/main-path elementwise (add/mul/rmsnorm) → OMP+SIMD overrides:**
+  neutral on prefill (388) and *regressed decode* (44.6→42.9 — OMP fork/join
+  overhead on the tiny per-token tensors). Reverted.
+- **Prefill chunk size m_max 64→128:** +2.3 % only (388→396). Available via
+  `GEIST_M_MAX`; not made default (scratch growth, Pi5 regressed at 128).
+
+The gap is diffuse across PLE + the gemma4 forward structure (altup/laurel,
+per-layer-embedding gather + BF16 model_proj, per-head qk-norms), no single
+dominant stage. Closing it needs finer sub-stage profiling of
+`compute_per_layer_inputs_batch` / `run_ple_or_copy` (currently one "ple"
+bucket) — a fresh investigation. For decode-dominated generation, geist is
+already at/above llama.cpp on both models.
 
 ## Fair head-to-head: Llama 3.2 3B Q4_K_M (2026-06-28)
 
