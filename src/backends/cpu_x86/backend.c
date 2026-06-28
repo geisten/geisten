@@ -25,6 +25,7 @@
 
 #include "backend_state.h"
 #include "elementwise.h"
+#include "linear_f32q.h"
 #include "linear_q4k.h"
 #include "linear_q6k.h"
 
@@ -127,8 +128,13 @@ static void cpu_x86_linear_f32_mN(const float               *x,
         (void) cpu_x86_linear_q6k_resolve(w); /* OOM → keep scalar m1 */
         break;
     case GEIST_DTYPE_F32:
-        w->linear_m1 = cpu_x86_linear_f32_m1;
-        w->linear_mN = cpu_x86_linear_f32_mN;
+        /* Quantize F32 dense (Gemma 4 PLE gate/proj) to W8A8 and run the
+         * VPDPBUSD GEMM — far faster than skinny cblas. Falls back to cblas
+         * when not applicable (n_in % 16 != 0) or on OOM. */
+        if (cpu_x86_linear_f32q_resolve(w) != GEIST_OK) {
+            w->linear_m1 = cpu_x86_linear_f32_m1;
+            w->linear_mN = cpu_x86_linear_f32_mN;
+        }
         break;
     default:
         break;
