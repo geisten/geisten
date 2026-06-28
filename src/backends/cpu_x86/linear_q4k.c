@@ -188,16 +188,25 @@ void cpu_x86_linear_q4k_m1(const float               *x,
     const uint8_t              *weights;
     const float                *w_scales;
     const float                *w_offsets;
-    const struct block_q4_Kx8  *q4kx8_unused;
+    const struct block_q4_Kx8  *q4kx8;
     blob_pointers((const uint8_t *) w->aux_fp32, n_in, n_out,
-                  &weights, &w_scales, &w_offsets, &q4kx8_unused);
-    (void) q4kx8_unused;
+                  &weights, &w_scales, &w_offsets, &q4kx8);
+
+    /* Decode over the compact Q4_Kx8 layout when its blob is built (n_out a
+     * multiple of 8 — every Q4_K body matrix). The 8-cell lane-parallel GEMV
+     * reduces once per tile (no per-block hsum) and reads 0.56 B/wt vs W4A8's
+     * 0.75 — both the compute and bandwidth limits of decode
+     * (docs/LINUX_X86_PERF_PROFILE.md). */
+    if (n_out % 8 == 0) {
+        q4kx8_gemv_m1(n_out, n_in, x, q4kx8, y);
+        return;
+    }
 
     /* Per-row activation quantization → int8 acts + per-block sum_a. */
     const float scale_x = w4a8_quantize_acts_row(
             n_in, x, st->acts_scratch, st->sum_a_scratch);
 
-    /* Multi-row GEMV. OMP-parallel internally. */
+    /* Multi-row GEMV fallback (n_out not a multiple of 8). OMP-parallel. */
     w4a8_gemv(n_out, n_blocks_per_row,
               weights, w_scales, w_offsets,
               st->acts_scratch, st->sum_a_scratch, scale_x, y);

@@ -343,3 +343,34 @@ void q4kx8_gemv_avx2_fallback(size_t                     M,
         }
     }
 }
+
+/* Decode (M=1) GEMV over the compact Q4_Kx8 layout. Quantizes the single
+ * fp32 activation row to q8k once, then sweeps N/8 output-cell tiles via the
+ * 8-cell lane-parallel inner kernel — 8 outputs land in the 8 fp32 lanes,
+ * reduced once per tile (no per-block horizontal sum, unlike the W4A8 GEMV).
+ * Reads the same q4kx8 blob the prefill path uses (0.56 B/wt, vs W4A8 0.75),
+ * so it is both lower-traffic and lower-compute at decode.
+ * Requires N % 8 == 0 and K % 256 == 0 (every Q4_K body matrix). */
+void q4kx8_gemv_m1(size_t                     N,
+                   size_t                     K,
+                   const float               *x,
+                   const struct block_q4_Kx8 *W,
+                   float                      y[static N]) {
+    const size_t n_super = K / 256;
+    const size_t N_tiles = N / 8;
+    if (n_super == 0 || n_super > 64 || N % 8 != 0) {
+        return; /* caller falls back; Q4_K body shapes never hit this. */
+    }
+
+    struct q8k_row a[64];
+    quantize_q8k_row(n_super, x, a);
+
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+    for (size_t nt = 0; nt < N_tiles; nt++) {
+        __m256       acc_min;
+        const __m256 acc_row = q4kx8_gemv_one_row_tile(n_super, &W[nt * n_super], a, &acc_min);
+        _mm256_storeu_ps(y + nt * 8, _mm256_sub_ps(acc_row, acc_min));
+    }
+}
